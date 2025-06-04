@@ -8,6 +8,10 @@ with open(Path(__file__).parent / "BASE_COMPONENT_HTML.html", 'r') as f:
 with open(Path(__file__).parent / "BASE_COMPONENT_CSS.css", 'r') as f:
     base_component_css = f.read()
 
+# Get the base yaml configuration
+with open(Path(__file__).parent / "BASE_YAML.yaml", 'r') as f:
+    base_yaml = f.read()
+
 COMPONENTS_DIR = Path(__file__).parent.parent / "src" / "frontend" / "components"
 print(f"Components directory: {COMPONENTS_DIR}")
 
@@ -37,10 +41,11 @@ if group_or_component in ['yes', 'y']:
 
     group_path.mkdir(parents=True, exist_ok=True)
 
-    # Create the css, js, and html directories
+    # Create the css, js, and html and yaml directories
     (group_path / "css").mkdir(exist_ok=True)
     (group_path / "js").mkdir(exist_ok=True)
     (group_path / "html").mkdir(exist_ok=True)
+    (group_path / "yaml").mkdir(exist_ok=True)
 
     # Ask for the component name
     component_name = input("Enter the name of the component: ").strip()
@@ -55,6 +60,12 @@ if group_or_component in ['yes', 'y']:
     (group_path / "js" / js_fname).touch()
     html_fname = f"{component_name}.html"
     (group_path / "html" / html_fname).touch()
+    yaml_fname = f"{component_name}.yaml"
+    (group_path / "yaml" / yaml_fname).touch()
+
+    # Write the base YAML configuration to the YAML file
+    with open(group_path / "yaml" / yaml_fname, 'w') as yaml_file:
+        yaml_file.write(base_yaml.replace("{{component_name}}", component_name))
 
     # Add a basic template to the HTML file
     with open(group_path / "html" / html_fname, 'w') as html_file:

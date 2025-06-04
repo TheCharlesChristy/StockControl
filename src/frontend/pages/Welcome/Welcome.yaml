@@ -1,0 +1,3 @@
+components:
+  brand_banner: "../../../components/General/html/brand_banner.html"
+  goto_login_btn: "../../../components/Login/html/goto_login_btn.html"

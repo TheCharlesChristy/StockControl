@@ -4,6 +4,10 @@ from pathlib import Path
 with open(Path(__file__).parent / "BASE_PAGE_HTML.html", 'r') as f:
     base_page_html = f.read()
 
+# Load the base yaml configuration
+with open(Path(__file__).parent / "BASE_YAML.yaml", 'r') as f:
+    base_yaml = f.read()
+
 PAGES_DIR = Path(__file__).parent.parent / "src" / "frontend" / "pages"
 
 # Ask the user for the page name
@@ -33,10 +37,15 @@ with open(html_file, 'w') as file:
 
 print(f"Page '{page_name}' created successfully at {html_file.resolve()}")
 
-# Create the CSS and JS files
+# Create the CSS, JS and YAML files
 css_file = css_dir / f"{page_name}.css"
 js_file = js_dir / f"{page_name}.js"
+yaml_file = page_path / f"{page_name}.yaml"
 
 # Create empty CSS and JS files
 css_file.touch()
 js_file.touch()
+
+# Write the base YAML configuration to the YAML file
+with open(yaml_file, 'w') as file:
+    file.write(base_yaml.replace("{{PAGE_NAME}}", page_name))
