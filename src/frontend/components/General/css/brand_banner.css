@@ -1,0 +1,10 @@
+.brand_banner-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100vw;
+}
+
+.brand_banner-content {
+  text-align: center;
+}
