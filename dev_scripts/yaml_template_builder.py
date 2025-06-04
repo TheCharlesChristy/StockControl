@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import time
 from urllib.parse import urljoin
+from typing import List
 
 class YAMLTemplateBuilder:
     """Template builder that uses YAML dependency files"""
@@ -212,7 +213,12 @@ class YAMLTemplateBuilder:
         all_data = {**component_data, **api_data, **extra_data}
         
         # Replace placeholders
-        return self._replace_placeholders(template_content, all_data)
+        result = self._replace_placeholders(template_content, all_data)
+        
+        # Organize and deduplicate CSS/JS assets
+        result = self._organize_page_assets(result)
+        
+        return result
     
     async def build_template_async(self, template_path: Union[str, Path], extra_data: Dict[str, Any] = None) -> str:
         """Build template asynchronously (faster for multiple URLs)"""
@@ -280,7 +286,123 @@ class YAMLTemplateBuilder:
                             extra_data[dep_name] = result
         
         # Replace placeholders
-        return self._replace_placeholders(template_content, extra_data)
+        result = self._replace_placeholders(template_content, extra_data)
+        
+        # Organize and deduplicate CSS/JS assets
+        result = self._organize_page_assets(result)
+        
+        return result
+    
+    def _extract_and_dedupe_assets(self, html_content: str) -> Dict[str, Any]:
+        """Extract CSS and JS assets, remove duplicates, and clean HTML"""
+        import re
+        
+        css_links = []
+        js_scripts = []
+        
+        # Extract CSS link tags
+        css_pattern = r'<link[^>]*rel=["\']stylesheet["\'][^>]*>'
+        css_matches = re.findall(css_pattern, html_content, re.IGNORECASE)
+        
+        for css_match in css_matches:
+            # Extract href attribute
+            href_match = re.search(r'href=["\']([^"\']+)["\']', css_match)
+            if href_match:
+                css_links.append({
+                    'href': href_match.group(1),
+                    'tag': css_match
+                })
+        
+        # Extract JS script tags
+        js_pattern = r'<script[^>]*src=[^>]*></script>'
+        js_matches = re.findall(js_pattern, html_content, re.IGNORECASE)
+        
+        for js_match in js_matches:
+            # Extract src attribute
+            src_match = re.search(r'src=["\']([^"\']+)["\']', js_match)
+            if src_match:
+                js_scripts.append({
+                    'src': src_match.group(1),
+                    'tag': js_match
+                })
+        
+        # Remove all CSS and JS tags from HTML
+        cleaned_html = html_content
+        for css_match in css_matches:
+            cleaned_html = cleaned_html.replace(css_match, '')
+        for js_match in js_matches:
+            cleaned_html = cleaned_html.replace(js_match, '')
+        
+        # Remove empty lines left behind
+        cleaned_html = re.sub(r'\n\s*\n', '\n', cleaned_html)
+        
+        return {
+            'css_links': css_links,
+            'js_scripts': js_scripts,
+            'cleaned_html': cleaned_html
+        }
+    
+    def _dedupe_assets(self, assets_list: List[Dict[str, str]], key: str) -> List[Dict[str, str]]:
+        """Remove duplicate assets based on href/src"""
+        seen = set()
+        deduped = []
+        
+        for asset in assets_list:
+            asset_path = asset[key]
+            if asset_path not in seen:
+                seen.add(asset_path)
+                deduped.append(asset)
+        
+        return deduped
+    
+    def _organize_page_assets(self, final_html: str) -> str:
+        """Extract assets from entire page, dedupe, and reorganize"""
+        assets_info = self._extract_and_dedupe_assets(final_html)
+        
+        # Deduplicate CSS and JS
+        unique_css = self._dedupe_assets(assets_info['css_links'], 'href')
+        unique_js = self._dedupe_assets(assets_info['js_scripts'], 'src')
+        
+        # Prioritize globals - put them first
+        css_globals_first = []
+        css_others = []
+        js_globals_first = []
+        js_others = []
+        
+        for css in unique_css:
+            if 'globals.css' in css['href']:
+                css_globals_first.append(css)
+            else:
+                css_others.append(css)
+        
+        for js in unique_js:
+            if 'globals.js' in js['src']:
+                js_globals_first.append(js)
+            else:
+                js_others.append(js)
+        
+        # Combine with globals first
+        ordered_css = css_globals_first + css_others
+        ordered_js = js_globals_first + js_others
+        
+        # Build new CSS and JS tags
+        css_tags = '\n    '.join([css['tag'] for css in ordered_css])
+        js_tags = '\n'.join([js['tag'] for js in ordered_js])
+        
+        # Insert CSS into head and JS before closing body
+        cleaned_html = assets_info['cleaned_html']
+        
+        # Insert CSS in head (before closing </head>)
+        if css_tags and '</head>' in cleaned_html:
+            css_section = f'\n    <!-- Consolidated CSS -->\n    {css_tags}\n'
+            cleaned_html = cleaned_html.replace('</head>', f'{css_section}</head>')
+        
+        # Insert JS before closing body (before closing </body>)
+        if js_tags and '</body>' in cleaned_html:
+            js_section = f'\n<!-- Consolidated JS -->\n{js_tags}\n'
+            cleaned_html = cleaned_html.replace('</body>', f'{js_section}</body>')
+        
+        return cleaned_html
     
     def _replace_placeholders(self, template: str, data: Dict[str, Any]) -> str:
         """Replace {{placeholder}} with data"""
