@@ -1,0 +1,9 @@
+.links_contianer-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.links_contianer-content {
+  text-align: center;
+}

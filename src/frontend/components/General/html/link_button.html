@@ -2,12 +2,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Abhaya+Libre:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/globals.css">
-<link rel="stylesheet" href="/components/{{component_group}}/css/{{component_name}}.css">
-<section class="{{component_name}}-container section">
-  <div class="{{component_name}}-content">
-    <!-- Content goes here -->
+<link rel="stylesheet" href="/components/General/css/link_button.css">
+<section class="link_button-container section">
+  <div class="link_button-content">
+    <button class="link-button" id="linkButton" onclick="goto('{{button_link}}')">
+      {{button_text}}
+    </button>
   </div>
 </section>
-<script src="/components/{{component_group}}/js/{{component_name}}.js"></script>
+<script src="/components/General/js/link_button.js"></script>
 <script src="/js/globals.js"></script>
 

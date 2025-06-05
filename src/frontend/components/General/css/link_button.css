@@ -1,0 +1,117 @@
+.link_button-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--spacing-large) 0;
+}
+
+.link_button-content {
+  text-align: center;
+}
+
+/* Primary Link Button Styling */
+.link-button {
+  display: inline-block;
+  padding: var(--spacing-medium) var(--spacing-xl);
+  font-family: var(--font-primary);
+  font-weight: var(--font-weight-medium);
+  font-size: 1rem;
+  text-decoration: none;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-white);
+  background-color: var(--primary-blue);
+  border: 2px solid var(--primary-blue);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-height: 44px; /* Minimum touch target size for accessibility */
+  min-width: 120px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+/* Hover State */
+.link-button:hover {
+  background-color: var(--primary-blue-dark);
+  border-color: var(--primary-blue-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Focus State for Accessibility */
+.link-button:focus {
+  outline: 3px solid var(--primary-blue-light);
+  outline-offset: 2px;
+}
+
+/* Active State */
+.link-button:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Secondary Button Variant */
+.link-button.secondary {
+  background-color: transparent;
+  color: var(--primary-blue);
+  border-color: var(--primary-blue);
+}
+
+.link-button.secondary:hover {
+  background-color: var(--primary-blue);
+  color: var(--text-white);
+  transform: translateY(-2px);
+}
+
+/* Large Button Variant */
+.link-button.large {
+  padding: var(--spacing-large) var(--spacing-max);
+  font-size: 1.125rem;
+  min-height: 56px;
+  min-width: 150px;
+}
+
+/* Disabled State */
+.link-button:disabled {
+  background-color: var(--text-light-gray);
+  border-color: var(--text-light-gray);
+  color: var(--text-white);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.link-button:disabled:hover {
+  background-color: var(--text-light-gray);
+  border-color: var(--text-light-gray);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .link-button {
+    padding: var(--spacing-medium) var(--spacing-large);
+    font-size: 0.9rem;
+    min-width: 100px;
+  }
+  
+  .link-button.large {
+    padding: var(--spacing-medium) var(--spacing-xl);
+    font-size: 1rem;
+    min-width: 120px;
+  }
+}
+
+@media (max-width: 576px) {
+  .link_button-container {
+    padding: var(--spacing-medium) 0;
+  }
+  
+  .link-button {
+    width: 100%;
+    max-width: 280px;
+  }
+}

@@ -1,5 +1,0 @@
-components:
-  component1: "Component 1 url"
-
-data_dependencies:
-  dependency1: "Dependency 1 api url"

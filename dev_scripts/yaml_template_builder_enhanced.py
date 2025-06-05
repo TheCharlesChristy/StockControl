@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced YAML Dependency-Based Template Builder
-Implements component resolution, asset management, and caching per specification
+Implements component resolution, asset management, caching, and component variable support
 """
 
 import yaml
@@ -25,6 +25,7 @@ class ComponentRef:
     component_group: Optional[str] = None
     component_name: Optional[str] = None
     url: Optional[str] = None
+    variables: Dict[str, Any] = field(default_factory=dict)
     
     @classmethod
     def from_yaml_value(cls, key: str, value: Union[str, Dict[str, Any]]) -> 'ComponentRef':
@@ -35,11 +36,15 @@ class ComponentRef:
             else:
                 return cls(path=value)
         elif isinstance(value, dict):
+            # Extract variables if they exist
+            variables = value.get('variables', {})
+            
             return cls(
                 component_group=value.get('component_group'),
                 component_name=value.get('component_name'),
                 url=value.get('url'),
-                path=value.get('path')
+                path=value.get('path'),
+                variables=variables
             )
         else:
             raise ValueError(f"Invalid component reference format for {key}: {value}")
@@ -370,11 +375,26 @@ class YAMLTemplateBuilder:
                         else:
                             sub_component_data[dep_name] = data
                     
-                    # Add default data
+                    # Add default data from component's YAML
                     sub_component_data.update(comp_deps.get('default_data', {}))
+                    
+                    # IMPORTANT: Add variables passed to this component (highest priority)
+                    if comp_ref.variables:
+                        print(f"📝 Passing variables to {comp_name}: {comp_ref.variables}")
+                        sub_component_data.update(comp_ref.variables)
                     
                     # Replace placeholders in component
                     component_content = self._replace_placeholders(component_content, sub_component_data)
+                else:
+                    # Component has no sub-dependencies, but may still need variables
+                    if comp_ref.variables:
+                        print(f"📝 Passing variables to {comp_name}: {comp_ref.variables}")
+                        # Create minimal data context with just the passed variables
+                        component_data = {
+                            **comp_deps.get('default_data', {}),
+                            **comp_ref.variables
+                        }
+                        component_content = self._replace_placeholders(component_content, component_data)
             
             # Extract assets from component
             cleaned_content, component_assets = self._extract_assets_from_html(component_content)
