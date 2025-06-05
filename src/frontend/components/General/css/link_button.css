@@ -3,10 +3,12 @@
   justify-content: center;
   align-items: center;
   padding: var(--spacing-large) 0;
+  width: 100%;
 }
 
 .link_button-content {
   text-align: center;
+  width: 100%;
 }
 
 /* Primary Link Button Styling */
@@ -30,6 +32,7 @@
   min-width: 120px;
   box-sizing: border-box;
   outline: none;
+  width: 100%;
 }
 
 /* Hover State */
