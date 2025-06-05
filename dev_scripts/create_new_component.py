@@ -69,7 +69,7 @@ if group_or_component in ['yes', 'y']:
 
     # Add a basic template to the HTML file
     with open(group_path / "html" / html_fname, 'w') as html_file:
-        html_file.write(base_component_html.replace("{{component_name}}", component_name))
+        html_file.write(base_component_html.replace("{{component_name}}", component_name).replace("{{component_group}}", selected_group))
 
     # Add a basic template to the CSS file
     with open(group_path / "css" / css_fname, 'w') as css_file:

@@ -1,11 +1,47 @@
+/* Welcome Page Styles - Following Brand Guidelines */
+
 .page_button_container {
     display: flex;
     justify-content: center;
     align-items: center;
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 100vw;
-    height: 100vh;
+    padding: var(--spacing-large);
+}
+
+/* Hero Section */
+.welcome-hero {
+    text-align: center;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.welcome-title {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--primary-blue);
+    margin-bottom: var(--spacing-large);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.welcome-subtitle {
+    font-size: 1.25rem;
+    color: var(--text-gray);
+    margin-bottom: var(--spacing-max);
+    line-height: 1.6;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .page_button_container {
+        padding: var(--spacing-medium);
+    }
+    
+    .welcome-title {
+        font-size: 2rem;
+    }
+    
+    .welcome-subtitle {
+        font-size: 1rem;
+        margin-bottom: var(--spacing-xl);
+    }
 }
