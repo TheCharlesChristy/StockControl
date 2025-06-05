@@ -1,7 +1,6 @@
-
 /* Links Container Component - Following Christy Plumbing & Heating Brand Guidelines */
 
-.links_contianer-container {
+.links_container-container {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -9,7 +8,7 @@
   width: 100%;
 }
 
-.links_contianer-content {
+.links_container-content {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-medium);
@@ -21,6 +20,47 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   position: relative;
+}
+
+/* Title Section Styling */
+.links_title-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: var(--spacing-large);
+  padding: var(--spacing-medium) 0;
+}
+
+.links_title {
+  font-family: var(--font-primary);
+  font-size: 1.5rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--primary-blue);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: center;
+  margin: 0;
+  padding: var(--spacing-small) var(--spacing-max);
+  background: linear-gradient(135deg, var(--bg-white) 0%, var(--bg-light) 100%);
+  border: 2px solid var(--primary-blue);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  position: relative;
+  min-width: 200px;
+  width: fit-content;
+  max-width: 400px;
+}
+
+.links_title::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-light));
+  border-radius: var(--radius-lg);
+  z-index: -1;
 }
 
 /* Individual Link Button Styling */
@@ -128,14 +168,14 @@
 
 /* Two Column Layout for Larger Screens */
 @media (min-width: 992px) {
-  .links_contianer-content {
+  .links_container-content {
     max-width: 700px;
   }
 }
 
 /* Single Column Layout for Tablets */
 @media (max-width: 768px) {
-  .links_contianer-content {
+  .links_container-content {
     gap: var(--spacing-large);
     padding: var(--spacing-large) var(--spacing-medium);
   }
@@ -157,11 +197,11 @@
 
 /* Mobile Layout */
 @media (max-width: 576px) {
-  .links_contianer-container {
+  .links_container-container {
     padding: var(--spacing-medium) 0;
   }
   
-  .links_contianer-content {
+  .links_container-content {
     padding: 0 var(--spacing-small);
     gap: var(--spacing-medium);
   }
@@ -178,5 +218,17 @@
   
   .navigation-button .button-description {
     font-size: 0.75rem;
+  }
+  
+  .links_title-container {
+    margin-bottom: var(--spacing-medium);
+    padding: var(--spacing-small) 0;
+  }
+    .links_title {
+    font-size: 1.25rem;
+    padding: var(--spacing-micro) var(--spacing-xl);
+    letter-spacing: 0.5px;
+    min-width: 180px;
+    max-width: 300px;
   }
 }
