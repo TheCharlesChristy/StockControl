@@ -78,3 +78,41 @@ function goBack() {
 function refresh() {
     window.location.reload();
 }
+
+function isFromBackButton() {
+    const navigation = window.performance.getEntriesByType('navigation')[0];
+    return navigation && navigation.type === 'back_forward';
+}
+
+// Enhanced detection with event listener
+let cameFromBackButton = false;
+
+window.addEventListener('pageshow', function(event) {
+    if (event.persisted || isFromBackButton()) {
+        cameFromBackButton = true;
+        refresh()
+    }
+});
+
+window.addEventListener('popstate', function() {
+    cameFromBackButton = true;
+});
+
+// Main function that combines detection methods
+function detectedFromBackButton() {
+    return cameFromBackButton || 
+           isFromBackButton();
+}
+
+// Check on DOMContentLoaded and page load
+window.addEventListener('DOMContentLoaded', function() {
+    if (isFromBackButton()) {
+        refresh()
+    }
+});
+
+window.addEventListener('load', function() {
+    if (detectedFromBackButton()) {
+        refresh()
+    }
+});
