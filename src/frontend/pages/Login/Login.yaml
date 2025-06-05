@@ -2,6 +2,6 @@ components:
   brand_banner:
     component_group: "General"
     component_name: "brand_banner"
-  goto_login_btn:
+  login_form:
     component_group: "Login"
-    component_name: "goto_login_btn"
+    component_name: "login_form"

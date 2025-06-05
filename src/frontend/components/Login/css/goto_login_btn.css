@@ -1,35 +1,126 @@
+/* Go To Login Button Component - Following Brand Guidelines */
+
 .goto_login_btn-container {
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 100%;
+  padding: var(--spacing-large);
 }
 
 .goto_login_btn-content {
   text-align: center;
+  width: 100%;
+  max-width: 400px;
 }
 
 .goto_login_btn {
-    display: inline-block;
-    padding: var(--spacing-lg) var(--spacing-xxl);
-    font-size: 1.125rem;
-    color: var(--text-white);
-    background-color: var(--primary-blue);
-    border-radius: var(--radius-lg);
-    text-decoration: none;
-    transition: background-color 0.3s ease, transform 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--spacing-large) var(--spacing-max);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-white);
+  background-color: var(--primary-blue);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  transition: all 0.3s ease;
+  min-height: 56px;
+  box-shadow: var(--shadow-sm);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-primary);
 }
 
 .goto_login_btn:hover {
-    background-color: var(--primary-blue-dark);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+  background-color: var(--primary-blue-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+  color: var(--text-white);
+}
+
+.goto_login_btn:focus {
+  outline: 3px solid var(--primary-blue-light);
+  outline-offset: 2px;
+}
+
+.goto_login_btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .goto_login_btn-text {
-    font-weight: var(--font-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: inherit;
+}
+
+/* Icon support */
+.goto_login_btn-icon {
+  margin-right: var(--spacing-small);
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* Loading state */
+.goto_login_btn.loading {
+  position: relative;
+  color: transparent;
+}
+
+.goto_login_btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  top: 50%;
+  left: 50%;
+  margin-left: -10px;
+  margin-top: -10px;
+  border: 2px solid var(--text-white);
+  border-top: 2px solid transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Disabled state */
+.goto_login_btn:disabled {
+  background-color: var(--text-light-gray);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .goto_login_btn-container {
+    padding: var(--spacing-medium);
+  }
+  
+  .goto_login_btn {
+    font-size: 1.125rem;
+    padding: var(--spacing-medium) var(--spacing-xl);
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 480px) {
+  .goto_login_btn-container {
+    padding: var(--spacing-small);
+  }
+  
+  .goto_login_btn {
+    font-size: 1rem;
+    padding: var(--spacing-small) var(--spacing-large);
+    min-height: 44px;
+  }
+  
+  .goto_login_btn-text {
+    letter-spacing: 0.5px;
+  }
 }

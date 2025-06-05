@@ -79,6 +79,8 @@ function refresh() {
     window.location.reload();
 }
 
+//-------------------------------------- Back Button Detection --------------------------------------
+
 function isFromBackButton() {
     const navigation = window.performance.getEntriesByType('navigation')[0];
     return navigation && navigation.type === 'back_forward';
@@ -116,3 +118,92 @@ window.addEventListener('load', function() {
         refresh()
     }
 });
+
+//----------------------------------------------------------------------------------------------------------------
+
+
+//--------------------------------------- Debugging Utilities ---------------------------------------
+function debugLog(message, data) {
+    if (window.debugMode) {
+        console.debug(`[DEBUG] ${message}`, data || '');
+    }
+}
+function debugError(message, error) {
+    if (window.debugMode) {
+        console.error(`[ERROR] ${message}`, error || '');
+    }
+}
+function debugWarn(message, warning) {
+    if (window.debugMode) {
+        console.warn(`[WARN] ${message}`, warning || '');
+    }
+}
+// Enable debug mode globally
+window.debugMode = true;
+function enableDebugMode() {
+    window.debugMode = true;
+    console.log('Debug mode enabled');
+}
+function disableDebugMode() {
+    window.debugMode = false;
+    console.log('Debug mode disabled');
+}
+function toggleDebugMode() {
+    window.debugMode = !window.debugMode;
+    console.log(`Debug mode ${window.debugMode ? 'enabled' : 'disabled'}`);
+}
+
+// Get all the element ids in the document
+function getAllElementIds() {
+    const ids = [];
+    document.querySelectorAll('[id]').forEach(el => {
+        ids.push(el.id);
+    });
+    return ids;
+}
+//----------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------- Page Messages ------------------------------------------------
+function showPageMessage(message, type = 'info') {
+    const messageBox = document.createElement('div');
+    messageBox.className = `page-message page-message-${type}`;
+    
+    // Create message content wrapper
+    const messageContent = document.createElement('span');
+    messageContent.textContent = message;
+    messageContent.style.flex = '1';
+
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.className = 'page-message-close';
+    closeButton.innerHTML = '&times;';
+    closeButton.title = 'Close message';
+    
+    // Enhanced close function with animation
+    const closeMessage = () => {
+        messageBox.classList.add('page-message-fade-out');
+        setTimeout(() => {
+            if (messageBox.parentNode) {
+                messageBox.remove();
+            }
+        }, 300);
+    };
+    
+    closeButton.onclick = closeMessage;
+
+    // Append content and close button
+    messageBox.appendChild(messageContent);
+    messageBox.appendChild(closeButton);
+    
+    // Append to body
+    document.body.appendChild(messageBox);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (messageBox.parentNode) {
+            closeMessage();
+        }
+    }, 5000);
+    
+    return messageBox;
+}

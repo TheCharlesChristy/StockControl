@@ -1,0 +1,10 @@
+components:
+  username_input:
+    component_group: "Login"
+    component_name: "enter_username"
+  password_input:
+    component_group: "Login"
+    component_name: "enter_password"
+  submit_button:
+    component_group: "General"
+    component_name: "submit_btn"
