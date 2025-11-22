@@ -63,7 +63,8 @@ migrate:
 clean:
 	@echo "Cleaning up containers, volumes, and images..."
 	docker compose down -v
-	docker compose down --rmi local
+	@echo "Cleaning up Docker images..."
+	docker image prune -f
 	@echo "Cleanup complete!"
 
 # Restart all services
