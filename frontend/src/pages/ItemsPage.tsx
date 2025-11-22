@@ -1,0 +1,10 @@
+export default function ItemsPage() {
+  return (
+    <div>
+      <h1 className="text-3xl font-bold text-gray-900 mb-4">Items</h1>
+      <div className="bg-white shadow rounded-lg p-6">
+        <p className="text-gray-600">Items page - coming soon</p>
+      </div>
+    </div>
+  );
+}
