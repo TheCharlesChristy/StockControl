@@ -36,6 +36,7 @@ jobs:
       actions: read
       contents: read
     strategy:
+      fail-fast: false
       matrix:
         language: ['python', 'javascript']
     steps:
@@ -52,3 +53,5 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
