@@ -36,3 +36,15 @@ yarn-error.log*
 # Logs
 logs/
 *.log
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
