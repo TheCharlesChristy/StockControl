@@ -34,7 +34,7 @@ def get_redis_pool() -> Optional[ConnectionPool]:
                 max_connections=10
             )
             logger.info("Redis connection pool created")
-        except Exception as e:
+        except (RedisError, ValueError, TypeError) as e:
             logger.error(f"Failed to create Redis connection pool: {e}")
             return None
     
@@ -217,8 +217,8 @@ def invalidate_cache_pattern(pattern: str) -> int:
                 pipe = redis_client.pipeline()
                 pipe.delete(*keys_to_delete)
                 results = pipe.execute()
-                # Check if delete succeeded (results[0] should be count of deleted keys)
-                if results and len(results) > 0:
+                # Validate and add result (delete returns count of deleted keys)
+                if results and len(results) > 0 and isinstance(results[0], int):
                     deleted_count += results[0]
                 keys_to_delete = []
         
@@ -227,8 +227,8 @@ def invalidate_cache_pattern(pattern: str) -> int:
             pipe = redis_client.pipeline()
             pipe.delete(*keys_to_delete)
             results = pipe.execute()
-            # Check if delete succeeded
-            if results and len(results) > 0:
+            # Validate and add result
+            if results and len(results) > 0 and isinstance(results[0], int):
                 deleted_count += results[0]
         
         return deleted_count
