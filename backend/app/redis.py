@@ -91,7 +91,7 @@ def check_redis_health() -> bool:
         return False
     
     try:
-        return redis_client.ping()
+        return redis_client.ping() is True
     except RedisError as e:
         logger.error(f"Redis health check failed: {e}")
         return False
@@ -212,8 +212,7 @@ def invalidate_cache_pattern(pattern: str) -> int:
             # Delete in batches of 100 keys
             if len(keys_to_delete) >= 100:
                 pipe = redis_client.pipeline()
-                for k in keys_to_delete:
-                    pipe.delete(k)
+                pipe.delete(*keys_to_delete)
                 pipe.execute()
                 deleted_count += len(keys_to_delete)
                 keys_to_delete = []
@@ -221,8 +220,7 @@ def invalidate_cache_pattern(pattern: str) -> int:
         # Delete remaining keys
         if keys_to_delete:
             pipe = redis_client.pipeline()
-            for k in keys_to_delete:
-                pipe.delete(k)
+            pipe.delete(*keys_to_delete)
             pipe.execute()
             deleted_count += len(keys_to_delete)
         
