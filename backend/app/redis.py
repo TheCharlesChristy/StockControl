@@ -9,6 +9,9 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+# Constants
+CACHE_BATCH_SIZE = 100  # Number of keys to delete in a single batch
+
 # Global Redis connection pool
 _redis_pool: Optional[ConnectionPool] = None
 _redis_client: Optional[Redis] = None
@@ -207,22 +210,26 @@ def invalidate_cache_pattern(pattern: str) -> int:
         keys_to_delete = []
         
         # Collect keys in batches and delete them
-        for key in redis_client.scan_iter(match=pattern, count=100):
+        for key in redis_client.scan_iter(match=pattern, count=CACHE_BATCH_SIZE):
             keys_to_delete.append(key)
-            # Delete in batches of 100 keys
-            if len(keys_to_delete) >= 100:
+            # Delete in batches
+            if len(keys_to_delete) >= CACHE_BATCH_SIZE:
                 pipe = redis_client.pipeline()
                 pipe.delete(*keys_to_delete)
-                pipe.execute()
-                deleted_count += len(keys_to_delete)
+                results = pipe.execute()
+                # Check if delete succeeded (results[0] should be count of deleted keys)
+                if results and len(results) > 0:
+                    deleted_count += results[0]
                 keys_to_delete = []
         
         # Delete remaining keys
         if keys_to_delete:
             pipe = redis_client.pipeline()
             pipe.delete(*keys_to_delete)
-            pipe.execute()
-            deleted_count += len(keys_to_delete)
+            results = pipe.execute()
+            # Check if delete succeeded
+            if results and len(results) > 0:
+                deleted_count += results[0]
         
         return deleted_count
     except RedisError as e:
