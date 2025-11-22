@@ -196,6 +196,7 @@ def invalidate_cache_pattern(pattern: str) -> int:
         
     Note:
         Uses SCAN to avoid blocking Redis in production.
+        Deletes keys in batches using pipeline for efficiency.
     """
     redis_client = get_redis()
     if redis_client is None:
@@ -203,9 +204,28 @@ def invalidate_cache_pattern(pattern: str) -> int:
     
     try:
         deleted_count = 0
+        keys_to_delete = []
+        
+        # Collect keys in batches and delete them
         for key in redis_client.scan_iter(match=pattern, count=100):
-            redis_client.delete(key)
-            deleted_count += 1
+            keys_to_delete.append(key)
+            # Delete in batches of 100 keys
+            if len(keys_to_delete) >= 100:
+                pipe = redis_client.pipeline()
+                for k in keys_to_delete:
+                    pipe.delete(k)
+                pipe.execute()
+                deleted_count += len(keys_to_delete)
+                keys_to_delete = []
+        
+        # Delete remaining keys
+        if keys_to_delete:
+            pipe = redis_client.pipeline()
+            for k in keys_to_delete:
+                pipe.delete(k)
+            pipe.execute()
+            deleted_count += len(keys_to_delete)
+        
         return deleted_count
     except RedisError as e:
         logger.error(f"Failed to invalidate cache pattern '{pattern}': {e}")
