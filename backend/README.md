@@ -34,7 +34,22 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables (Optional)
+### 4. Set Up PostgreSQL Database
+
+Start the PostgreSQL database using Docker Compose (from the project root):
+
+```bash
+cd ..
+docker compose up -d postgres
+```
+
+Wait for PostgreSQL to fully start (about 10 seconds), then return to the backend directory:
+
+```bash
+cd backend
+```
+
+### 5. Configure Environment Variables
 
 Create a `.env` file in the backend directory:
 
@@ -48,10 +63,10 @@ APP_VERSION=1.0.0
 API_V1_PREFIX=/api/v1
 
 # CORS
-CORS_ORIGINS=["http://localhost:3000", "http://localhost:5173"]
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
-# Database (to be configured later)
-# DATABASE_URL=postgresql://user:password@localhost:5432/stockmanagement
+# Database
+DATABASE_URL=postgresql://stockuser:stockpass@localhost:5432/stockcontrol
 
 # Redis (to be configured later)
 # REDIS_URL=redis://localhost:6379/0
@@ -63,9 +78,19 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 ```
 
+### 6. Run Database Migrations
+
+Initialize the database schema using Alembic:
+
+```bash
+alembic upgrade head
+```
+
+This will create the necessary database tables and structure.
+
 ## Running the Application
 
-### Development Server
+### Start the Development Server
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -100,7 +125,7 @@ backend/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI application entry point
 │   ├── config.py            # Configuration management
-│   ├── database.py          # Database configuration (to be added)
+│   ├── database.py          # Database configuration & session management
 │   ├── dependencies.py      # Dependency injection (to be added)
 │   ├── modules/             # Feature modules
 │   │   ├── __init__.py
@@ -124,6 +149,50 @@ backend/
 
 ## Development Guidelines
 
+### Database Management
+
+**Creating Migrations:**
+When you make changes to database models, create a new migration:
+
+```bash
+alembic revision --autogenerate -m "Description of changes"
+```
+
+**Applying Migrations:**
+Apply pending migrations to the database:
+
+```bash
+alembic upgrade head
+```
+
+**Rolling Back Migrations:**
+Rollback the last migration:
+
+```bash
+alembic downgrade -1
+```
+
+**Migration History:**
+View migration history:
+
+```bash
+alembic history
+alembic current
+```
+
+**Stopping PostgreSQL:**
+When you're done developing, stop the database:
+
+```bash
+docker compose down
+```
+
+To remove the database volume (⚠️ this will delete all data):
+
+```bash
+docker compose down -v
+```
+
 ### Code Style
 - Follow PEP 8 style guide
 - Use type hints for all function parameters and return values
@@ -139,10 +208,11 @@ Each module should contain:
 
 ## Next Steps
 
-1. Set up database connection (Issue 1.3)
-2. Implement authentication module (Issue 2.x)
-3. Implement user management (Issue 2.x)
-4. Add additional feature modules
+1. ✅ Set up database connection (Issue 1.3) - Complete
+2. Configure Redis for caching (Issue 1.4)
+3. Implement authentication module (Issue 2.x)
+4. Implement user management (Issue 2.x)
+5. Add additional feature modules
 
 ## API Documentation
 
