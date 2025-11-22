@@ -79,7 +79,7 @@ def close_redis() -> None:
         logger.info("Redis connection pool closed")
 
 
-async def check_redis_health() -> bool:
+def check_redis_health() -> bool:
     """
     Check Redis connection health.
     
@@ -149,10 +149,7 @@ def set_cached(key: str, value: Any, expire: Optional[int] = None) -> bool:
     
     try:
         serialized = json.dumps(value)
-        if expire:
-            redis_client.setex(key, expire, serialized)
-        else:
-            redis_client.set(key, serialized)
+        redis_client.set(key, serialized, ex=expire)
         return True
     except (RedisError, TypeError, json.JSONEncodeError) as e:
         logger.error(f"Failed to set cached value for key '{key}': {e}")
@@ -196,16 +193,20 @@ def invalidate_cache_pattern(pattern: str) -> int:
         
     Usage:
         invalidate_cache_pattern("user:*")
+        
+    Note:
+        Uses SCAN to avoid blocking Redis in production.
     """
     redis_client = get_redis()
     if redis_client is None:
         return -1
     
     try:
-        keys = redis_client.keys(pattern)
-        if keys:
-            return redis_client.delete(*keys)
-        return 0
+        deleted_count = 0
+        for key in redis_client.scan_iter(match=pattern, count=100):
+            redis_client.delete(key)
+            deleted_count += 1
+        return deleted_count
     except RedisError as e:
         logger.error(f"Failed to invalidate cache pattern '{pattern}': {e}")
         return -1

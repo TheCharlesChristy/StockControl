@@ -95,7 +95,7 @@ async def health_check():
     Returns:
         HealthResponse: Status and version information with Redis status
     """
-    redis_status = "connected" if await check_redis_health() else "disconnected"
+    redis_status = "connected" if check_redis_health() else "disconnected"
     
     return HealthResponse(
         status="ok",
