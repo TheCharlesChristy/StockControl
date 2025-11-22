@@ -199,7 +199,7 @@ def invalidate_cache_pattern(pattern: str) -> int:
         
     Note:
         Uses SCAN to avoid blocking Redis in production.
-        Deletes keys in batches using pipeline for efficiency.
+        Deletes keys in batches using pipeline with UNLINK for async deletion.
     """
     redis_client = get_redis()
     if redis_client is None:
@@ -215,9 +215,10 @@ def invalidate_cache_pattern(pattern: str) -> int:
             # Delete in batches
             if len(keys_to_delete) >= CACHE_BATCH_SIZE:
                 pipe = redis_client.pipeline()
-                pipe.delete(*keys_to_delete)
+                # Use unlink() for async non-blocking deletion (Redis 4.0+)
+                pipe.unlink(*keys_to_delete)
                 results = pipe.execute()
-                # Validate and add result (delete returns count of deleted keys)
+                # Validate and add result (unlink returns count of deleted keys)
                 if results and len(results) > 0 and isinstance(results[0], int):
                     deleted_count += results[0]
                 keys_to_delete = []
@@ -225,7 +226,8 @@ def invalidate_cache_pattern(pattern: str) -> int:
         # Delete remaining keys
         if keys_to_delete:
             pipe = redis_client.pipeline()
-            pipe.delete(*keys_to_delete)
+            # Use unlink() for async non-blocking deletion
+            pipe.unlink(*keys_to_delete)
             results = pipe.execute()
             # Validate and add result
             if results and len(results) > 0 and isinstance(results[0], int):
