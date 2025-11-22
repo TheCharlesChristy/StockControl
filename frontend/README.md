@@ -4,7 +4,7 @@ React + TypeScript + Vite frontend for the Stock Control System.
 
 ## Tech Stack
 
-- **React 18** - UI library
+- **React 19** - UI library
 - **TypeScript** - Type safety
 - **Vite** - Build tool and dev server
 - **TailwindCSS** - Utility-first CSS framework
