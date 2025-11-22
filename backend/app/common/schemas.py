@@ -9,6 +9,7 @@ class HealthResponse(BaseModel):
     """Health check response schema."""
     status: str
     version: str
+    redis: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
