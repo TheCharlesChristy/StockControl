@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
 from app.common.schemas import HealthResponse, ErrorResponse
+from app.redis import close_redis, check_redis_health
 
 
 # Configure logging
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info(f"Shutting down {settings.APP_NAME}")
+    close_redis()
 
 
 # Initialize FastAPI app
@@ -91,11 +93,14 @@ async def health_check():
     Health check endpoint to verify API is running.
     
     Returns:
-        HealthResponse: Status and version information
+        HealthResponse: Status and version information with Redis status
     """
+    redis_status = "connected" if check_redis_health() else "disconnected"
+    
     return HealthResponse(
         status="ok",
-        version=settings.APP_VERSION
+        version=settings.APP_VERSION,
+        redis=redis_status
     )
 
 
