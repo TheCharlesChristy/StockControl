@@ -1,0 +1,1855 @@
+openapi: 3.1.0
+info:
+  title: Stock Management API
+  version: 1.0.0
+  description: |
+    API for stock management, locations (including vans), movements,
+    stock requests, notifications, maps and reporting.
+
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+  - url: https://staging-api.example.com/api/v1
+    description: Staging
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          const: true
+        code:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - code
+        - message
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+      required:
+        - total
+        - limit
+        - offset
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            format: uuid
+        assignedVanIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        active:
+          type: boolean
+      required:
+        - id
+        - username
+        - displayName
+        - roles
+        - active
+
+    UserCreate:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        displayName:
+          type: string
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        assignedVanIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+        - username
+        - password
+        - displayName
+
+    UserUpdate:
+      type: object
+      properties:
+        password:
+          type: string
+        displayName:
+          type: string
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        assignedVanIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        active:
+          type: boolean
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - name
+        - permissions
+
+    RoleCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - permissions
+
+    RoleUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    Permission:
+      type: object
+      properties:
+        key:
+          type: string
+        description:
+          type: string
+      required:
+        - key
+
+    AuthLoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    AuthTokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+      required:
+        - accessToken
+        - refreshToken
+        - expiresIn
+
+    AuthRefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+
+    Item:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        sku:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        photoUrl:
+          type: string
+          format: uri
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        minimumLevel:
+          type: number
+        dimensions:
+          type: object
+          properties:
+            length:
+              type: number
+            width:
+              type: number
+            height:
+              type: number
+            weight:
+              type: number
+        active:
+          type: boolean
+      required:
+        - id
+        - name
+        - sku
+        - unitType
+        - active
+
+    ItemCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        sku:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        photoUrl:
+          type: string
+          format: uri
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        minimumLevel:
+          type: number
+        dimensions:
+          $ref: '#/components/schemas/Item/properties/dimensions'
+      required:
+        - name
+        - sku
+        - unitType
+
+    ItemUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        sku:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        photoUrl:
+          type: string
+          format: uri
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        minimumLevel:
+          type: number
+        dimensions:
+          $ref: '#/components/schemas/Item/properties/dimensions'
+        active:
+          type: boolean
+
+    ItemCode:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        type:
+          type: string
+          enum: [barcode, qrcode]
+        active:
+          type: boolean
+      required:
+        - id
+        - itemId
+        - code
+        - type
+        - active
+
+    ItemCodeCreate:
+      type: object
+      properties:
+        code:
+          type: string
+        type:
+          type: string
+          enum: [barcode, qrcode]
+      required:
+        - code
+        - type
+
+    ItemSupplier:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        supplierName:
+          type: string
+        supplierItemCode:
+          type: string
+        reorderUrl:
+          type: string
+          format: uri
+        packSize:
+          type: number
+        leadTimeDays:
+          type: integer
+        notes:
+          type: string
+        preferred:
+          type: boolean
+      required:
+        - id
+        - supplierName
+
+    ItemSupplierCreate:
+      type: object
+      properties:
+        supplierName:
+          type: string
+        supplierItemCode:
+          type: string
+        reorderUrl:
+          type: string
+          format: uri
+        packSize:
+          type: number
+        leadTimeDays:
+          type: integer
+        notes:
+          type: string
+        preferred:
+          type: boolean
+      required:
+        - supplierName
+
+    ItemSupplierUpdate:
+      type: object
+      properties:
+        supplierName:
+          type: string
+        supplierItemCode:
+          type: string
+        reorderUrl:
+          type: string
+          format: uri
+        packSize:
+          type: number
+        leadTimeDays:
+          type: integer
+        notes:
+          type: string
+        preferred:
+          type: boolean
+
+    ItemStockSummary:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        total:
+          type: number
+        reserved:
+          type: number
+        available:
+          type: number
+        onOrder:
+          type: number
+        locations:
+          type: array
+          items:
+            type: object
+            properties:
+              locationId:
+                type: string
+                format: uuid
+              quantity:
+                type: number
+            required:
+              - locationId
+              - quantity
+      required:
+        - itemId
+        - total
+        - reserved
+        - available
+        - onOrder
+        - locations
+
+    CodeLookupResponse:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+          nullable: true
+        matchedCode:
+          type: string
+        type:
+          type: string
+          enum: [barcode, qrcode]
+          nullable: true
+        known:
+          type: boolean
+      required:
+        - matchedCode
+        - known
+
+    Location:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        code:
+          type: string
+        type:
+          type: string
+          enum: [site, warehouse, fleet, van, zone, shelf, bin, other]
+      required:
+        - id
+        - name
+        - code
+        - type
+
+    LocationCreate:
+      type: object
+      properties:
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        code:
+          type: string
+        type:
+          type: string
+          enum: [site, warehouse, fleet, van, zone, shelf, bin, other]
+      required:
+        - name
+        - code
+        - type
+
+    LocationUpdate:
+      type: object
+      properties:
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        code:
+          type: string
+        type:
+          type: string
+          enum: [site, warehouse, fleet, van, zone, shelf, bin, other]
+
+    MapShape:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [rectangle, polygon, circle]
+        locationId:
+          type: string
+          format: uuid
+          nullable: true
+        coords:
+          type: object
+          description: Shape coordinates (structure depends on type).
+        style:
+          type: object
+          properties:
+            fill:
+              type: string
+            stroke:
+              type: string
+      required:
+        - id
+        - type
+        - coords
+
+    Map:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        shapes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapShape'
+      required:
+        - id
+        - name
+        - shapes
+
+    MapCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        shapes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapShape'
+      required:
+        - name
+
+    MapUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        shapes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapShape'
+
+    Movement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        fromLocationId:
+          type: string
+          format: uuid
+          nullable: true
+        toLocationId:
+          type: string
+          format: uuid
+          nullable: true
+        quantity:
+          type: number
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        approximate:
+          type: boolean
+        jobNumber:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [receive, issue, reserve, adjust, transfer, return]
+        notes:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - id
+        - itemId
+        - userId
+        - quantity
+        - unitType
+        - approximate
+        - type
+        - timestamp
+
+    MovementCreate:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        fromLocationId:
+          type: string
+          format: uuid
+          nullable: true
+        toLocationId:
+          type: string
+          format: uuid
+          nullable: true
+        quantity:
+          type: number
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        approximate:
+          type: boolean
+          default: false
+        jobNumber:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [receive, issue, reserve, adjust, transfer, return]
+        notes:
+          type: string
+          nullable: true
+      required:
+        - itemId
+        - quantity
+        - unitType
+        - type
+
+    FlexiEstimateRequest:
+      type: object
+      properties:
+        approximateQuantity:
+          type: number
+        confidence:
+          type: string
+          enum: [low, medium, high]
+        method:
+          type: string
+          enum: [percentFull, manualEstimate, containerFraction]
+      required:
+        - approximateQuantity
+
+    StockRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemId:
+          type: string
+          format: uuid
+        requestedQuantity:
+          type: number
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        jobNumber:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, part_approved, rejected, completed]
+        createdByUserId:
+          type: string
+          format: uuid
+        reviewedByUserId:
+          type: string
+          format: uuid
+          nullable: true
+        approvedQuantity:
+          type: number
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - itemId
+        - requestedQuantity
+        - unitType
+        - status
+        - createdByUserId
+        - createdAt
+        - updatedAt
+
+    StockRequestCreate:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        requestedQuantity:
+          type: number
+        unitType:
+          type: string
+          enum: [unit, meter, kg, litre, box, flexi]
+        jobNumber:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required:
+        - itemId
+        - requestedQuantity
+        - unitType
+
+    StockRequestUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, part_approved, rejected, completed]
+        approvedQuantity:
+          type: number
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [movement, low_stock, stock_request, system]
+        userId:
+          type: string
+          format: uuid
+        payload:
+          type: object
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - type
+        - userId
+        - payload
+        - read
+        - createdAt
+
+    ValuationReport:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        totalValue:
+          type: number
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              itemId:
+                type: string
+                format: uuid
+              sku:
+                type: string
+              name:
+                type: string
+              quantity:
+                type: number
+              unitCost:
+                type: number
+              totalValue:
+                type: number
+            required:
+              - itemId
+              - sku
+              - name
+              - quantity
+              - unitCost
+              - totalValue
+      required:
+        - generatedAt
+        - currency
+        - totalValue
+        - items
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      summary: Login with username and password
+      operationId: authLogin
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Auth tokens returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      operationId: authRefresh
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRefreshRequest'
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users:
+    get:
+      summary: List users
+      operationId: listUsers
+      tags: [Users]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+    post:
+      summary: Create user
+      operationId: createUser
+      tags: [Users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{id}:
+    get:
+      summary: Get user
+      operationId: getUser
+      tags: [Users]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: Update user
+      operationId: updateUser
+      tags: [Users]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      summary: Delete (deactivate) user
+      operationId: deleteUser
+      tags: [Users]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User deactivated
+
+  /roles:
+    get:
+      summary: List roles
+      operationId: listRoles
+      tags: [Roles]
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+    post:
+      summary: Create role
+      operationId: createRole
+      tags: [Roles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleCreate'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+
+  /roles/{id}:
+    get:
+      summary: Get role
+      operationId: getRole
+      tags: [Roles]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Role details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    patch:
+      summary: Update role
+      operationId: updateRole
+      tags: [Roles]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleUpdate'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    delete:
+      summary: Delete role
+      operationId: deleteRole
+      tags: [Roles]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Role deleted
+
+  /permissions:
+    get:
+      summary: List available permissions
+      operationId: listPermissions
+      tags: [Roles]
+      responses:
+        '200':
+          description: List of permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+
+  /items:
+    get:
+      summary: List/search items
+      operationId: listItems
+      tags: [Items]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of items
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Item'
+    post:
+      summary: Create item
+      operationId: createItem
+      tags: [Items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemCreate'
+      responses:
+        '201':
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+
+  /items/{id}:
+    get:
+      summary: Get item
+      operationId: getItem
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Item details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: Update item
+      operationId: updateItem
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemUpdate'
+      responses:
+        '200':
+          description: Item updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+    delete:
+      summary: Archive item
+      operationId: deleteItem
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Item archived
+
+  /items/{id}/codes:
+    get:
+      summary: List item codes
+      operationId: listItemCodes
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Item codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemCode'
+    post:
+      summary: Add item code
+      operationId: addItemCode
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemCodeCreate'
+      responses:
+        '201':
+          description: Code added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemCode'
+
+  /items/{id}/suppliers:
+    get:
+      summary: List item suppliers
+      operationId: listItemSuppliers
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Supplier list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemSupplier'
+    post:
+      summary: Add supplier to item
+      operationId: addItemSupplier
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemSupplierCreate'
+      responses:
+        '201':
+          description: Supplier added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemSupplier'
+
+  /items/{itemId}/suppliers/{supplierId}:
+    patch:
+      summary: Update item supplier
+      operationId: updateItemSupplier
+      tags: [Items]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: supplierId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemSupplierUpdate'
+      responses:
+        '200':
+          description: Supplier updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemSupplier'
+    delete:
+      summary: Remove item supplier
+      operationId: deleteItemSupplier
+      tags: [Items]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: supplierId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Supplier removed
+
+  /items/{id}/stock:
+    get:
+      summary: Get stock summary for item
+      operationId: getItemStock
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Stock summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemStockSummary'
+
+  /codes/{code}:
+    get:
+      summary: Lookup item by code
+      operationId: lookupCode
+      tags: [Items]
+      parameters:
+        - in: path
+          name: code
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Code lookup result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeLookupResponse'
+
+  /locations:
+    get:
+      summary: List locations
+      operationId: listLocations
+      tags: [Locations]
+      responses:
+        '200':
+          description: List of locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+    post:
+      summary: Create location
+      operationId: createLocation
+      tags: [Locations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationCreate'
+      responses:
+        '201':
+          description: Location created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+
+  /locations/{id}:
+    get:
+      summary: Get location
+      operationId: getLocation
+      tags: [Locations]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Location details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+    patch:
+      summary: Update location
+      operationId: updateLocation
+      tags: [Locations]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationUpdate'
+      responses:
+        '200':
+          description: Location updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+    delete:
+      summary: Delete location
+      operationId: deleteLocation
+      tags: [Locations]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Location deleted
+
+  /locations/{id}/stock:
+    get:
+      summary: List stock at location
+      operationId: getLocationStock
+      tags: [Locations]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Stock in location
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemStockSummary'
+
+  /maps:
+    get:
+      summary: List maps
+      operationId: listMaps
+      tags: [Maps]
+      responses:
+        '200':
+          description: List of maps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Map'
+    post:
+      summary: Create map
+      operationId: createMap
+      tags: [Maps]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MapCreate'
+      responses:
+        '201':
+          description: Map created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Map'
+
+  /maps/{id}:
+    get:
+      summary: Get map
+      operationId: getMap
+      tags: [Maps]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Map details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Map'
+    patch:
+      summary: Update map
+      operationId: updateMap
+      tags: [Maps]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MapUpdate'
+      responses:
+        '200':
+          description: Map updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Map'
+    delete:
+      summary: Delete map
+      operationId: deleteMap
+      tags: [Maps]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Map deleted
+
+  /movements:
+    get:
+      summary: List movements
+      operationId: listMovements
+      tags: [Movements]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: itemId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: locationId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: type
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of movements
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Movement'
+    post:
+      summary: Create movement
+      operationId: createMovement
+      tags: [Movements]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovementCreate'
+      responses:
+        '201':
+          description: Movement created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+
+  /items/{id}/flexi/estimate:
+    post:
+      summary: Update flexi-item approximate quantity
+      operationId: estimateFlexiItem
+      tags: [Items]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlexiEstimateRequest'
+      responses:
+        '200':
+          description: Flexi-item movement created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+
+  /stock-requests:
+    get:
+      summary: List stock requests
+      operationId: listStockRequests
+      tags: [StockRequests]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of stock requests
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/StockRequest'
+    post:
+      summary: Create stock request
+      operationId: createStockRequest
+      tags: [StockRequests]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockRequestCreate'
+      responses:
+        '201':
+          description: Stock request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockRequest'
+
+  /stock-requests/{id}:
+    patch:
+      summary: Update stock request status
+      operationId: updateStockRequest
+      tags: [StockRequests]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockRequestUpdate'
+      responses:
+        '200':
+          description: Stock request updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockRequest'
+
+  /notifications:
+    get:
+      summary: List notifications for current user
+      operationId: listNotifications
+      tags: [Notifications]
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /reports/valuation:
+    get:
+      summary: Inventory valuation report
+      operationId: getValuationReport
+      tags: [Reports]
+      parameters:
+        - in: query
+          name: asOf
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Valuation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValuationReport'
+
+  /reports/movements:
+    get:
+      summary: Movement report
+      operationId: getMovementReport
+      tags: [Reports]
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: itemId
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Movement report
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Movement'

@@ -1,0 +1,440 @@
+version: 1
+generated_at: "2025-11-22"
+description: >
+  Full Xero public API endpoints (Accounting, Files, Assets, BankFeeds,
+  Finance) mapped for integration use.
+
+auth:
+  xero:
+    type: oauth2
+    base_authorization_server: "https://identity.xero.com"
+    headers:
+      - name: Authorization
+        value: "Bearer {access_token}"
+      - name: xero-tenant-id
+        value: "{tenant_id}"
+      - name: Accept
+        value: "application/json"
+    notes: >
+      Use OAuth2 to obtain access token; include tenant ID header. :contentReference[oaicite:1]{index=1}
+
+xero:
+  accounting_api:
+    base_url: "https://api.xero.com/api.xro/2.0"
+    description: "Core Accounting API (contacts, invoices, payments, journals…)."
+    resources:
+      Accounts:
+        endpoints:
+          - path: "/Accounts"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update accounts." :contentReference[oaicite:2]{index=2}
+          - path: "/Accounts/{AccountID}"
+            methods: [GET, POST, DELETE]
+            summary: "Retrieve, update or delete a single account." :contentReference[oaicite:3]{index=3}
+          - path: "/Accounts/{AccountID}/Attachments"
+            methods: [GET]
+            summary: "List attachments for an account." :contentReference[oaicite:4]{index=4}
+          - path: "/Accounts/{AccountID}/Attachments/{AttachmentID}"
+            methods: [GET]
+            summary: "Download a specific account attachment." :contentReference[oaicite:5]{index=5}
+      BankTransactions:
+        endpoints:
+          - path: "/BankTransactions"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update bank transactions." :contentReference[oaicite:6]{index=6}
+          - path: "/BankTransactions/{BankTransactionID}"
+            methods: [GET]
+            summary: "Retrieve a single bank transaction." :contentReference[oaicite:7]{index=7}
+          - path: "/BankTransactions/{BankTransactionID}/Attachments"
+            methods: [GET]
+            summary: "List attachments for a bank transaction." :contentReference[oaicite:8]{index=8}
+          - path: "/BankTransactions/{BankTransactionID}/Attachments/{AttachmentID}"
+            methods: [GET]
+            summary: "Download a specific bank transaction attachment." :contentReference[oaicite:9]{index=9}
+      BankTransfers:
+        endpoints:
+          - path: "/BankTransfers"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update bank transfers." :contentReference[oaicite:10]{index=10}
+          - path: "/BankTransfers/{BankTransferID}"
+            methods: [GET]
+            summary: "Retrieve a single bank transfer." :contentReference[oaicite:11]{index=11}
+      BrandingThemes:
+        endpoints:
+          - path: "/BrandingThemes"
+            methods: [GET]
+            summary: "List branding themes." :contentReference[oaicite:12]{index=12}
+          - path: "/BrandingThemes/{BrandingThemeID}"
+            methods: [GET]
+            summary: "Retrieve a single branding theme." :contentReference[oaicite:13]{index=13}
+      Contacts:
+        endpoints:
+          - path: "/Contacts"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update contacts." :contentReference[oaicite:14]{index=14}
+          - path: "/Contacts/{ContactID}"
+            methods: [GET]
+            summary: "Retrieve a single contact." :contentReference[oaicite:15]{index=15}
+          - path: "/Contacts/{ContactID}/Attachments"
+            methods: [GET]
+            summary: "List contact attachments." :contentReference[oaicite:16]{index=16}
+          - path: "/Contacts/{ContactID}/Attachments/{AttachmentID}"
+            methods: [GET]
+            summary: "Download a contact attachment." :contentReference[oaicite:17]{index=17}
+      ContactGroups:
+        endpoints:
+          - path: "/ContactGroups"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update contact groups." :contentReference[oaicite:18]{index=18}
+          - path: "/ContactGroups/{ContactGroupID}"
+            methods: [GET, POST, DELETE]
+            summary: "Retrieve, update or delete a contact group." :contentReference[oaicite:19]{index=19}
+          - path: "/ContactGroups/{ContactGroupID}/Contacts"
+            methods: [PUT, DELETE]
+            summary: "Add/remove contacts in a group." :contentReference[oaicite:20]{index=20}
+      CreditNotes:
+        endpoints:
+          - path: "/CreditNotes"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update credit notes." :contentReference[oaicite:21]{index=21}
+          - path: "/CreditNotes/{CreditNoteID}"
+            methods: [GET]
+            summary: "Retrieve a single credit note." :contentReference[oaicite:22]{index=22}
+          - path: "/CreditNotes/{CreditNoteID}/Allocations"
+            methods: [PUT]
+            summary: "Allocate a credit note to invoices." :contentReference[oaicite:23]{index=23}
+          - path: "/CreditNotes/{CreditNoteID}/Refunds"
+            methods: [PUT]
+            summary: "Create refunds from credit notes." :contentReference[oaicite:24]{index=24}
+          - path: "/CreditNotes/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes on a credit note." :contentReference[oaicite:25]{index=25}
+      Currencies:
+        endpoints:
+          - path: "/Currencies"
+            methods: [GET, POST]
+            summary: "List or add currencies." :contentReference[oaicite:26]{index=26}
+      Employees:
+        endpoints:
+          - path: "/Employees"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update employees (region dependent)." :contentReference[oaicite:27]{index=27}
+          - path: "/Employees/{EmployeeID}"
+            methods: [GET]
+            summary: "Retrieve a single employee." :contentReference[oaicite:28]{index=28}
+      ExpenseClaims:
+        endpoints:
+          - path: "/ExpenseClaims"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update expense claims." :contentReference[oaicite:29]{index=29}
+          - path: "/ExpenseClaims/{ExpenseClaimID}"
+            methods: [GET]
+            summary: "Retrieve a single expense claim." :contentReference[oaicite:30]{index=30}
+          - path: "/ExpenseClaims/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes to an expense claim." :contentReference[oaicite:31]{index=31}
+      Invoices:
+        endpoints:
+          - path: "/Invoices"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update invoices/bills." :contentReference[oaicite:32]{index=32}
+          - path: "/Invoices/{InvoiceID}"
+            methods: [GET]
+            summary: "Retrieve a single invoice." :contentReference[oaicite:33]{index=33}
+          - path: "/Invoices/{InvoiceID}/Email"
+            methods: [POST]
+            summary: "Email an invoice." :contentReference[oaicite:34]{index=34}
+          - path: "/Invoices/{InvoiceID}/Attachments"
+            methods: [GET, POST]
+            summary: "List or upload invoice attachments." :contentReference[oaicite:35]{index=35}
+          - path: "/Invoices/{InvoiceID}/Attachments/{AttachmentID}"
+            methods: [GET]
+            summary: "Download an invoice attachment." :contentReference[oaicite:36]{index=36}
+          - path: "/Invoices/{InvoiceID}/OnlineInvoice"
+            methods: [GET]
+            summary: "Get the online invoice URL." :contentReference[oaicite:37]{index=37}
+          - path: "/Invoices/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes." :contentReference[oaicite:38]{index=38}
+      Items:
+        endpoints:
+          - path: "/Items"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update items." :contentReference[oaicite:39]{index=39}
+          - path: "/Items/{ItemID}"
+            methods: [GET, DELETE]
+            summary: "Retrieve or delete a single item." :contentReference[oaicite:40]{index=40}
+          - path: "/Items/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add item history notes." :contentReference[oaicite:41]{index=41}
+      Journals:
+        endpoints:
+          - path: "/Journals"
+            methods: [GET]
+            summary: "List accounting journals (read-only)." :contentReference[oaicite:42]{index=42}
+          - path: "/Journals/{JournalID}"
+            methods: [GET]
+            summary: "Retrieve a single journal." :contentReference[oaicite:43]{index=43}
+      LinkedTransactions:
+        endpoints:
+          - path: "/LinkedTransactions"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update linked transactions." :contentReference[oaicite:44]{index=44}
+          - path: "/LinkedTransactions/{LinkedTransactionID}"
+            methods: [GET, DELETE]
+            summary: "Retrieve or delete a specific linked transaction." :contentReference[oaicite:45]{index=45}
+      ManualJournals:
+        endpoints:
+          - path: "/ManualJournals"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update manual journals." :contentReference[oaicite:46]{index=46}
+          - path: "/ManualJournals/{ManualJournalID}"
+            methods: [GET]
+            summary: "Retrieve one manual journal." :contentReference[oaicite:47]{index=47}
+          - path: "/ManualJournals/{ManualJournalID}/Attachments"
+            methods: [GET, POST]
+            summary: "List or upload attachments on a manual journal." :contentReference[oaicite:48]{index=48}
+          - path: "/ManualJournals/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Get or add history notes for a manual journal." :contentReference[oaicite:49]{index=49}
+      Organisation:
+        endpoints:
+          - path: "/Organisation"
+            methods: [GET]
+            summary: "Retrieve organisation metadata." :contentReference[oaicite:50]{index=50}
+          - path: "/Organisation/Actions"
+            methods: [GET]
+            summary: "Retrieve organisation-level actions." :contentReference[oaicite:51]{index=51}
+          - path: "/Organisation/{OrganisationID}/CISSettings"
+            methods: [GET]
+            summary: "Retrieve CIS settings (when applicable)." :contentReference[oaicite:52]{index=52}
+      Overpayments:
+        endpoints:
+          - path: "/Overpayments"
+            methods: [GET]
+            summary: "List overpayments." :contentReference[oaicite:53]{index=53}
+          - path: "/Overpayments/{OverpaymentID}"
+            methods: [GET]
+            summary: "Retrieve a single overpayment." :contentReference[oaicite:54]{index=54}
+          - path: "/Overpayments/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes to an overpayment." :contentReference[oaicite:55]{index=55}
+          - path: "/Overpayments/{OverpaymentID}/Allocations"
+            methods: [PUT]
+            summary: "Allocate an overpayment to invoices." :contentReference[oaicite:56]{index=56}
+          - path: "/Overpayments/{OverpaymentID}/Allocations/{AllocationID}"
+            methods: [DELETE]
+            summary: "Delete an allocation on an overpayment." :contentReference[oaicite:57]{index=57}
+      Payments:
+        endpoints:
+          - path: "/Payments"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update payments." :contentReference[oaicite:58]{index=58}
+          - path: "/Payments/{PaymentID}"
+            methods: [GET]
+            summary: "Retrieve a payment." :contentReference[oaicite:59]{index=59}
+          - path: "/Payments/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes for a payment." :contentReference[oaicite:60]{index=60}
+      Prepayments:
+        endpoints:
+          - path: "/Prepayments"
+            methods: [GET]
+            summary: "List prepayments." :contentReference[oaicite:61]{index=61}
+          - path: "/Prepayments/{PrepaymentID}"
+            methods: [GET]
+            summary: "Retrieve a single prepayment." :contentReference[oaicite:62]{index=62}
+          - path: "/Prepayments/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Get or add history notes for a prepayment." :contentReference[oaicite:63]{index=63}
+          - path: "/Prepayments/{PrepaymentID}/Allocations"
+            methods: [PUT]
+            summary: "Allocate a prepayment to invoices." :contentReference[oaicite:64]{index=64}
+          - path: "/Prepayments/{PrepaymentID}/Allocations/{AllocationID}"
+            methods: [DELETE]
+            summary: "Delete a prepayment allocation." :contentReference[oaicite:65]{index=65}
+      PurchaseOrders:
+        endpoints:
+          - path: "/PurchaseOrders"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update purchase orders." :contentReference[oaicite:66]{index=66}
+          - path: "/PurchaseOrders/{PurchaseOrderID}"
+            methods: [GET]
+            summary: "Retrieve a purchase order." :contentReference[oaicite:67]{index=67}
+          - path: "/PurchaseOrders/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes for a purchase order." :contentReference[oaicite:68]{index=68}
+      Quotes:
+        endpoints:
+          - path: "/Quotes"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update quotes." :contentReference[oaicite:69]{index=69}
+          - path: "/Quotes/{QuoteID}"
+            methods: [GET]
+            summary: "Retrieve a single quote." :contentReference[oaicite:70]{index=70}
+          - path: "/Quotes/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes for a quote." :contentReference[oaicite:71]{index=71}
+      Receipts:
+        endpoints:
+          - path: "/Receipts"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update receipts." :contentReference[oaicite:72]{index=72}
+          - path: "/Receipts/{ReceiptID}"
+            methods: [GET]
+            summary: "Retrieve a single receipt." :contentReference[oaicite:73]{index=73}
+          - path: "/Receipts/{ReceiptID}/Attachments"
+            methods: [GET, POST]
+            summary: "List or upload receipt attachments." :contentReference[oaicite:74]{index=74}
+          - path: "/Receipts/{ReceiptID}/Attachments/{AttachmentID}"
+            methods: [GET]
+            summary: "Download a receipt attachment." :contentReference[oaicite:75]{index=75}
+          - path: "/Receipts/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes for a receipt." :contentReference[oaicite:76]{index=76}
+      RepeatingInvoices:
+        endpoints:
+          - path: "/RepeatingInvoices"
+            methods: [GET]
+            summary: "List repeating invoices." :contentReference[oaicite:77]{index=77}
+          - path: "/RepeatingInvoices/{RepeatingInvoiceID}"
+            methods: [GET]
+            summary: "Retrieve a repeating invoice." :contentReference[oaicite:78]{index=78}
+          - path: "/RepeatingInvoices/{Guid}/History"
+            methods: [GET, PUT]
+            summary: "Retrieve or add history notes." :contentReference[oaicite:79]{index=79}
+      Reports:
+        endpoints:
+          - path: "/Reports/{ReportName}"
+            methods: [GET]
+            summary: "Retrieve specified financial report." :contentReference[oaicite:80]{index=80}
+      TaxRates:
+        endpoints:
+          - path: "/TaxRates"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update tax rate definitions." :contentReference[oaicite:81]{index=81}
+      TrackingCategories:
+        endpoints:
+          - path: "/TrackingCategories"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update tracking categories." :contentReference[oaicite:82]{index=82}
+          - path: "/TrackingCategories/{TrackingCategoryID}"
+            methods: [GET, POST, DELETE]
+            summary: "Retrieve, update or delete a tracking category." :contentReference[oaicite:83]{index=83}
+          - path: "/TrackingCategories/{TrackingCategoryID}/Options"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update options in a category." :contentReference[oaicite:84]{index=84}
+          - path: "/TrackingCategories/{TrackingCategoryID}/Options/{TrackingOptionID}"
+            methods: [GET, POST, DELETE]
+            summary: "Retrieve, update or delete a tracking option." :contentReference[oaicite:85]{index=85}
+      Users:
+        endpoints:
+          - path: "/Users"
+            methods: [GET]
+            summary: "List users of the organisation in Xero." :contentReference[oaicite:86]{index=86}
+          - path: "/Users/{UserID}"
+            methods: [GET]
+            summary: "Retrieve a single user." :contentReference[oaicite:87]{index=87}
+      PaymentServices:
+        endpoints:
+          - path: "/PaymentServices"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update payment gateway configurations." :contentReference[oaicite:88]{index=88}
+          - path: "/PaymentServices/{PaymentServiceID}"
+            methods: [GET, POST, DELETE]
+            summary: "Retrieve, update or delete a payment service." :contentReference[oaicite:89]{index=89}
+
+  files_api:
+    base_url: "https://api.xero.com/files.xro/1.0"
+    description: "Files API – upload/download of documents, attachments & folders."
+    resources:
+      Files:
+        endpoints:
+          - path: "/Files"
+            methods: [GET, POST, PUT, DELETE]
+            summary: "List files, upload, update or delete files." :contentReference[oaicite:90]{index=90}
+          - path: "/Files/{FileId}"
+            methods: [GET, DELETE]
+            summary: "Retrieve or delete a single file." :contentReference[oaicite:91]{index=91}
+          - path: "/Files/{FileId}/Associations"
+            methods: [GET, POST, DELETE]
+            summary: "Manage associations of a file to other objects." :contentReference[oaicite:92]{index=92}
+      Folders:
+        endpoints:
+          - path: "/Folders"
+            methods: [GET, POST, PUT, DELETE]
+            summary: "List, create, update or delete folders." :contentReference[oaicite:93]{index=93}
+          - path: "/Folders/Inbox"
+            methods: [GET]
+            summary: "Retrieve inbox folder." :contentReference[oaicite:94]{index=94}
+          - path: "/Folders/{FolderId}"
+            methods: [GET, DELETE]
+            summary: "Retrieve or delete folder." :contentReference[oaicite:95]{index=95}
+          - path: "/Folders/{FolderId}/Files"
+            methods: [GET]
+            summary: "List files in a specific folder." :contentReference[oaicite:96]{index=96}
+
+  assets_api:
+    base_url: "https://api.xero.com/assets.xro/1.0"
+    description: "Assets API – fixed assets management."
+    resources:
+      AssetTypes:
+        endpoints:
+          - path: "/AssetTypes"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update asset types." :contentReference[oaicite:97]{index=97}
+      Assets:
+        endpoints:
+          - path: "/Assets"
+            methods: [GET, PUT, POST]
+            summary: "List, create or update assets." :contentReference[oaicite:98]{index=98}
+          - path: "/Assets/{AssetId}"
+            methods: [GET]
+            summary: "Retrieve a single asset by ID." :contentReference[oaicite:99]{index=99}
+
+  bankfeeds_api:
+    base_url: "https://api.xero.com/bankfeeds"
+    description: >
+      Bank Feeds API – for approved feed partners (upload statements, manage feed
+      connections).
+    notes: "Requires special partner scopes & approval."
+    resources:
+      Connections:
+        endpoints:
+          - path: "/Connections"
+            methods: [GET, POST, DELETE]
+            summary: "Manage bank feed connections." 
+      Statements:
+        endpoints:
+          - path: "/Statements"
+            methods: [POST]
+            summary: "Submit bank feed statements."
+
+  finance_api:
+    base_url: "https://api.xero.com/finance.xro/1.0"
+    description: "Finance API – cash validation and other finance-insight endpoints."
+    resources:
+      CashValidation:
+        endpoints:
+          - path: "/CashValidation"
+            methods: [GET]
+            summary: "Retrieve cash-position summary by account."
+
+  payroll_apis:
+    description: "Payroll APIs – region-specific (AU/UK/NZ) each with their own base."
+    regions:
+      AU:
+        base_url: "https://api.xero.com/payroll.xro/1.0"
+      UK:
+        base_url: "https://api.xero.com/payroll.xro/2.0"
+      NZ:
+        base_url: "https://api.xero.com/payroll.xro/2.0"
+    notes: >
+      Each payroll resource (employees, pay items, timesheets, leave, payruns)
+      has region-specific endpoints. Refer to the region documentation.
+
+  practice_manager_api:
+    base_url: "https://api.xero.com/practicemanager/3.0"
+    description: "Practice Manager API – workflows, clients, jobs, tasks, invoices."
+    notes: "Refer to Practice Manager docs for detailed endpoints."
+
