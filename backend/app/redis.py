@@ -149,8 +149,8 @@ def set_cached(key: str, value: Any, expire: Optional[int] = None) -> bool:
     
     try:
         serialized = json.dumps(value)
-        redis_client.set(key, serialized, ex=expire)
-        return True
+        result = redis_client.set(key, serialized, ex=expire)
+        return bool(result)
     except (RedisError, TypeError, json.JSONEncodeError) as e:
         logger.error(f"Failed to set cached value for key '{key}': {e}")
         return False
@@ -164,7 +164,7 @@ def invalidate_cache(key: str) -> bool:
         key: Cache key to invalidate
         
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if key was deleted, False if key didn't exist or error occurred
         
     Usage:
         invalidate_cache("user:123")
@@ -174,8 +174,8 @@ def invalidate_cache(key: str) -> bool:
         return False
     
     try:
-        redis_client.delete(key)
-        return True
+        deleted_count = redis_client.delete(key)
+        return deleted_count > 0
     except RedisError as e:
         logger.error(f"Failed to invalidate cache for key '{key}': {e}")
         return False
