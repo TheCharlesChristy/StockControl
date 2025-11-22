@@ -1,7 +1,0 @@
-components:
-  brand_banner:
-    component_group: "General"
-    component_name: "brand_banner"
-  login_form:
-    component_group: "Login"
-    component_name: "login_form"

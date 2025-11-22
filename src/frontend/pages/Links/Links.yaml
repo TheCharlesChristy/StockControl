@@ -1,7 +1,0 @@
-components:
-  brand_banner:
-    component_group: "General"
-    component_name: "brand_banner"
-  links_container:
-    component_group: "Links"
-    component_name: "links_container"

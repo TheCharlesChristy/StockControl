@@ -1,9 +1,0 @@
-.{{component_name}}-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.{{component_name}}-content {
-  text-align: center;
-}
