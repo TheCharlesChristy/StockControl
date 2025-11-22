@@ -31,6 +31,55 @@ A comprehensive stock management system with location tracking, barcode scanning
 
 ## 🔧 Quick Start
 
+You can run the application using either Docker (recommended) or local setup.
+
+### Option 1: Docker Setup (Recommended)
+
+The easiest way to get started is using Docker Compose:
+
+```bash
+# Clone the repository
+git clone https://github.com/TheCharlesChristy/StockControl.git
+cd StockControl
+
+# Copy environment file
+cp .env.example .env
+
+# Start all services
+make up
+```
+
+That's it! The application will be available at:
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/api/v1/docs
+- **Nginx (reverse proxy)**: http://localhost:80
+
+#### Docker Commands
+
+```bash
+make up          # Start all services
+make down        # Stop all services
+make build       # Build/rebuild containers
+make logs        # View logs from all services
+make test        # Run backend tests
+make migrate     # Run database migrations
+make clean       # Remove all containers and volumes
+make restart     # Restart all services
+make ps          # Show running containers
+make help        # Show all available commands
+```
+
+#### Hot-Reloading
+
+Docker development environment includes hot-reloading for both backend and frontend:
+- **Backend**: Uses `uvicorn --reload` to automatically restart on code changes
+- **Frontend**: Uses Vite's HMR (Hot Module Replacement) for instant updates
+
+### Option 2: Local Setup
+
+If you prefer to run services locally without Docker:
+
 ### 1. Clone the Repository
 
 ```bash
@@ -116,6 +165,83 @@ npx tsc --noEmit
 # Build
 npm run build
 ```
+
+### Testing with Docker
+
+```bash
+# Run backend tests in Docker
+make test
+
+# Run tests with coverage
+docker compose exec backend pytest --cov=app --cov-report=term-missing
+
+# Run backend linter
+docker compose exec backend flake8 app tests
+
+# Run frontend linter
+docker compose exec frontend npm run lint
+```
+
+## 🐳 Docker Architecture
+
+The Docker development environment consists of the following services:
+
+### Services
+
+1. **PostgreSQL** (`postgres:15`)
+   - Database for persistent data storage
+   - Port: 5432
+   - Health checks enabled
+
+2. **Redis** (`redis:7-alpine`)
+   - Cache and session storage
+   - Port: 6379
+   - Persistence enabled with AOF (Append Only File)
+
+3. **Backend** (FastAPI)
+   - Python 3.11 application
+   - Port: 8000
+   - Hot-reloading with uvicorn
+   - Volume mounted for live code updates
+
+4. **Frontend** (React + Vite)
+   - Node.js 20 application
+   - Port: 5173
+   - HMR (Hot Module Replacement) enabled
+   - Volume mounted for live code updates
+
+5. **Nginx** (Reverse Proxy)
+   - Port: 80
+   - Routes requests to backend API and frontend
+   - WebSocket support for hot-reloading
+
+### Network Architecture
+
+```
+Client → Nginx (port 80)
+         ├─→ /api/* → Backend (port 8000) → PostgreSQL + Redis
+         └─→ /* → Frontend (port 5173)
+```
+
+### Environment Configuration
+
+Environment variables can be configured in `.env` file (copy from `.env.example`):
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit the file with your settings
+nano .env
+```
+
+Key environment variables:
+- `POSTGRES_*`: Database credentials
+- `BACKEND_PORT`: Backend service port (default: 8000)
+- `FRONTEND_PORT`: Frontend service port (default: 5173)
+- `NGINX_PORT`: Nginx reverse proxy port (default: 80)
+- `SECRET_KEY`: JWT secret key (change in production!)
+- `DEBUG`: Enable/disable debug mode
 
 ## 📚 Documentation
 
