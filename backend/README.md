@@ -34,19 +34,26 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Set Up PostgreSQL Database
+### 4. Set Up PostgreSQL Database and Redis
 
-Start the PostgreSQL database using Docker Compose (from the project root):
+Start the PostgreSQL database and Redis using Docker Compose (from the project root):
 
 ```bash
 cd ..
-docker compose up -d postgres
+docker compose up -d postgres redis
 ```
 
-Wait for PostgreSQL to fully start (about 10 seconds), then return to the backend directory:
+Wait for services to fully start (about 10 seconds), then return to the backend directory:
 
 ```bash
 cd backend
+```
+
+You can verify Redis is running:
+
+```bash
+docker exec stockcontrol_redis redis-cli ping
+# Should return: PONG
 ```
 
 ### 5. Configure Environment Variables
@@ -68,8 +75,8 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 # Database
 DATABASE_URL=postgresql://stockuser:stockpass@localhost:5432/stockcontrol
 
-# Redis (to be configured later)
-# REDIS_URL=redis://localhost:6379/0
+# Redis
+REDIS_URL=redis://localhost:6379/0
 
 # Security (change in production!)
 SECRET_KEY=your-secret-key-here
@@ -113,8 +120,29 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "redis": "connected"
 }
+```
+
+### Using Redis Cache Utilities
+
+The application includes built-in Redis caching utilities. Here's how to use them:
+
+```python
+from app.redis import get_cached, set_cached, invalidate_cache, invalidate_cache_pattern
+
+# Cache a value (expires in 3600 seconds)
+set_cached("user:123", {"name": "John", "role": "admin"}, expire=3600)
+
+# Retrieve cached value
+user_data = get_cached("user:123")
+
+# Invalidate a single cache entry
+invalidate_cache("user:123")
+
+# Invalidate all cache entries matching a pattern
+invalidate_cache_pattern("user:*")
 ```
 
 ## Project Structure
@@ -180,14 +208,14 @@ alembic history
 alembic current
 ```
 
-**Stopping PostgreSQL:**
-When you're done developing, stop the database:
+**Stopping Services:**
+When you're done developing, stop all services:
 
 ```bash
 docker compose down
 ```
 
-To remove the database volume (⚠️ this will delete all data):
+To remove all volumes (⚠️ this will delete all data):
 
 ```bash
 docker compose down -v
@@ -209,7 +237,7 @@ Each module should contain:
 ## Next Steps
 
 1. ✅ Set up database connection (Issue 1.3) - Complete
-2. Configure Redis for caching (Issue 1.4)
+2. ✅ Configure Redis for caching (Issue 1.4) - Complete
 3. Implement authentication module (Issue 2.x)
 4. Implement user management (Issue 2.x)
 5. Add additional feature modules
