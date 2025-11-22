@@ -9,13 +9,16 @@ from typing import Generator
 from .config import settings
 
 # Create SQLAlchemy engine with connection pooling
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_pre_ping=True,  # Verify connections before using
-    pool_size=10,  # Maximum number of permanent connections
-    max_overflow=20,  # Maximum number of overflow connections
-    echo=settings.DEBUG,  # Log SQL statements in debug mode
-) if settings.DATABASE_URL else None
+if settings.DATABASE_URL and settings.DATABASE_URL.strip():
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_size=10,  # Maximum number of permanent connections
+        max_overflow=20,  # Maximum number of overflow connections
+        echo=settings.DEBUG,  # Log SQL statements in debug mode
+    )
+else:
+    engine = None
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None

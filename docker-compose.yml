@@ -5,6 +5,8 @@ services:
     image: postgres:15
     container_name: stockcontrol_postgres
     environment:
+      # Development credentials - DO NOT use these in production!
+      # In production, use Docker secrets or environment variables
       POSTGRES_DB: stockcontrol
       POSTGRES_USER: stockuser
       POSTGRES_PASSWORD: stockpass
