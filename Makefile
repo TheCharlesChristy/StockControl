@@ -57,11 +57,8 @@ test:
 	@echo ""
 	@echo "Run 'docker compose exec backend pytest --cov=app' for coverage report"
 
-# Run database migrations (upgrade to latest)
-migrate:
-	@echo "Running database migrations..."
-	docker compose exec backend alembic upgrade head
-	@echo "Migrations complete!"
+# Run database migrations (alias for migrate-up)
+migrate: migrate-up
 
 # Create a new migration
 migrate-create:
