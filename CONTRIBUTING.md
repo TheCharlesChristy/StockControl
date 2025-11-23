@@ -157,16 +157,69 @@ export const UserProfile: React.FC<UserProps> = ({ userId, onUpdate }) => {
 - Test migrations both up and down
 - Include descriptive migration messages
 
+#### Migration Workflow
+
+**Creating a New Migration:**
 ```bash
-# Create migration
+# Make sure your models are imported in backend/alembic/env.py
+# Then create a migration with a descriptive message
+make migrate-create MSG="add user profile fields"
+
+# Or if not using Docker:
+cd backend
 alembic revision --autogenerate -m "add user profile fields"
-
-# Apply migration
-alembic upgrade head
-
-# Rollback migration
-alembic downgrade -1
 ```
+
+**Reviewing Generated Migrations:**
+1. Check the generated file in `backend/alembic/versions/`
+2. Review the `upgrade()` and `downgrade()` functions
+3. Verify that the changes match your model updates
+4. Edit if needed (autogenerate is helpful but not perfect)
+
+**Applying Migrations:**
+```bash
+# Apply all pending migrations
+make migrate-up
+
+# Or if not using Docker:
+cd backend
+alembic upgrade head
+```
+
+**Rolling Back Migrations:**
+```bash
+# Rollback the last migration
+make migrate-down
+
+# Or if not using Docker:
+cd backend
+alembic downgrade -1
+
+# Rollback to a specific revision
+cd backend
+alembic downgrade <revision_id>
+```
+
+**Viewing Migration History:**
+```bash
+# Show migration history
+make migrate-history
+
+# Or if not using Docker:
+cd backend
+alembic history --verbose
+
+# Show current revision
+cd backend
+alembic current
+```
+
+**Important Notes:**
+- Always test migrations in development before applying to production
+- Keep migrations small and focused on a single change
+- Ensure both `upgrade()` and `downgrade()` work correctly
+- Alembic autogenerate may miss some changes (e.g., column renames, table renames)
+- Review and test all generated migrations before committing
 
 ## Testing Guidelines
 
