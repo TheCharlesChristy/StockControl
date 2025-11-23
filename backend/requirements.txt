@@ -20,7 +20,7 @@ python-multipart==0.0.18
 redis==5.0.1
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.1
 
 # Testing & Linting (Development)
 pytest==9.0.1
