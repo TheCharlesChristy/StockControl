@@ -15,7 +15,7 @@
     "axios": "^1.13.2",
     "konva": "^10.0.12",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.2.1",
     "react-konva": "^19.2.0",
     "react-router-dom": "^7.9.6"
   },
