@@ -3,7 +3,7 @@ fastapi==0.121.3
 uvicorn[standard]==0.38.0
 
 # Database
-sqlalchemy==2.0.44
+sqlalchemy==2.0.45
 alembic==1.12.1
 psycopg2-binary==2.9.9
 
