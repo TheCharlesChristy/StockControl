@@ -4,9 +4,11 @@ import type { FastifyReply } from "fastify";
 import type { LivenessResponse, ReadinessResponse, VersionResponse } from "@stockcontrol/contracts";
 import type { GetLiveness, GetReadiness, GetVersion } from "@stockcontrol/module-system";
 
+import { Public } from "../auth/public.decorator";
 import { SYSTEM_TOKENS } from "./system.tokens";
 
 @Controller()
+@Public()
 export class SystemController {
   public constructor(
     @Inject(SYSTEM_TOKENS.getLiveness)

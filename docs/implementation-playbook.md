@@ -44,7 +44,7 @@ but outside this scope.
 
 ## 3. Work packets
 
-Packets **D1, D2 and D3 are done**. D4 is next.
+Packets **D1 through D5 are done**. D6 is next.
 
 ### D1 — Trim the tree ✅
 
@@ -94,22 +94,33 @@ Two behaviours worth knowing before building on it:
   stock-level change writes exactly one transaction; these two additionally appear in the log so it
   accounts for the whole demo.
 
-### D4 — Auth
+### D4 — Auth ✅
 
 **Outcome:** sign in, sign out, session cookie, role checks.
 
-Password hashing from a maintained library, database-backed sessions, an auth guard that resolves
-the session to a user and role, and a permission check helper driven by the static role map from
-requirements section 5. No MFA, no invitations, no email.
+scrypt from Node's standard library, database-backed sessions, and a guard registered globally so a
+new route is authenticated by default — opting out needs an explicit `@Public()`, which is visible
+in review. Health endpoints are the only public routes besides the three auth ones.
 
-### D5 — API
+The role→capability map lives in `packages/contracts/src/permissions.ts` and is nine capabilities
+wide. `requireCapability` is the single authorisation gate; every state-changing handler calls it
+first.
+
+### D5 — API ✅
 
 **Outcome:** every endpoint the screens need, under `/api/v1`, with role enforcement and integration
 tests against a real database.
 
-Items, locations, stock operations, jobs, reservations, transactions, users. JSON in and out, ISO
-timestamps, consistent error shape — a plain `{ error: { code, message } }` is fine; RFC 9457
-Problem Details is not required. Include the concurrent-double-collection test here.
+Items, locations, the seven stock operations, jobs, reservations, transactions, users, dashboard.
+Errors reuse the existing Problem Details vocabulary rather than inventing a second one; stock
+refusals are 422 with a `stock.<rule>` code carrying the engine's message.
+
+Two things worth knowing before extending it:
+
+- **Request bodies are read as `unknown` and narrowed**, not trusted as their contract type.
+  Controllers validate and hand services already-checked values.
+- **Locks are taken reservation-first, then stock levels in id order.** Keep that order in any new
+  command or two of them will deadlock.
 
 ### D6 — Inventory screens
 

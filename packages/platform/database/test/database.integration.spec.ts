@@ -7,6 +7,7 @@ import {
   loadRuntimeDatabaseConfiguration,
 } from "../src/configuration";
 import { createMigratorDatabase, createRuntimeDatabase } from "../src/connection";
+import { MIGRATION_NAMES } from "../src/migrations/provider";
 import { runMigrations } from "../src/migrations/runner";
 import { PostgresReadinessCheck } from "../src/readiness";
 import { STOCKCONTROL_SCHEMA, type StockControlDatabase } from "../src/schema";
@@ -95,8 +96,53 @@ describe.sequential("PostgreSQL database foundation", () => {
     expect(result.results).toEqual([]);
   });
 
-  it("installs the foundation migration in deterministic order", () => {
-    expect(initialMigrationNames).toEqual(["0001_foundation"]);
+  it("has every canonical migration recorded, in order", async () => {
+    expect(migratorDatabase).toBeDefined();
+
+    /*
+     * Asserted against what the database holds rather than what this run
+     * applied, so the check is true whether the database was already migrated
+     * or migrated by this suite.
+     */
+    const recorded = await (migratorDatabase as Kysely<StockControlDatabase>)
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("migration_integrity")
+      .select("migration_name")
+      .orderBy("migration_version")
+      .execute();
+
+    expect(recorded.map(({ migration_name }) => migration_name)).toEqual([...MIGRATION_NAMES]);
+    expect(initialMigrationNames.every((name) => MIGRATION_NAMES.includes(name as never))).toBe(
+      true,
+    );
+  });
+
+  it("creates the stock tables the demo runs on", async () => {
+    expect(migratorDatabase).toBeDefined();
+
+    const tables = await (
+      migratorDatabase as Kysely<StockControlDatabase>
+    ).introspection.getTables();
+
+    expect(
+      tables
+        .filter(({ schema }) => schema === STOCKCONTROL_SCHEMA)
+        .map(({ name }) => name)
+        .sort(),
+    ).toEqual(
+      [
+        "items",
+        "jobs",
+        "locations",
+        "migration_integrity",
+        "reservations",
+        "sessions",
+        "stock_levels",
+        "system_metadata",
+        "transactions",
+        "users",
+      ].sort(),
+    );
   });
 
   it("does not permit the runtime role to create or drop schema objects", async () => {

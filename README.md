@@ -14,10 +14,11 @@ preserved in [`docs/archive/`](docs/archive/README.md) for when scope is added b
 - What was removed and what remains optional:
   [`docs/demo-mvp-removal-candidates.md`](docs/demo-mvp-removal-candidates.md).
 
-Packets D2 (schema and seed) and D3 (stock engine) are done. What exists today is the runtime
-foundation, the full stock schema, a seeded demo dataset, and the stock rules from requirements
-section 3 with their tests. Authentication, API routes, and the real screens are packets D4 onwards,
-so the web shell still shows placeholder sections.
+Packets D2 to D5 are done: the stock schema, a seeded demo dataset, the stock engine, password
+authentication, and the full `/api/v1` surface with role enforcement. The API is complete enough to
+drive the whole demo from a terminal.
+
+The web screens are packets D6 to D8, so the browser shell still shows placeholder sections.
 
 ## Prerequisites
 

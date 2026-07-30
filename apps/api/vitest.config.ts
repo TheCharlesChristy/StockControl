@@ -25,6 +25,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.spec.ts"],
+    /* Real-database suites run from vitest.integration.config.ts. */
+    exclude: ["test/**/*.db.spec.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
