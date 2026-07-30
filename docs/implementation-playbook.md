@@ -44,7 +44,9 @@ but outside this scope.
 
 ## 3. Work packets
 
-### D1 — Trim the tree
+Packets **D1, D2 and D3 are done**. D4 is next.
+
+### D1 — Trim the tree ✅
 
 **Outcome:** the repository contains only what the demo needs, and `pnpm install && pnpm quality`
 passes.
@@ -57,27 +59,40 @@ you always know which deletion broke what.
 
 Do not start D2 until the tree is quiet.
 
-### D2 — Database and seed
+### D2 — Database and seed ✅
 
 **Outcome:** `docker compose up -d && pnpm db:migrate && pnpm db:seed` produces a populated demo
-database.
+database. Verified end to end against PostgreSQL; both commands are safe to re-run.
 
-- Compose file with one Postgres service and one role.
-- One migration creating: `users`, `sessions`, `items`, `locations`, `stock_levels`, `jobs`,
+- `0002_stock` creates `users`, `sessions`, `items`, `locations`, `stock_levels`, `jobs`,
   `reservations`, `transactions`.
-- `stock_levels` has a unique constraint on (item, location) and a check that quantity >= 0. The
-  check is the last line of defence behind the application rule, not a substitute for it.
-- `transactions` has no update or delete path in application code.
-- Seed script per requirements section 8.
+- `stock_levels` is unique on (item, location) and checks quantity >= 0. The check is the last line
+  of defence behind the application rule, not a substitute for it.
+- `transactions` is append-only: the runtime role is granted select and insert only, so an attempted
+  update or delete fails loudly rather than silently doing nothing. No rule or trigger is used.
+- `RUNTIME_TABLE_PRIVILEGES` in `runner.ts` is exhaustive over the schema type, so a new table
+  without a reviewed privilege entry is a compile error.
+- The seed builds its dataset by running the D3 engine, so every seeded balance is explained by the
+  transactions beside it. `test/seed/simulate.spec.ts` proves that by replaying the log.
 
-### D3 — Stock engine
+### D3 — Stock engine ✅
 
 **Outcome:** unit-tested functions for every operation in requirements section 4, with no HTTP or
 database framework in the tests.
 
-Availability arithmetic, the seven operations, the negative-stock and over-reservation rejections,
-partial and repeated collection. This packet is where the demo's credibility lives — the tests here
-matter more than anywhere else in the build.
+Lives in `apps/api/src/stock/`, framework-free, decide-don't-perform: each operation returns the
+exact effects to apply in one transaction, or a typed refusal. `quantity.ts` holds quantities as
+integer thousandths so fractional arithmetic is exact.
+
+Two behaviours worth knowing before building on it:
+
+- **Available may go negative.** Issuing is checked against what is physically at a location, not
+  against availability, so stock already committed to a job can still be issued. The result is a
+  visible shortfall rather than a silent refusal. New reservations are refused while available is at
+  or below zero.
+- **Reserve and release write transactions despite moving nothing.** The invariant is that every
+  stock-level change writes exactly one transaction; these two additionally appear in the log so it
+  accounts for the whole demo.
 
 ### D4 — Auth
 

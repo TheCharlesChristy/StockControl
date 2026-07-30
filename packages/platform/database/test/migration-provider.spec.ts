@@ -28,9 +28,21 @@ describe("StockControlMigrationProvider", () => {
     for (const [name, descriptor] of Object.entries(MIGRATION_INTEGRITY_MANIFEST)) {
       expect(descriptor).toEqual({
         name,
-        version: 1,
+        version: Number(name.slice(0, 4)),
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       });
     }
+  });
+
+  it("numbers migrations from one, in order, with no gaps", () => {
+    expect(MIGRATION_NAMES.map((name) => Number(name.slice(0, 4)))).toEqual(
+      MIGRATION_NAMES.map((_, index) => index + 1),
+    );
+  });
+
+  it("gives every migration a distinct checksum", () => {
+    const checksums = Object.values(MIGRATION_INTEGRITY_MANIFEST).map(({ checksum }) => checksum);
+
+    expect(new Set(checksums).size).toBe(checksums.length);
   });
 });

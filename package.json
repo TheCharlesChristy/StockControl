@@ -15,6 +15,7 @@
     "build:web": "pnpm --filter @stockcontrol/web build",
     "clean": "tsc -b tsconfig.build.json --clean && pnpm -r --if-present clean",
     "db:migrate": "pnpm --filter @stockcontrol/platform-database migrate",
+    "db:seed": "pnpm --filter @stockcontrol/api seed",
     "dev": "pnpm -r --parallel --if-present dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

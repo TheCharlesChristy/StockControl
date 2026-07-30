@@ -14,8 +14,16 @@ export type DatabaseRuntimePrivilege = "select" | "insert" | "update" | "delete"
  * not make it runtime-accessible until its minimum privileges are reviewed here.
  */
 export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
+  items: ["select", "insert", "update"],
+  jobs: ["select", "insert", "update"],
+  locations: ["select", "insert", "update"],
   migration_integrity: [],
+  reservations: ["select", "insert", "update"],
+  sessions: ["select", "insert", "delete"],
+  stock_levels: ["select", "insert", "update"],
   system_metadata: ["select", "insert", "update", "delete"],
+  transactions: ["select", "insert"],
+  users: ["select", "insert", "update"],
 } as const satisfies Readonly<
   Record<keyof StockControlDatabase, readonly DatabaseRuntimePrivilege[]>
 >);

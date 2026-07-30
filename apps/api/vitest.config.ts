@@ -29,7 +29,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/main.ts"],
+      // Process entry points: argument-free scripts whose logic lives elsewhere
+      // (the seed's simulation is covered through src/seed/simulate.ts).
+      exclude: ["src/main.ts", "src/seed/seed.ts"],
       thresholds: {
         branches: 80,
         functions: 80,
