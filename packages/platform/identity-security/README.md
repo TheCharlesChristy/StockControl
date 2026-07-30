@@ -102,6 +102,69 @@ All HTTP responses containing a raw token, recovery code, TOTP secret, provision
 
 Apply this policy before executing authenticated mutations, then verify the signed CSRF token. It supplements—not replaces—TLS, restrictive CORS, CSP, secure cookies, authentication, authorization, and input validation. Configure exact origins such as `https://stock.example`; paths, trailing slashes, credentials, wildcards, and sibling subdomains are rejected.
 
+## Delivery secret envelopes
+
+`DeliverySecretEnvelopeService` seals an invitation or password-reset link so
+it can cross a durable job boundary without ever being persisted in plaintext.
+The locked version-1 envelope uses AES-256-GCM with an exact 32-byte key, a
+fresh 12-byte nonce, and a 16-byte authentication tag, and accepts a secret of
+1 to 512 UTF-8 bytes.
+
+Additional authenticated data covers, length-delimited, the envelope purpose
+constant, the envelope version, the key ID, the delivery purpose, the job ID,
+the recipient user ID, the recipient email, the token record ID, the
+installation ID, and the expiry instant. A sealed secret therefore cannot be
+replayed under another purpose, job, recipient, token record, installation, or
+expiry.
+
+`keyId` and `expiresAt` are external, non-secret fields so a maintenance job
+can select rows for re-encryption or deletion without opening them, and both
+are authenticated. `open` refuses an expired envelope before attempting
+decryption. A retained rotation key returns `needsReencrypt: true`; re-encrypt
+under the active key before retiring the old one, and use the identity module's
+`deliveryKeyIdsInUse` to prove no unexpired envelope still needs it. Every
+failure — expired, tampered, wrongly bound, corrupt, unknown key, unsupported
+version — is the same `InvalidDeliverySecretEnvelopeError`.
+
+## Identity port adapters
+
+`identity-ports.ts` binds these primitives to
+`@stockcontrol/module-identity`'s application ports. The adapters are thin
+translations: they convert branded digests at the persistence boundary, bind
+the installation's TOTP issuer, and map the module's validated delivery binding
+onto the envelope. No authentication rule lives in this package.
+
+## Production composition
+
+`loadIdentitySecurityConfiguration` reads and validates the deployment
+environment, and `createIdentitySecurityAdapters` builds the production
+adapters from it.
+
+| Variable                                   | Purpose                                           |
+| ------------------------------------------ | ------------------------------------------------- |
+| `IDENTITY_INSTALLATION_ID`                 | Stable non-secret installation identity           |
+| `IDENTITY_INSTALLATION_NAME`               | Customer name used as the TOTP issuer             |
+| `IDENTITY_PUBLIC_BASE_URL`                 | HTTPS origin used to build invitation/reset links |
+| `IDENTITY_DUMMY_PASSWORD_HASH`             | Deployment-generated unknown-account hash         |
+| `IDENTITY_TOTP_ENCRYPTION_ACTIVE_KEY_ID`   | Active TOTP secret encryption key                 |
+| `IDENTITY_TOTP_ENCRYPTION_KEYS`            | `keyId:base64url` entries, 32 bytes each          |
+| `IDENTITY_DELIVERY_ENVELOPE_ACTIVE_KEY_ID` | Active delivery envelope key                      |
+| `IDENTITY_DELIVERY_ENVELOPE_KEYS`          | `keyId:base64url` entries, 32 bytes each          |
+| `IDENTITY_AUDIT_INTEGRITY_ACTIVE_KEY_ID`   | Active audit integrity key                        |
+| `IDENTITY_AUDIT_INTEGRITY_KEYS`            | `keyId:base64url` entries, 32-128 bytes each      |
+| `IDENTITY_DELIVERY_ENVELOPE_TTL_SECONDS`   | Optional envelope lifetime, 60-86,400 seconds     |
+
+Startup fails when a value is missing, a key ID is unsafe or duplicated, key
+material is not canonical base64url or is the wrong length, or the named active
+key is absent from its keyring. No configuration error contains key material, a
+hash, or any other secret value; only variable names and key identifiers
+appear.
+
+Substituted clock, random-source, or Argon2 adapters are rejected outright in a
+production environment, and an adapter carrying the identity module's
+deterministic-test marker is accepted only when `NODE_ENV` is `test`. The
+composed bundle is re-checked for marked adapters before it is returned.
+
 ## Operational rules
 
 - Secret-bearing issuance objects are the only APIs that return newly generated raw secrets. Treat them as write-only/display-once values.

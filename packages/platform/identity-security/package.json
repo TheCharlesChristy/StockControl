@@ -27,6 +27,9 @@
     "test:unit": "vitest run --configLoader runner",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@stockcontrol/module-identity": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@vitest/coverage-v8": "catalog:",

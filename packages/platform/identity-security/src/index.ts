@@ -7,6 +7,44 @@ export {
   type AuditIntegrityValue,
 } from "./audit-integrity.js";
 export {
+  ConfiguredDummyPasswordHash,
+  IdentityDeliverySecretEnvelopeAdapter,
+  IdentityRecoveryCodeServiceAdapter,
+  IdentityTokenServiceRegistry,
+  IdentityTotpSecretCipherAdapter,
+  InstallationTotpService,
+  NodeUuidGenerator,
+} from "./identity-ports.js";
+export {
+  createIdentitySecurityAdapters,
+  loadIdentitySecurityConfiguration,
+  DEFAULT_DELIVERY_ENVELOPE_TTL_SECONDS,
+  IdentitySecurityConfigurationError,
+  MAXIMUM_AUDIT_INTEGRITY_KEY_BYTES,
+  MINIMUM_AUDIT_INTEGRITY_KEY_BYTES,
+  type IdentityKeyMaterial,
+  type IdentityKeyring,
+  type IdentitySecurityAdapterOverrides,
+  type IdentitySecurityAdapters,
+  type IdentitySecurityConfiguration,
+  type IdentitySecurityConfigurationErrorCode,
+  type IdentitySecurityEnvironment,
+} from "./composition.js";
+export {
+  DeliverySecretEnvelopeService,
+  DELIVERY_SECRET_ENVELOPE_AUTH_TAG_BYTES,
+  DELIVERY_SECRET_ENVELOPE_KEY_BYTES,
+  DELIVERY_SECRET_ENVELOPE_NONCE_BYTES,
+  DELIVERY_SECRET_ENVELOPE_VERSION,
+  InvalidDeliverySecretEnvelopeError,
+  MAX_DELIVERY_SECRET_BYTES,
+  type DeliverySecretBinding,
+  type DeliverySecretEnvelope,
+  type DeliverySecretKeyInput,
+  type DeliverySecretKeyringInput,
+  type OpenedDeliverySecret,
+} from "./delivery-secret-envelope.js";
+export {
   BrowserRequestPolicy,
   type BrowserRequestMetadata,
   type BrowserRequestPolicyDecision,
@@ -30,6 +68,7 @@ export {
 } from "./node-adapters.js";
 export {
   InvalidPasswordHashError,
+  isSupportedPasswordHash,
   MAX_PASSWORD_BYTES,
   PASSWORD_HASH_POLICY,
   PasswordHashingService,
