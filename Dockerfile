@@ -6,6 +6,11 @@ ARG PNPM_VERSION=11.9.0
 ARG APP_VERSION=0.0.0-dev
 ARG BUILD_TIMESTAMP=unknown
 ARG GIT_SHA=unknown
+# Railway deploys each runtime as a separate service from this single
+# multi-stage image. The service supplies RUNTIME_TARGET as a build-time
+# variable (api, worker, or web); the default keeps local Docker builds
+# backwards-compatible with the web image.
+ARG RUNTIME_TARGET=web
 
 FROM ${NODE_IMAGE} AS build
 
@@ -111,9 +116,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=5 \
 
 CMD ["nginx", "-g", "daemon off;"]
 
-# Railway deploys each runtime as a separate service from this single
-# multi-stage image. The service supplies RUNTIME_TARGET as a build-time
-# variable (api, worker, or web); the default keeps local Docker builds
-# backwards-compatible with the web image.
-ARG RUNTIME_TARGET=web
 FROM ${RUNTIME_TARGET} AS runtime

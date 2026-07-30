@@ -149,6 +149,19 @@ const usesCurrentPolicy = (parsed: ParsedPasswordHash): boolean =>
   parsed.salt.length === PASSWORD_HASH_POLICY.saltLength &&
   parsed.tagLength === PASSWORD_HASH_POLICY.tagLength;
 
+/**
+ * Reports whether a persisted value parses as a supported Argon2id encoding.
+ * Composition uses it to reject a mis-provisioned dummy hash at startup.
+ */
+export const isSupportedPasswordHash = (encoded: string): boolean => {
+  try {
+    parsePasswordHash(encoded);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export class PasswordHashingService {
   public constructor(
     private readonly randomSource: RandomSource,
