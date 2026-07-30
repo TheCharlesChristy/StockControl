@@ -1,0 +1,27 @@
+stockcontrol_domain: "stock.example.invalid"
+stockcontrol_environment: "production"
+stockcontrol_aws_region: "eu-west-2"
+stockcontrol_documents_bucket: "replace-with-terraform-output"
+stockcontrol_backups_bucket: "replace-with-terraform-output"
+
+# Keep false for ordinary deployments. Set true for one controlled playbook
+# run only after completing docs/operations/database-credentials.md and proving
+# all four live PostgreSQL roles accept the new credentials.
+stockcontrol_acknowledge_database_passwords_rotated: false
+
+# Every deployed image is an immutable digest. Build the three application
+# targets from the repository Dockerfile and replace all placeholders with
+# registry-qualified, approved sha256 digests.
+stockcontrol_api_image: "ghcr.io/example/stockcontrol-api@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+stockcontrol_worker_image: "ghcr.io/example/stockcontrol-worker@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+stockcontrol_web_image: "ghcr.io/example/stockcontrol-web@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+stockcontrol_caddy_image: "caddy@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+stockcontrol_postgres_image: "postgres@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+
+# Passed directly to the dedicated migrator container without shell parsing.
+stockcontrol_migration_argv:
+  - "node"
+  - "packages/platform/database/dist/migrate.js"
+
+# Secret values named vault_* belong in an encrypted Ansible Vault file that is
+# never committed. See vault.example.yml for the required variable names.

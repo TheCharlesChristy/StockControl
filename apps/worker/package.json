@@ -1,0 +1,32 @@
+{
+  "name": "@stockcontrol/worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "tsc -b tsconfig.build.json --clean",
+    "dev": "pnpm start:dev",
+    "start": "node dist/main.js",
+    "start:dev": "node --env-file-if-exists=../../.env --import tsx --watch src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --configLoader runner",
+    "test:unit": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --configLoader runner"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@stockcontrol/contracts": "workspace:*",
+    "@stockcontrol/module-system": "workspace:*",
+    "@stockcontrol/platform": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@vitest/coverage-v8": "catalog:",
+    "tsx": "^4.23.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,24 @@
+packages:
+  - apps/*
+  - packages/*
+  - packages/modules/*
+  - packages/platform/*
+
+allowBuilds:
+  "@nestjs/core": false
+  "@scarf/scarf": false
+  esbuild: true
+
+catalog:
+  "@vitest/coverage-v8": ^4.1.10
+  typescript: ^5.9.3
+  vitest: ^4.1.10
+
+minimumReleaseAgeExclude:
+  - jsdom@30.0.1
+
+overrides:
+  "@remix-run/router": 1.23.2
+  "@nestjs/platform-fastify@11.1.28>find-my-way": 9.7.0
+
+strictPeerDependencies: true

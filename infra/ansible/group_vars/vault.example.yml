@@ -1,0 +1,14 @@
+# Variable names only. Create a separate encrypted Ansible Vault file and supply
+# real values interactively or from the approved vendor secret store.
+vault_database_admin_password: "REPLACE_OUTSIDE_GIT"
+vault_database_migrator_password: "REPLACE_OUTSIDE_GIT"
+vault_database_runtime_password: "REPLACE_OUTSIDE_GIT"
+vault_database_backup_password: "REPLACE_OUTSIDE_GIT"
+# Exactly 32 random bytes, encoded as canonical unpadded base64url (43
+# characters). Generate the two values independently.
+vault_session_secret: "REPLACE_WITH_43_CHARACTER_BASE64URL"
+vault_field_encryption_key: "REPLACE_WITH_DIFFERENT_43_CHARACTER_BASE64URL"
+vault_documents_aws_access_key_id: "REPLACE_OUTSIDE_GIT"
+vault_documents_aws_secret_access_key: "REPLACE_OUTSIDE_GIT"
+vault_backup_aws_access_key_id: "REPLACE_OUTSIDE_GIT"
+vault_backup_aws_secret_access_key: "REPLACE_OUTSIDE_GIT"

@@ -1,0 +1,320 @@
+name: containers and infrastructure
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: "postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+        env:
+          POSTGRES_DB: stockcontrol_container_test
+          POSTGRES_PASSWORD: stockcontrol_admin_container_test
+          POSTGRES_USER: stockcontrol_admin
+        options: >-
+          --health-cmd "pg_isready -U stockcontrol_admin -d stockcontrol_container_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out the release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build all immutable runtime targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_timestamp="$(git show --no-show-signature --format=%cI -s "${GITHUB_SHA}")"
+          common_args=(
+            --build-arg "APP_VERSION=ci-${GITHUB_SHA::12}"
+            --build-arg "BUILD_TIMESTAMP=${build_timestamp}"
+            --build-arg "GIT_SHA=${GITHUB_SHA}"
+            --pull
+          )
+          docker build "${common_args[@]}" --target api --tag stockcontrol-api:ci .
+          docker build "${common_args[@]}" --target worker --tag stockcontrol-worker:ci .
+          docker build "${common_args[@]}" --target web --tag stockcontrol-web:ci .
+
+      - name: Reject application source, tests, and build tooling in runtime images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node stockcontrol-api:ci -e "
+            const fs = require('node:fs');
+            const forbidden = [
+              '/app/src',
+              '/app/test',
+              '/app/coverage',
+              '/app/tsconfig.json',
+              '/app/vitest.config.ts',
+              '/app/node_modules/.bin/typescript',
+              '/app/node_modules/.bin/vitest',
+            ];
+            if (forbidden.some((path) => fs.existsSync(path))) process.exit(1);
+            if (!fs.existsSync('/app/apps/api/dist/main.js')) process.exit(1);
+            if (!fs.existsSync('/app/packages/platform/database/dist/migrate.js')) process.exit(1);
+          "
+          docker run --rm --entrypoint node stockcontrol-worker:ci -e "
+            const fs = require('node:fs');
+            const forbidden = [
+              '/app/src',
+              '/app/test',
+              '/app/coverage',
+              '/app/tsconfig.json',
+              '/app/vitest.config.ts',
+              '/app/node_modules/.bin/typescript',
+              '/app/node_modules/.bin/vitest',
+            ];
+            if (forbidden.some((path) => fs.existsSync(path))) process.exit(1);
+            if (!fs.existsSync('/app/apps/worker/dist/main.js')) process.exit(1);
+          "
+          docker run --rm --entrypoint sh stockcontrol-web:ci -ec \
+            'test ! -e /workspace && test ! -e /usr/share/nginx/html/src && test -f /usr/share/nginx/html/index.html'
+
+      - name: Exercise migration and service health contracts
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          network=stockcontrol-container-contract
+          containers=(stockcontrol-ci-api stockcontrol-ci-worker stockcontrol-ci-web)
+
+          cleanup() {
+            docker rm --force "${containers[@]}" >/dev/null 2>&1 || true
+            docker network disconnect "${network}" "${POSTGRES_CONTAINER_ID}" >/dev/null 2>&1 || true
+            docker network rm "${network}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          wait_for_health() {
+            local container="$1"
+            for _ in $(seq 1 60); do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "${container}")"
+              case "${status}" in
+                healthy)
+                  return 0
+                  ;;
+                unhealthy)
+                  docker logs "${container}"
+                  return 1
+                  ;;
+              esac
+              sleep 2
+            done
+            docker logs "${container}"
+            return 1
+          }
+
+          docker network create "${network}"
+          docker network connect --alias postgres "${network}" "${POSTGRES_CONTAINER_ID}"
+
+          docker exec "${POSTGRES_CONTAINER_ID}" \
+            psql -v ON_ERROR_STOP=1 \
+            -U stockcontrol_admin \
+            -d stockcontrol_container_test \
+            -c "CREATE ROLE stockcontrol_migrator LOGIN PASSWORD 'stockcontrol_migrator_container_test' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; CREATE ROLE stockcontrol_app LOGIN PASSWORD 'stockcontrol_app_container_test' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; ALTER DATABASE stockcontrol_container_test OWNER TO stockcontrol_migrator; REVOKE ALL ON DATABASE stockcontrol_container_test FROM PUBLIC; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT CONNECT ON DATABASE stockcontrol_container_test TO stockcontrol_app;"
+
+          docker run --rm \
+            --network "${network}" \
+            --env DATABASE_MIGRATOR_URL=postgresql://stockcontrol_migrator:stockcontrol_migrator_container_test@postgres:5432/stockcontrol_container_test \
+            --env DATABASE_RUNTIME_ROLE=stockcontrol_app \
+            stockcontrol-api:ci \
+            node packages/platform/database/dist/migrate.js
+
+          if docker exec \
+            --env PGPASSWORD=stockcontrol_app_container_test \
+            "${POSTGRES_CONTAINER_ID}" \
+            psql -v ON_ERROR_STOP=1 \
+            --host 127.0.0.1 \
+            --username stockcontrol_app \
+            --dbname stockcontrol_container_test \
+            -c "CREATE TABLE stockcontrol.runtime_must_not_create_schema_objects (id integer);"
+          then
+            echo "Runtime role unexpectedly created a schema object."
+            exit 1
+          fi
+
+          session_secret="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+          field_key="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+
+          docker run --detach \
+            --name stockcontrol-ci-api \
+            --network "${network}" \
+            --read-only \
+            --tmpfs /tmp \
+            --env APP_VERSION=container-contract \
+            --env DATABASE_URL=postgresql://stockcontrol_app:stockcontrol_app_container_test@postgres:5432/stockcontrol_container_test \
+            --env FIELD_ENCRYPTION_KEY="${field_key}" \
+            --env GIT_SHA="${GITHUB_SHA}" \
+            --env SESSION_SECRET="${session_secret}" \
+            --publish 127.0.0.1:3000:3000 \
+            stockcontrol-api:ci
+
+          docker run --detach \
+            --name stockcontrol-ci-worker \
+            --network "${network}" \
+            --read-only \
+            --tmpfs /tmp \
+            --env APP_VERSION=container-contract \
+            --env DATABASE_URL=postgresql://stockcontrol_app:stockcontrol_app_container_test@postgres:5432/stockcontrol_container_test \
+            --env FIELD_ENCRYPTION_KEY="${field_key}" \
+            --env GIT_SHA="${GITHUB_SHA}" \
+            --env SESSION_SECRET="${session_secret}" \
+            stockcontrol-worker:ci
+
+          docker run --detach \
+            --name stockcontrol-ci-web \
+            --publish 127.0.0.1:8080:8080 \
+            stockcontrol-web:ci
+
+          wait_for_health stockcontrol-ci-api
+          wait_for_health stockcontrol-ci-worker
+          wait_for_health stockcontrol-ci-web
+
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/v1/health/ready \
+            | grep --fixed-strings '"status":"ready"'
+          curl --fail --silent --show-error http://127.0.0.1:8080/health \
+            | grep --fixed-strings 'ok'
+          docker exec stockcontrol-ci-worker node -e "
+            fetch('http://127.0.0.1:3001/health/ready')
+              .then(async (response) => {
+                const body = await response.json();
+                if (!response.ok || body.status !== 'ready') process.exit(1);
+              })
+              .catch(() => process.exit(1));
+          "
+
+      - name: Generate source SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          artifact-name: stockcontrol-source.spdx.json
+          output-file: stockcontrol-source.spdx.json
+          upload-artifact-retention: 14
+          upload-release-assets: false
+
+      - name: Generate API image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: stockcontrol-api:ci
+          artifact-name: stockcontrol-api.spdx.json
+          output-file: stockcontrol-api.spdx.json
+          upload-artifact-retention: 14
+          upload-release-assets: false
+
+      - name: Generate worker image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: stockcontrol-worker:ci
+          artifact-name: stockcontrol-worker.spdx.json
+          output-file: stockcontrol-worker.spdx.json
+          upload-artifact-retention: 14
+          upload-release-assets: false
+
+      - name: Generate web image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: stockcontrol-web:ci
+          artifact-name: stockcontrol-web.spdx.json
+          output-file: stockcontrol-web.spdx.json
+          upload-artifact-retention: 14
+          upload-release-assets: false
+
+      - name: Scan source and infrastructure
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: stockcontrol-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Scan worker image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: stockcontrol-worker:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Scan web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: stockcontrol-web:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANSIBLE_CONFIG: infra/ansible/ansible.cfg
+
+    steps:
+      - name: Check out the release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install exact Terraform release
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.5
+          terraform_wrapper: false
+
+      - name: Validate locked Terraform configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive infra/terraform
+          terraform -chdir=infra/terraform init -backend=false -lockfile=readonly
+          terraform -chdir=infra/terraform validate
+
+      - name: Install exact Ansible validation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/stockcontrol-ansible"
+          "${RUNNER_TEMP}/stockcontrol-ansible/bin/python" -m pip install \
+            --disable-pip-version-check \
+            ansible-core==2.21.2 \
+            ansible-lint==26.6.0
+          echo "${RUNNER_TEMP}/stockcontrol-ansible/bin" >> "${GITHUB_PATH}"
+
+      - name: Install locked Ansible collection
+        run: ansible-galaxy collection install --requirements-file infra/ansible/requirements.yml
+
+      - name: Validate Ansible playbook and templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          ansible-playbook \
+            --inventory infra/ansible/inventory/hosts.example.yml \
+            --syntax-check \
+            infra/ansible/site.yml
+          ansible-lint infra/ansible

@@ -1,0 +1,34 @@
+# Dependencies and generated output
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.turbo/
+
+# Test output
+playwright-report/
+test-results/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+infra/ansible/group_vars/vault.yml
+infra/ansible/inventory/hosts.yml
+infra/ansible/**/*.vault.yml
+
+# Local service data
+.local-data/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/

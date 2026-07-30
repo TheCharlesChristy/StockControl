@@ -1,0 +1,5 @@
+group_vars/stockcontrol.yml
+group_vars/vault.yml
+inventory/hosts.yml
+*.retry
+

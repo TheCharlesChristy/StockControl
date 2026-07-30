@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+. /etc/stockcontrol/backup.env
+
+umask 077
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+working_directory="$(mktemp -d /var/backups/stockcontrol/backup.XXXXXX)"
+database_file="${working_directory}/postgres.dump"
+manifest_file="${working_directory}/manifest.txt"
+
+cleanup() {
+  rm -rf -- "${working_directory}"
+}
+trap cleanup EXIT INT TERM
+
+cd /opt/stockcontrol
+docker compose -f compose.yml exec -T postgres \
+  sh -ec 'PGPASSWORD="${STOCKCONTROL_BACKUP_PASSWORD}" exec pg_dump \
+    --host=127.0.0.1 --format=custom --no-owner --no-privileges \
+    --username="${1}" "${2}"' backup "${POSTGRES_USER}" "${POSTGRES_DB}" \
+  > "${database_file}"
+
+sha256sum "${database_file}" > "${manifest_file}"
+docker compose -f compose.yml images --format json >> "${manifest_file}"
+
+aws s3 cp "${database_file}" \
+  "s3://${BACKUPS_BUCKET}/daily/${timestamp}/postgres.dump" \
+  --sse AES256 --only-show-errors
+aws s3 cp "${manifest_file}" \
+  "s3://${BACKUPS_BUCKET}/daily/${timestamp}/manifest.txt" \
+  --sse AES256 --only-show-errors

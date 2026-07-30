@@ -1,0 +1,306 @@
+---
+- name: Configure a StockControl customer installation
+  hosts: stockcontrol
+  become: true
+
+  pre_tasks:
+    - name: Require customer-specific deployment inputs
+      ansible.builtin.assert:
+        that:
+          - stockcontrol_domain is defined
+          - stockcontrol_api_image is defined
+          - stockcontrol_api_image | regex_search('@sha256:[0-9a-f]{64}$') is not none
+          - stockcontrol_worker_image is defined
+          - stockcontrol_worker_image | regex_search('@sha256:[0-9a-f]{64}$') is not none
+          - stockcontrol_web_image is defined
+          - stockcontrol_web_image | regex_search('@sha256:[0-9a-f]{64}$') is not none
+          - stockcontrol_caddy_image is defined
+          - stockcontrol_caddy_image | regex_search('@sha256:[0-9a-f]{64}$') is not none
+          - stockcontrol_postgres_image is defined
+          - stockcontrol_postgres_image | regex_search('@sha256:[0-9a-f]{64}$') is not none
+          - stockcontrol_documents_bucket is defined
+          - stockcontrol_backups_bucket is defined
+          - vault_database_admin_password is defined
+          - vault_database_migrator_password is defined
+          - vault_database_runtime_password is defined
+          - vault_database_backup_password is defined
+          - vault_database_admin_password | regex_search('^[A-Za-z0-9._~-]{32,}$') is not none
+          - vault_database_migrator_password | regex_search('^[A-Za-z0-9._~-]{32,}$') is not none
+          - vault_database_runtime_password | regex_search('^[A-Za-z0-9._~-]{32,}$') is not none
+          - vault_database_backup_password | regex_search('^[A-Za-z0-9._~-]{32,}$') is not none
+          - vault_session_secret is defined
+          - vault_field_encryption_key is defined
+          - vault_session_secret != vault_field_encryption_key
+          - (stockcontrol_acknowledge_database_passwords_rotated | default(false)) is boolean
+          - vault_documents_aws_access_key_id is defined
+          - vault_documents_aws_secret_access_key is defined
+          - vault_backup_aws_access_key_id is defined
+          - vault_backup_aws_secret_access_key is defined
+          - stockcontrol_documents_bucket != stockcontrol_backups_bucket
+          - >-
+            [vault_database_admin_password,
+             vault_database_migrator_password,
+             vault_database_runtime_password,
+             vault_database_backup_password] | unique | list | length == 4
+          - vault_documents_aws_access_key_id != vault_backup_aws_access_key_id
+        fail_msg: >-
+          Supply approved image digests, separate buckets and identities, and
+          an encrypted vault. Database passwords must be distinct 32-character
+          RFC 3986 unreserved strings.
+
+    - name: Validate decoded cryptographic key material
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import base64,re,sys;
+            value=sys.stdin.read();
+            assert re.fullmatch(r"[A-Za-z0-9_-]{43}", value), "expected unpadded base64url";
+            decoded=base64.urlsafe_b64decode(value + "=");
+            assert len(decoded) == 32, "expected exactly 32 decoded bytes";
+            assert base64.urlsafe_b64encode(decoded).decode().rstrip("=") == value, "non-canonical base64url"
+      args:
+        stdin: "{{ item.value }}"
+        stdin_add_newline: false
+      loop:
+        - name: session secret
+          value: "{{ vault_session_secret }}"
+        - name: field encryption key
+          value: "{{ vault_field_encryption_key }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+      no_log: true
+
+  tasks:
+    - name: Install host runtime and backup tools
+      ansible.builtin.apt:
+        name:
+          - awscli
+          - ca-certificates
+          - docker.io
+          - docker-compose-v2
+          - unattended-upgrades
+        state: present
+        update_cache: true
+
+    - name: Enable container runtime
+      ansible.builtin.systemd_service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create installation directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - path: /opt/stockcontrol
+          mode: "0755"
+        - path: /etc/stockcontrol
+          mode: "0700"
+        - path: /var/backups/stockcontrol
+          mode: "0700"
+
+    - name: Detect an existing PostgreSQL data volume
+      community.docker.docker_volume_info:
+        name: stockcontrol_postgres-data
+      register: stockcontrol_postgres_volume
+
+    - name: Inspect the installed PostgreSQL bootstrap environment
+      ansible.builtin.stat:
+        path: /etc/stockcontrol/postgres.env
+      register: stockcontrol_postgres_environment_file
+      when: stockcontrol_postgres_volume.exists
+
+    - name: Read the installed PostgreSQL bootstrap environment
+      ansible.builtin.slurp:
+        path: /etc/stockcontrol/postgres.env
+      register: stockcontrol_existing_postgres_environment
+      when:
+        - stockcontrol_postgres_volume.exists
+        - stockcontrol_postgres_environment_file.stat.exists
+      no_log: true
+
+    - name: Guard existing volumes from accidental credential mismatch
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              stockcontrol_postgres_environment_file.stat.exists
+              and
+              (
+                stockcontrol_existing_postgres_environment.content
+                | default("")
+                | b64decode
+              )
+              ==
+              lookup("ansible.builtin.template", "templates/postgres.env.j2")
+            )
+            or
+            (stockcontrol_acknowledge_database_passwords_rotated | default(false) | bool)
+        fail_msg: >-
+          The encrypted database variables differ from the credentials that
+          initialized the existing volume. The PostgreSQL entrypoint will not
+          rotate existing roles. Follow docs/operations/database-credentials.md,
+          verify every role using the new credentials, then set
+          stockcontrol_acknowledge_database_passwords_rotated=true for one
+          controlled playbook run only.
+      when: stockcontrol_postgres_volume.exists
+      no_log: true
+
+    - name: Install application environment
+      ansible.builtin.template:
+        src: templates/application.env.j2
+        dest: /etc/stockcontrol/application.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install backup environment
+      ansible.builtin.template:
+        src: templates/backup.env.j2
+        dest: /etc/stockcontrol/backup.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install migration environment
+      ansible.builtin.template:
+        src: templates/migration.env.j2
+        dest: /etc/stockcontrol/migration.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install PostgreSQL bootstrap environment
+      ansible.builtin.template:
+        src: templates/postgres.env.j2
+        dest: /etc/stockcontrol/postgres.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install deployment definition
+      ansible.builtin.template:
+        src: templates/compose.yml.j2
+        dest: /opt/stockcontrol/compose.yml
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install PostgreSQL role bootstrap
+      ansible.builtin.copy:
+        src: files/010-stockcontrol-roles.sql
+        dest: /opt/stockcontrol/010-stockcontrol-roles.sql
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install reverse-proxy configuration
+      ansible.builtin.template:
+        src: templates/Caddyfile.j2
+        dest: /opt/stockcontrol/Caddyfile
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install backup command
+      ansible.builtin.template:
+        src: templates/stockcontrol-backup.sh.j2
+        dest: /usr/local/sbin/stockcontrol-backup
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install daily backup service
+      ansible.builtin.copy:
+        src: files/stockcontrol-backup.service
+        dest: /etc/systemd/system/stockcontrol-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Install daily backup timer
+      ansible.builtin.copy:
+        src: files/stockcontrol-backup.timer
+        dest: /etc/systemd/system/stockcontrol-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Apply pending handler changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Pull immutable release images
+      community.docker.docker_compose_v2_pull:
+        project_src: /opt/stockcontrol
+        files:
+          - compose.yml
+
+    - name: Require an implemented migration contract before activation
+      ansible.builtin.assert:
+        that:
+          - stockcontrol_migration_argv is defined
+          - stockcontrol_migration_argv is sequence
+          - stockcontrol_migration_argv is not string
+          - stockcontrol_migration_argv | length > 0
+        fail_msg: >-
+          Production activation is blocked: the database package has not yet
+          supplied a reviewed migration command. Leave the installation stopped.
+
+    - name: Start PostgreSQL for migration
+      community.docker.docker_compose_v2:
+        project_src: /opt/stockcontrol
+        files:
+          - compose.yml
+        services:
+          - postgres
+        state: present
+        wait: true
+        wait_timeout: 120
+
+    - name: Apply reviewed database migrations once
+      community.docker.docker_compose_v2_run:
+        project_src: /opt/stockcontrol
+        files:
+          - compose.yml
+        service: migrator
+        argv: "{{ stockcontrol_migration_argv }}"
+        cleanup: true
+
+    - name: Start API, worker, web, proxy, and PostgreSQL
+      community.docker.docker_compose_v2:
+        project_src: /opt/stockcontrol
+        files:
+          - compose.yml
+        services:
+          - postgres
+          - api
+          - worker
+          - web
+          - proxy
+        state: present
+        wait: true
+        wait_timeout: 180
+
+    - name: Enable daily backups after successful activation
+      ansible.builtin.systemd_service:
+        name: stockcontrol-backup.timer
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true

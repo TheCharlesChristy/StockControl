@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.backend-build.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../../packages/contracts/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/modules/system/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/platform/core/tsconfig.build.json"
+    }
+  ]
+}

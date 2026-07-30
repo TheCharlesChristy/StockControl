@@ -1,0 +1,14 @@
+[Unit]
+Description=Create and upload a StockControl database backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stockcontrol-backup
+User=root
+Group=root
+PrivateTmp=true
+NoNewPrivileges=true
+

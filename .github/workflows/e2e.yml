@@ -1,0 +1,90 @@
+name: end-to-end
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: stockcontrol_e2e
+          POSTGRES_PASSWORD: stockcontrol_admin_e2e
+          POSTGRES_USER: stockcontrol_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stockcontrol_admin -d stockcontrol_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_MIGRATOR_URL: postgresql://stockcontrol_migrator:stockcontrol_migrator_e2e@localhost:5432/stockcontrol_e2e
+      DATABASE_RUNTIME_ROLE: stockcontrol_app
+      DATABASE_URL: postgresql://stockcontrol_app:stockcontrol_app_e2e@localhost:5432/stockcontrol_e2e
+      NODE_ENV: test
+
+    steps:
+      - name: Check out the release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build reviewed backend artifacts
+        run: pnpm run build:backend
+
+      - name: Create separate migration and runtime database roles
+        run: >-
+          docker exec "${{ job.services.postgres.id }}"
+          psql -v ON_ERROR_STOP=1
+          -U stockcontrol_admin
+          -d stockcontrol_e2e
+          -c "CREATE ROLE stockcontrol_migrator LOGIN PASSWORD 'stockcontrol_migrator_e2e' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; CREATE ROLE stockcontrol_app LOGIN PASSWORD 'stockcontrol_app_e2e' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; ALTER DATABASE stockcontrol_e2e OWNER TO stockcontrol_migrator; REVOKE ALL ON DATABASE stockcontrol_e2e FROM PUBLIC; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT CONNECT ON DATABASE stockcontrol_e2e TO stockcontrol_app;"
+
+      - name: Migrate with the compiled production command
+        run: node packages/platform/database/dist/migrate.js
+
+      - name: Install the Chromium test browser
+        run: pnpm --filter @stockcontrol/e2e exec playwright install --with-deps chromium
+
+      - name: Run critical browser journeys
+        run: pnpm run test:e2e
+
+      - name: Publish browser test artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-failure-${{ github.sha }}
+          path: |
+            **/playwright-report/**
+            **/test-results/**
+          if-no-files-found: warn
+          retention-days: 14

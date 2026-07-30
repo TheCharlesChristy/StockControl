@@ -1,0 +1,39 @@
+{
+  "name": "@stockcontrol/platform",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "tsc -b tsconfig.build.json --clean",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --configLoader runner",
+    "test:unit": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --configLoader runner"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@stockcontrol/contracts": "workspace:*",
+    "@stockcontrol/module-system": "workspace:*",
+    "fastify": "^5.10.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

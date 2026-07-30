@@ -1,0 +1,8 @@
+aws_region             = "eu-west-2"
+availability_zone      = "eu-west-2a"
+customer_slug          = "example-customer"
+environment            = "production"
+lightsail_key_pair_name = "stockcontrol-vendor-operations"
+ssh_admin_cidrs        = ["192.0.2.10/32"]
+backup_retention_days  = 35
+

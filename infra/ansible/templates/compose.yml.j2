@@ -1,0 +1,88 @@
+name: stockcontrol
+
+services:
+  proxy:
+    image: "{{ stockcontrol_caddy_image }}"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-config:/config
+      - caddy-data:/data
+
+  api:
+    image: "{{ stockcontrol_api_image }}"
+    restart: unless-stopped
+    init: true
+    env_file:
+      - /etc/stockcontrol/application.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: "{{ stockcontrol_worker_image }}"
+    restart: unless-stopped
+    init: true
+    env_file:
+      - /etc/stockcontrol/application.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const p=process.env.WORKER_HEALTH_PORT||'3001';fetch(`http://127.0.0.1:${p}/health/ready`).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    image: "{{ stockcontrol_web_image }}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  migrator:
+    image: "{{ stockcontrol_api_image }}"
+    profiles:
+      - tools
+    init: true
+    env_file:
+      - /etc/stockcontrol/migration.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: "{{ stockcontrol_postgres_image }}"
+    restart: unless-stopped
+    env_file:
+      - /etc/stockcontrol/postgres.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stockcontrol_admin -d stockcontrol"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ./010-stockcontrol-roles.sql:/docker-entrypoint-initdb.d/010-stockcontrol-roles.sql:ro
+      - postgres-data:/var/lib/postgresql
+
+volumes:
+  caddy-config:
+  caddy-data:
+  postgres-data:

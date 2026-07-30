@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@stockcontrol/contracts": ["packages/contracts/src/index.ts"],
+      "@stockcontrol/module-identity": ["packages/modules/identity/src/index.ts"],
+      "@stockcontrol/module-inventory": ["packages/modules/inventory/src/index.ts"],
+      "@stockcontrol/module-locations": ["packages/modules/locations/src/index.ts"],
+      "@stockcontrol/module-system": ["packages/modules/system/src/index.ts"],
+      "@stockcontrol/platform": ["packages/platform/core/src/index.ts"],
+      "@stockcontrol/platform-database": ["packages/platform/database/src/index.ts"],
+      "@stockcontrol/platform-identity-persistence": [
+        "packages/platform/identity-persistence/src/index.ts"
+      ],
+      "@stockcontrol/platform-identity-security": [
+        "packages/platform/identity-security/src/index.ts"
+      ],
+      "@stockcontrol/testkit": ["packages/testkit/src/index.ts"]
+    },
+    "types": ["node"],
+    "verbatimModuleSyntax": false
+  }
+}
