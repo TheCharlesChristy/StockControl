@@ -55,6 +55,7 @@ The repository already contains:
   constraints;
 - Identity application-layer security, delivery, policy, and request-context ports with their
   production adapters, AEAD delivery-secret envelope, and validated composition inputs;
+- a shared application result/failure vocabulary mapped to stable Problem Details codes;
 - an API/worker/web runtime foundation, health endpoints, responsive application shell, and
   development authentication preview;
 - initial Terraform, Ansible, container, backup, release, monitoring, and incident-response
@@ -1952,7 +1953,7 @@ This is a routing map, not proof of completion. Update
 
 ### 14.4 Initial execution status
 
-Snapshot date: **30 July 2026** (P1-E1-W01 complete). Inspect the current tree and update this table before assigning work;
+Snapshot date: **30 July 2026** (P1-E1-W01 and P1-E2-W01 complete). Inspect the current tree and update this table before assigning work;
 the repository, not this snapshot, is authoritative.
 
 | Epic                  | Initial status      | Existing foundation                                                                   | First recommended packet                          |
