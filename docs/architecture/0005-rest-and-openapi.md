@@ -2,7 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Requirements: Product requirements 4, 12.2, and 15.2
+- Demo MVP: live in reduced form — versioned REST under `/api/v1`; OpenAPI generation and Problem Details are not required
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 4, 12.2, and 15.2
 
 ## Context
 

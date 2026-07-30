@@ -1,18 +1,21 @@
 # StockControl
 
-StockControl is an inventory-management product for small businesses with substantial stock
-holdings. The approved MVP baseline is in
+StockControl is an inventory-management application for small businesses with substantial stock
+holdings. The current baseline is a **demonstrable MVP that runs on a local machine**, defined in
 [`docs/product-requirements.md`](docs/product-requirements.md).
 
 ## Development status
 
-The runtime foundation, identity/security primitives, catalogue and inventory domain, and
-locations/maps domain are under active implementation. Product behaviour must remain traceable to
-the approved requirements and preserve stock integrity, auditability, accessibility, and
-server-side authorisation.
+The baseline was reduced from a full commercial product specification to a demo MVP. The full
+specification, its playbook, and its traceability matrix are preserved in
+[`docs/archive/`](docs/archive/README.md) for when scope is added back.
 
-The detailed delivery sequence, bounded work packets, and test-writing guidance are in the
-[`docs/implementation-playbook.md`](docs/implementation-playbook.md) implementation playbook.
+- Build order: [`docs/implementation-playbook.md`](docs/implementation-playbook.md) — nine packets.
+- Existing code outside the demo scope:
+  [`docs/demo-mvp-removal-candidates.md`](docs/demo-mvp-removal-candidates.md).
+
+The setup steps below describe the repository as it stands today, before packet D1 trims it. MinIO
+and Mailpit are removal candidates; once D1 lands, local setup is Postgres only.
 
 ## Prerequisites
 

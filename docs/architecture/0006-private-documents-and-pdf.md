@@ -1,8 +1,9 @@
 # ADR 0006: Keep source documents private and generate PDFs asynchronously
 
-- Status: Accepted
+- Status: Accepted, deferred beyond the demo MVP
 - Date: 2026-07-29
-- Requirements: Product requirements 4, 8, 10, 12.4, and 14.2
+- Demo MVP: deferred by [demo requirements v2.0](../product-requirements.md) section 10; retained for when the capability returns
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 4, 8, 10, 12.4, and 14.2
 
 ## Context
 

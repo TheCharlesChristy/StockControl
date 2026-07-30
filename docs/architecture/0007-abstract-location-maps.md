@@ -1,8 +1,9 @@
 # ADR 0007: Model location maps as abstract overlays
 
-- Status: Accepted
+- Status: Accepted, deferred beyond the demo MVP
 - Date: 2026-07-29
-- Requirements: Product requirements 7 and 16.1
+- Demo MVP: deferred by [demo requirements v2.0](../product-requirements.md) section 10; retained for when the capability returns
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 7 and 16.1
 
 ## Context
 
