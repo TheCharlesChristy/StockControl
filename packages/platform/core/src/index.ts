@@ -1,5 +1,6 @@
 export * from "./background/job-dispatcher";
 export * from "./health/readiness-registry";
+export * from "./http/application-failure-exception";
 export * from "./http/correlation-hook";
 export * from "./http/problem-details-exception-filter";
 export * from "./observability/correlation-context";

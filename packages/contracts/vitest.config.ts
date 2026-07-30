@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
-      include: ["src/identity.ts"],
+      include: ["src/application-failures.ts", "src/identity.ts"],
       thresholds: {
         branches: 100,
         functions: 100,
