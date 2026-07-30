@@ -56,6 +56,8 @@ The repository already contains:
 - Identity application-layer security, delivery, policy, and request-context ports with their
   production adapters, AEAD delivery-secret envelope, and validated composition inputs;
 - a shared application result/failure vocabulary mapped to stable Problem Details codes;
+- the shared current-actor/effective-capability/contextual-authorisation/recent-authentication/
+  reason/represented-user/override command context;
 - an API/worker/web runtime foundation, health endpoints, responsive application shell, and
   development authentication preview;
 - initial Terraform, Ansible, container, backup, release, monitoring, and incident-response
@@ -1953,22 +1955,22 @@ This is a routing map, not proof of completion. Update
 
 ### 14.4 Initial execution status
 
-Snapshot date: **30 July 2026** (P1-E1-W01 and P1-E2-W01 complete). Inspect the current tree and update this table before assigning work;
+Snapshot date: **30 July 2026** (P1-E1-W01 and P1-E2-W01/W02 complete). Inspect the current tree and update this table before assigning work;
 the repository, not this snapshot, is authoritative.
 
-| Epic                  | Initial status      | Existing foundation                                                                   | First recommended packet                          |
-| --------------------- | ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| P1-E1                 | Partial foundation  | Identity domain, security adapters, persistence, migration, and W01 application ports | P1-E1-W02, then W03                               |
-| P1-E2                 | Partial foundation  | Database/audit/core primitives and API health conventions                             | P1-E2-W01 and W02                                 |
-| P1-E3                 | Scaffold            | Worker heartbeat/runtime shell                                                        | P1-E3-W01                                         |
-| P1-E4                 | Infrastructure only | MinIO/S3 environment and ADR                                                          | P1-E4-W01                                         |
-| P2-E1                 | Domain only         | Catalogue/item/unit/pack/access/identifier rules                                      | P2-E1-W01                                         |
-| P2-E2                 | Domain only         | Location hierarchy, maps, van/job-site policy                                         | P2-E2-W01                                         |
-| P2-E3                 | Domain only         | Exact quantity, ledger envelopes, projections, idempotency rules                      | P4-E2-W01, then P2-E3-W00                         |
-| P2-E4                 | Placeholder UI      | Protected web shell and inventory route                                               | Start after P2-E1/P2-E3 query contracts           |
-| P2-E5                 | Planned             | Identity/alias rules and PDF infrastructure plan                                      | P2-E5-W01                                         |
-| P3-E1–P5-E4; P6-E1–E5 | Planned             | Requirements, ADRs, runbooks, and this decomposition                                  | Start only when each packet's prerequisites exist |
-| P6-E0                 | Planned             | Release-choice categories and operational foundations                                 | Start after Phase 5 feature freeze                |
+| Epic                  | Initial status      | Existing foundation                                                                           | First recommended packet                          |
+| --------------------- | ------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| P1-E1                 | Partial foundation  | Identity domain, security adapters, persistence, migration, and W01 application ports         | P1-E1-W02, then W03                               |
+| P1-E2                 | Partial foundation  | Database/audit/core primitives, API health conventions, and W01/W02 shared vocabulary/context | P1-E2-W03, then W04                               |
+| P1-E3                 | Scaffold            | Worker heartbeat/runtime shell                                                                | P1-E3-W01                                         |
+| P1-E4                 | Infrastructure only | MinIO/S3 environment and ADR                                                                  | P1-E4-W01                                         |
+| P2-E1                 | Domain only         | Catalogue/item/unit/pack/access/identifier rules                                              | P2-E1-W01                                         |
+| P2-E2                 | Domain only         | Location hierarchy, maps, van/job-site policy                                                 | P2-E2-W01                                         |
+| P2-E3                 | Domain only         | Exact quantity, ledger envelopes, projections, idempotency rules                              | P4-E2-W01, then P2-E3-W00                         |
+| P2-E4                 | Placeholder UI      | Protected web shell and inventory route                                                       | Start after P2-E1/P2-E3 query contracts           |
+| P2-E5                 | Planned             | Identity/alias rules and PDF infrastructure plan                                              | P2-E5-W01                                         |
+| P3-E1–P5-E4; P6-E1–E5 | Planned             | Requirements, ADRs, runbooks, and this decomposition                                          | Start only when each packet's prerequisites exist |
+| P6-E0                 | Planned             | Release-choice categories and operational foundations                                         | Start after Phase 5 feature freeze                |
 
 ### 14.5 Safe parallel waves
 
