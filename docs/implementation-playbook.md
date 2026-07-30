@@ -3,7 +3,7 @@
 **Status:** Delivery plan  
 **Baseline:** Approved MVP requirements v1.0  
 **Last reviewed:** 30 July 2026  
-**Audience:** Engineers and ChatGPT/Codex coding sessions implementing StockControl
+**Audience:** Engineers and Coding Agents coding sessions implementing StockControl
 
 ## 1. Purpose
 
