@@ -7,71 +7,31 @@ import type {
   AuthenticatedSession,
   AuthenticatedUser,
   SignInCredentials,
-  SignInResult,
   UserRole,
-  VerifyMfaCredentials,
 } from "../auth/auth-types";
 import { setDesktopViewport } from "../test/setup";
 import { StockControlProviders } from "./App";
 import { AppRoutes } from "./AppRoutes";
 
 function userForRole(role: UserRole): AuthenticatedUser {
-  const effectiveCapabilities = {
-    Engineer: [
-      "inventory.view",
-      "inventory.take",
-      "jobs.view",
-      "jobs.reservations.request",
-      "purchasing.request",
-      "locations.view",
-    ],
-    Office: [
-      "inventory.view",
-      "inventory.take",
-      "jobs.view",
-      "purchasing.view",
-      "stocktakes.start",
-      "locations.view",
-      "reports.operational",
-    ],
-    Admin: [
-      "inventory.view",
-      "inventory.take",
-      "jobs.view",
-      "purchasing.view",
-      "stocktakes.start",
-      "locations.view",
-      "reports.financial",
-      "users.view",
-    ],
-  } as const satisfies Readonly<Record<UserRole, readonly string[]>>;
-
   return {
     id: `test-${role.toLowerCase()}`,
     email: `${role.toLowerCase()}@example.com`,
     displayName: `${role} User`,
     role,
-    status: "Active",
-    effectiveCapabilities: effectiveCapabilities[role],
-    permissionCatalogueVersion: 1,
-    mfaEnabled: role === "Admin",
   };
 }
 
 function sessionForUser(user: AuthenticatedUser): AuthenticatedSession {
   return {
     user,
-    assurance: user.mfaEnabled ? "mfa" : "password",
     issuedAt: "2026-07-29T09:00:00.000Z",
-    idleExpiresAt: "2026-07-29T11:00:00.000Z",
-    absoluteExpiresAt: "2026-07-29T21:00:00.000Z",
-    recentlyAuthenticatedAt: "2026-07-29T09:00:00.000Z",
+    expiresAt: "2026-07-29T21:00:00.000Z",
   };
 }
 
 class FakeAuthClient implements AuthClient {
   private session: AuthenticatedSession | null;
-  private pendingMfa = false;
 
   public constructor(
     sessionUser: AuthenticatedUser | null = null,
@@ -85,49 +45,13 @@ class FakeAuthClient implements AuthClient {
     return Promise.resolve(this.session);
   }
 
-  public signIn(credentials: SignInCredentials): Promise<SignInResult> {
+  public signIn(credentials: SignInCredentials): Promise<AuthenticatedSession> {
     void credentials;
-
-    if (this.signInUser.mfaEnabled) {
-      this.pendingMfa = true;
-      return Promise.resolve({
-        outcome: "mfa_required",
-        challenge: {
-          id: "test-mfa-challenge",
-          expiresAt: "2026-07-29T09:05:00.000Z",
-          methods: ["totp", "recovery_code"],
-        },
-      });
-    }
-
     this.session = sessionForUser(this.signInUser);
-    return Promise.resolve({
-      outcome: "authenticated",
-      session: this.session,
-    });
-  }
-
-  public verifyMfa(
-    credentials: VerifyMfaCredentials,
-  ): Promise<{ readonly outcome: "authenticated"; readonly session: AuthenticatedSession }> {
-    if (
-      !this.pendingMfa ||
-      credentials.challengeId !== "test-mfa-challenge" ||
-      credentials.code !== "123456"
-    ) {
-      return Promise.reject(new Error("MFA verification failed."));
-    }
-
-    this.pendingMfa = false;
-    this.session = sessionForUser(this.signInUser);
-    return Promise.resolve({
-      outcome: "authenticated",
-      session: this.session,
-    });
+    return Promise.resolve(this.session);
   }
 
   public signOut(): Promise<void> {
-    this.pendingMfa = false;
     this.session = null;
     return Promise.resolve();
   }
@@ -227,7 +151,6 @@ describe("StockControl application routes", () => {
     const client: AuthClient = {
       getSession: () => Promise.resolve(null),
       signIn: () => Promise.reject(new Error("Credentials rejected")),
-      verifyMfa: () => Promise.reject(new Error("MFA rejected")),
       signOut: () => Promise.resolve(),
     };
     renderRoute("/sign-in", client);
@@ -280,51 +203,12 @@ describe("StockControl application routes", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Verify your identity" }),
-    ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Authenticator or recovery code"), {
-      target: { value: "123456" },
-    });
-    await user.click(screen.getByRole("button", { name: "Verify and continue" }));
-
-    expect(
       await screen.findByRole("heading", {
         name: "Inventory command centre",
       }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Team & access" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
-  }, 15_000);
-
-  it("validates MFA safely and lets the user choose another account", async () => {
-    const user = userEvent.setup();
-    renderRoute("/sign-in", new FakeAuthClient(null, userForRole("Admin")));
-
-    fireEvent.change(await screen.findByLabelText("Work email"), {
-      target: { value: "admin.owner@example.com" },
-    });
-    fireEvent.change(screen.getByLabelText("Password"), {
-      target: { value: "password123" },
-    });
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-    await screen.findByRole("heading", { name: "Verify your identity" });
-
-    await user.click(screen.getByRole("button", { name: "Verify and continue" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Enter your authenticator code or a recovery code.",
-    );
-
-    fireEvent.change(screen.getByLabelText("Authenticator or recovery code"), {
-      target: { value: "000000" },
-    });
-    await user.click(screen.getByRole("button", { name: "Verify and continue" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That code could not be verified. Check it and try again.",
-    );
-
-    await user.click(screen.getByRole("button", { name: "Use another account" }));
-    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Password")).toHaveValue("");
   }, 15_000);
 
   it("labels dashboard placeholders instead of presenting invented stock data", async () => {
@@ -373,36 +257,22 @@ describe("StockControl application routes", () => {
     expect(openNavigation).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("protects a capability-restricted section from an Engineer", async () => {
-    renderRoute("/team", new FakeAuthClient(userForRole("Engineer")));
+  it.each(["Engineer", "Office"] as const)(
+    "protects the Admin-only team section from %s",
+    async (role) => {
+      renderRoute("/team", new FakeAuthClient(userForRole(role)));
 
-    expect(await screen.findByRole("heading", { name: "Access restricted" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Team & access" })).not.toBeInTheDocument();
-  });
+      expect(await screen.findByRole("heading", { name: "Access restricted" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Team & access" })).not.toBeInTheDocument();
+    },
+  );
 
-  it("uses effective capabilities so an individual Office override can expose team access", async () => {
-    const officeWithUserAccess: AuthenticatedUser = {
-      ...userForRole("Office"),
-      effectiveCapabilities: [...userForRole("Office").effectiveCapabilities, "users.view"],
-    };
-
-    renderRoute("/team", new FakeAuthClient(officeWithUserAccess));
+  it("gives an Admin the team section", async () => {
+    renderRoute("/team", new FakeAuthClient(userForRole("Admin")));
 
     expect(await screen.findByRole("heading", { name: "Team & access" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Team & access" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Access restricted" })).not.toBeInTheDocument();
-  });
-
-  it("honours an effective denial even when the role template is Admin", async () => {
-    const adminWithoutUserAccess: AuthenticatedUser = {
-      ...userForRole("Admin"),
-      effectiveCapabilities: ["inventory.view"],
-    };
-
-    renderRoute("/team", new FakeAuthClient(adminWithoutUserAccess));
-
-    expect(await screen.findByRole("heading", { name: "Access restricted" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Team & access" })).not.toBeInTheDocument();
   });
 
   it.each([

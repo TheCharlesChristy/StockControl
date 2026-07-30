@@ -1,21 +1,76 @@
 # Demo MVP removal candidates
 
-**Status:** Decision list — nothing here has been deleted  
+**Status:** Partly actioned — see "What was actually removed" below  
 **Baseline:** [Demo MVP requirements v2.0](./product-requirements.md)
 
-Everything below is present in the repository today and falls outside the demo MVP scope. Each entry
-says what it is, why it exists, and what removing it costs. Mark a decision against each group, then
-work through them in [packet D1](./implementation-playbook.md#d1--trim-the-tree).
+This started as a decision list covering everything outside the demo MVP scope. A first pass has
+since removed the code that **conflicts with or obstructs** the MVP. Everything left standing is
+inert: it does not contradict the demo baseline and does not get in the way of building it, so it
+was kept.
 
-Recommendation column:
+Recommendation column (as originally assessed):
 
 - **Remove** — outside demo scope, nothing in scope depends on it.
 - **Replace** — the capability is in scope but the current implementation is far heavier than the
   demo needs.
 - **Optional** — genuinely a judgement call; costs little to keep, costs little to lose.
 
-Line counts are TypeScript source plus its tests, measured on the current tree. The repository holds
-about **40,800 lines** of TypeScript in total.
+Line counts are TypeScript source plus its tests, measured before the first pass. The repository
+held about **40,800 lines** of TypeScript then and holds about **9,400** now.
+
+---
+
+## What was actually removed
+
+The test for removal was: _does this contradict the demo spec, or would a packet have to fight it?_
+Inert code was kept regardless of how far outside the eventual scope it sits.
+
+**Deleted — competing domain models.** Nothing imported these five packages, so they came out
+cleanly. Each defined a model the demo baseline contradicts: availability with ten location kinds
+against the demo's single subtraction, a six-level location hierarchy against a flat store/job-site
+list, a 62-key capability catalogue with per-user overrides against a static role map.
+
+- `packages/modules/inventory`, `packages/modules/locations`, `packages/modules/identity`
+- `packages/platform/identity-security`, `packages/platform/identity-persistence`
+
+**Deleted — obstructed the next packets.**
+
+- `packages/platform/database/src/migrations/0002-identity.ts` (1,523 lines) and its 14 identity
+  tables in `schema.ts`, the provider registration, and the runtime-privilege entries. `pnpm
+db:migrate` created all of it, and packet D2 would have added a competing `users` table.
+- `packages/contracts/src/identity.ts` (271 lines) — MFA challenges, TOTP enrolment, bootstrap,
+  invitations, password resets, and CSRF token responses. Requirements section 5.1 excludes every
+  one of them.
+- `packages/contracts/src/application-context.ts` — actor/override/represented-user/recent-auth
+  command context. Unused, and a competing model for what a command carries.
+- The MFA and preview-capability surface in `apps/web/src/auth/` and `SignInPage.tsx`, plus the MFA
+  steps in the end-to-end journey. The sign-in flow implemented the deferred model end to end.
+
+**Rewritten, not deleted.**
+
+- `packages/contracts/src/auth.ts` — new, 58 lines, replacing the 271-line identity contract with
+  the demo's user/session/role shape.
+- `apps/web/src/auth/*` — email and password only, no CSRF pre-fetch, no MFA states. The
+  development preview client survives in simplified form so the shell runs before packet D4.
+- `apps/web/src/navigation.tsx` — was capability-driven off the deleted catalogue and advertised
+  Purchasing, Stocktakes, Locations & maps, and Reports. Now role-driven with the five sections in
+  requirements section 6.
+- `packages/contracts/src/jobs.ts` → `background-jobs.ts` — the file name would have collided with
+  the MVP's `Job` domain concept. Its contents were fine and are unchanged.
+- Database tests that asserted against identity tables were trimmed to the foundation migration.
+
+**Kept deliberately, though outside eventual scope.** All of it is inert:
+
+- `apps/worker` — a heartbeat with nothing to dispatch, but it builds, tests, and blocks nothing.
+- `infra/` (Terraform, Ansible, Railway), the `containers` and `security` CI workflows, and
+  `docs/operations/` — none of it touches the application.
+- Migration checksums, the dual migrator/runtime database roles, and the append-only column types.
+  The runner grants runtime privileges automatically, so these cost a packet nothing.
+- RFC 9457 Problem Details, structured logging with correlation IDs, and the readiness registry —
+  all working, all harmless.
+
+Everything in this last group remains a legitimate later cleanup. It is listed group by group
+below.
 
 ---
 
@@ -23,11 +78,11 @@ about **40,800 lines** of TypeScript in total.
 
 | #   | Item                                                                                          | What it is                                                                                                                                             | Recommendation                                                                           |
 | --- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| A1  | `compose.yaml` — `minio`, `minio-init`, `mailpit` services and the `minio-data` volume        | S3-compatible object storage for private documents, a `mc` init container to create the bucket, and a fake SMTP server for invitation and reset emails | **Remove** — leaves one Postgres service                                                 |
-| A2  | `.env.example` — `S3_*`, `MAIL_*`                                                             | Configuration for A1                                                                                                                                   | **Remove**                                                                               |
+| A1  | `compose.yaml` — `minio`, `minio-init`, `mailpit` services and the `minio-data` volume        | S3-compatible object storage for private documents, a `mc` init container to create the bucket, and a fake SMTP server for invitation and reset emails | **Remove** — leaves one Postgres service — **Done**                                      |
+| A2  | `.env.example` — `S3_*`, `MAIL_*`                                                             | Configuration for A1                                                                                                                                   | **Remove** — **Done**                                                                    |
 | A3  | `.env.example` — `DATABASE_MIGRATOR_URL`, `DATABASE_RUNTIME_ROLE`, `VITE_ENABLE_AUTH_PREVIEW` | Two-role database setup and the placeholder auth preview flag                                                                                          | **Remove** with F2 and D5                                                                |
 | A4  | `scripts/postgres/init/001_roles.sql`                                                         | Creates separate `stockcontrol_migrator` and `stockcontrol_app` roles, revokes `PUBLIC`, transfers database ownership                                  | **Remove** — one role for a demo                                                         |
-| A5  | `README.md` local-setup section                                                               | Documents starting MinIO and Mailpit and lists their endpoints                                                                                         | **Replace** — rewrite for the seven-command setup                                        |
+| A5  | `README.md` local-setup section                                                               | Documents starting MinIO and Mailpit and lists their endpoints                                                                                         | **Replace** — rewrite for the seven-command setup — **Done**                             |
 | A6  | `Dockerfile`, `.dockerignore`                                                                 | Multi-stage production image build                                                                                                                     | **Optional** — not needed for `pnpm dev`, useful if you want to hand someone a container |
 
 ---
@@ -189,17 +244,17 @@ hashing itself.
 
 These are well-built and heavily tested. They are also modelling a product the demo does not show.
 
-| #   | Item                                                                      | What it is                                                                                                                                               |             Lines | Recommendation                                                              |
-| --- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------: | --------------------------------------------------------------------------- |
-| G1  | `packages/modules/locations/src/locations/map.ts` (695) and `geometry.ts` | Floor-plan and blank-canvas maps, normalised rectangle and polygon regions, nesting, region stock-status colouring, hierarchy/map consistency validation | ~1,900 with tests | **Remove** — maps are deferred                                              |
-| G2  | `packages/modules/locations/src/locations/directory.ts` (877)             | Branch→Building→Area→Aisle→Shelf→Bin hierarchy, vans with engineer assignment, virtual job sites, retirement and archival rules                          | ~1,900 with tests | **Replace** — demo needs a flat location list with a store/job-site flag    |
-| G3  | `packages/modules/locations/src/locations/policies.ts`                    | Van movement initiation and completion handshakes, reservation source eligibility, receipt eligibility                                                   |   ~600 with tests | **Remove** — vans are deferred                                              |
-| G4  | `packages/modules/inventory/src/inventory/availability.ts` (672)          | Ten location kinds, commitments, split sourcing, inbound lines, demand identities, projected-availability-at-date                                        | ~1,300 with tests | **Replace** — demo availability is one subtraction (requirements section 3) |
-| G5  | `packages/modules/inventory/src/inventory/decimal.ts` (390)               | Hand-written exact decimal arithmetic with configurable policies, for money and fractional quantities                                                    |   ~870 with tests | **Replace** — a numeric column and boundary validation                      |
-| G6  | `packages/modules/inventory/src/inventory/units.ts`                       | Counted and measured units, pack conversions, unit-compatible quantity assertions                                                                        |   ~700 with tests | **Remove** — one unit label per item                                        |
-| G7  | `packages/modules/inventory/src/inventory/conditions.ts`                  | Usable/Quarantined/Damaged/Expired quantity conditions, Good/Damaged-usable/Unsafe tool conditions, and lifecycle states                                 |              ~250 | **Remove** — conditions are deferred                                        |
-| G8  | `packages/modules/inventory/src/inventory/catalogue-item.ts` (404)        | Tracking mode, handling policy, access classes, identifier aliases, equivalence groups, batch and expiry settings, reorder settings                      |   ~800 with tests | **Replace** — demo item is six fields                                       |
-| G9  | `packages/modules/inventory/src/inventory/ledger.ts` (619)                | Immutable ledger envelopes, idempotency keys, reversal linkage, prior/resulting state capture                                                            | ~1,150 with tests | **Replace** — a `transactions` table row per change                         |
+| #   | Item                                                                      | What it is                                                                                                                                               |             Lines | Recommendation                                                                         |
+| --- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------: | -------------------------------------------------------------------------------------- |
+| G1  | `packages/modules/locations/src/locations/map.ts` (695) and `geometry.ts` | Floor-plan and blank-canvas maps, normalised rectangle and polygon regions, nesting, region stock-status colouring, hierarchy/map consistency validation | ~1,900 with tests | **Remove** — maps are deferred — **Done**                                              |
+| G2  | `packages/modules/locations/src/locations/directory.ts` (877)             | Branch→Building→Area→Aisle→Shelf→Bin hierarchy, vans with engineer assignment, virtual job sites, retirement and archival rules                          | ~1,900 with tests | **Replace** — demo needs a flat location list with a store/job-site flag — **Done**    |
+| G3  | `packages/modules/locations/src/locations/policies.ts`                    | Van movement initiation and completion handshakes, reservation source eligibility, receipt eligibility                                                   |   ~600 with tests | **Remove** — vans are deferred — **Done**                                              |
+| G4  | `packages/modules/inventory/src/inventory/availability.ts` (672)          | Ten location kinds, commitments, split sourcing, inbound lines, demand identities, projected-availability-at-date                                        | ~1,300 with tests | **Replace** — demo availability is one subtraction (requirements section 3) — **Done** |
+| G5  | `packages/modules/inventory/src/inventory/decimal.ts` (390)               | Hand-written exact decimal arithmetic with configurable policies, for money and fractional quantities                                                    |   ~870 with tests | **Replace** — a numeric column and boundary validation — **Done**                      |
+| G6  | `packages/modules/inventory/src/inventory/units.ts`                       | Counted and measured units, pack conversions, unit-compatible quantity assertions                                                                        |   ~700 with tests | **Remove** — one unit label per item — **Done**                                        |
+| G7  | `packages/modules/inventory/src/inventory/conditions.ts`                  | Usable/Quarantined/Damaged/Expired quantity conditions, Good/Damaged-usable/Unsafe tool conditions, and lifecycle states                                 |              ~250 | **Remove** — conditions are deferred — **Done**                                        |
+| G8  | `packages/modules/inventory/src/inventory/catalogue-item.ts` (404)        | Tracking mode, handling policy, access classes, identifier aliases, equivalence groups, batch and expiry settings, reorder settings                      |   ~800 with tests | **Replace** — demo item is six fields — **Done**                                       |
+| G9  | `packages/modules/inventory/src/inventory/ledger.ts` (619)                | Immutable ledger envelopes, idempotency keys, reversal linkage, prior/resulting state capture                                                            | ~1,150 with tests | **Replace** — a `transactions` table row per change — **Done**                         |
 
 Total for group G: roughly **9,500 lines**. Some of this is genuinely good work you may want back
 later — G4, G8, and G9 in particular encode rules the product will need. Archiving the packages on a
@@ -213,8 +268,8 @@ branch before deleting costs nothing and keeps the option open.
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | H1  | `apps/worker/` — entire application                                                                                                                                             | Background worker with heartbeat, health endpoint, and shutdown handling. Has no work to do: the outbox, scheduled jobs, reservation expiry, and PDF generation are all deferred |             748 | **Remove**                                                                                                                                                    |
 | H2  | `packages/platform/core/src/background/job-dispatcher.ts`                                                                                                                       | Port for dispatching durable background jobs                                                                                                                                     |             ~80 | **Remove** with H1                                                                                                                                            |
-| H3  | `packages/contracts/src/application-context.ts` (346) and `jobs.ts`                                                                                                             | Actor, effective capability, contextual authorisation, recent authentication, reason, represented user, and override command context                                             | ~760 with tests | **Replace** — the demo's command context is a user ID and a role                                                                                              |
-| H4  | `packages/contracts/src/application-failures.ts` (370) and `packages/platform/core/src/http/problem-details-exception-filter.ts` + `application-failure-exception.ts`           | RFC 9457 Problem Details vocabulary with stable application codes mapped to HTTP statuses                                                                                        | ~900 with tests | **Replace** — `{ error: { code, message } }`                                                                                                                  |
+| H3  | `packages/contracts/src/application-context.ts` (346) and `jobs.ts`                                                                                                             | Actor, effective capability, contextual authorisation, recent authentication, reason, represented user, and override command context                                             | ~760 with tests | **Replace** — the demo's command context is a user ID and a role — **Done**                                                                                   |
+| H4  | `packages/contracts/src/application-failures.ts` (370) and `packages/platform/core/src/http/problem-details-exception-filter.ts` + `application-failure-exception.ts`           | RFC 9457 Problem Details vocabulary with stable application codes mapped to HTTP statuses                                                                                        | ~900 with tests | **Replace** — `{ error: { code, message } }` — **Partly** (H4 kept: Problem Details still in use)                                                             |
 | H5  | `packages/platform/core/src/observability/correlation-context.ts`, `structured-logger.ts`, `http/correlation-hook.ts`                                                           | AsyncLocalStorage correlation IDs threaded through structured JSON logs                                                                                                          | ~450 with tests | **Optional** — pleasant, not demo-visible                                                                                                                     |
 | H6  | `packages/platform/core/src/health/readiness-registry.ts`, `packages/modules/system/` readiness and version use cases, `PostgresReadinessCheck`                                 | Liveness, readiness, and version endpoints with a pluggable check registry                                                                                                       |            ~500 | **Replace** — one `/health` returning 200                                                                                                                     |
 | H7  | `apps/e2e/` and its Playwright config                                                                                                                                           | Browser test harness, currently one shell test against preview auth                                                                                                              |             103 | **Optional** — keep if D9's journey is automated                                                                                                              |
@@ -225,21 +280,20 @@ branch before deleting costs nothing and keeps the option open.
 
 ## Summary
 
-| Group | Scope                 | Approximate lines | If fully actioned                            |
-| ----- | --------------------- | ----------------: | -------------------------------------------- |
-| A     | Local dev services    |                 — | One-service compose file                     |
-| B     | Cloud infrastructure  |                 — | `infra/` deleted                             |
-| C     | CI workflows          |                 — | 6 workflows → 1                              |
-| D     | Documentation         |                 — | `docs/operations/`, `docs/security/` deleted |
-| E     | Identity and security |           ~10,800 | ~800 lines of auth                           |
-| F     | Database platform     |            ~1,500 | ~400 lines                                   |
-| G     | Domain modules        |            ~9,500 | ~1,500 lines                                 |
-| H     | Runtime scaffolding   |            ~4,100 | ~800 lines                                   |
+| Group | Scope                 | Approximate lines | State after the first pass                          |
+| ----- | --------------------- | ----------------: | --------------------------------------------------- |
+| A     | Local dev services    |                 — | Done — one-service compose file                     |
+| B     | Cloud infrastructure  |                 — | Kept — inert, `infra/` untouched                    |
+| C     | CI workflows          |                 — | Kept — 6 workflows, all still green                 |
+| D     | Documentation         |                 — | Kept — `docs/operations/`, `docs/security/` remain  |
+| E     | Identity and security |           ~10,800 | Done — ~450 lines of auth contract and web client   |
+| F     | Database platform     |            ~1,500 | Kept — grants are automatic, checksums cost nothing |
+| G     | Domain modules        |            ~9,500 | Done — all five packages deleted                    |
+| H     | Runtime scaffolding   |            ~4,100 | Partly — command context gone, the rest kept        |
 
-Roughly **26,000 of 40,800 lines** are candidates. Actioning the **Remove** and **Replace** entries
-and leaving every **Optional** one alone lands the demo near **12,000 lines** — a codebase one
-person can hold in their head, which is the actual point.
+The tree went from **40,800 to about 9,400 lines** of TypeScript. `pnpm quality` and `pnpm test`
+pass; 259 unit tests are green.
 
-Suggested order, so nothing breaks in a confusing way: **B and C** (nothing depends on them) →
-**A and D** → **H1/H2** (deletes a whole app) → **G** (deletes leaf modules) → **E** → **F** →
-optional items last.
+If you later want the rest, the order that breaks nothing confusingly is: **B and C** (nothing
+depends on them) → **D** → **H1/H2** (deletes the worker app) → **F** → the remaining optional
+items.

@@ -6,16 +6,17 @@ holdings. The current baseline is a **demonstrable MVP that runs on a local mach
 
 ## Development status
 
-The baseline was reduced from a full commercial product specification to a demo MVP. The full
-specification, its playbook, and its traceability matrix are preserved in
-[`docs/archive/`](docs/archive/README.md) for when scope is added back.
+The baseline was reduced from a full commercial product specification to a demo MVP, and the source
+tree was trimmed to match. The full specification, its playbook, and its traceability matrix are
+preserved in [`docs/archive/`](docs/archive/README.md) for when scope is added back.
 
 - Build order: [`docs/implementation-playbook.md`](docs/implementation-playbook.md) — nine packets.
-- Existing code outside the demo scope:
+- What was removed and what remains optional:
   [`docs/demo-mvp-removal-candidates.md`](docs/demo-mvp-removal-candidates.md).
 
-The setup steps below describe the repository as it stands today, before packet D1 trims it. MinIO
-and Mailpit are removal candidates; once D1 lands, local setup is Postgres only.
+What exists today is the runtime foundation: an API with health and version endpoints, a responsive
+web shell with placeholder sections, a worker heartbeat, and the database foundation migration. The
+inventory domain, authentication, and API routes are packets D2 onwards.
 
 ## Prerequisites
 
@@ -26,17 +27,16 @@ and Mailpit are removal candidates; once D1 lands, local setup is Postgres only.
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Start PostgreSQL, MinIO, and Mailpit with `pnpm services:up`.
+2. Start PostgreSQL with `pnpm services:up`.
 3. Install dependencies with `pnpm install --frozen-lockfile`.
 4. Apply the database migrations with `pnpm db:migrate`.
 5. Run development processes with `pnpm dev`.
 
-Local service endpoints:
+PostgreSQL listens on `localhost:5432`. It is the only service the demo needs.
 
-- PostgreSQL: `localhost:5432`
-- MinIO API: `http://localhost:9000`
-- MinIO console: `http://localhost:9001`
-- Mailpit: `http://localhost:8025`
+To browse the web shell before authentication exists, set `VITE_ENABLE_AUTH_PREVIEW=true` in `.env`.
+The preview accepts any password and derives a role from the email local part (`admin…`,
+`engineer…`, anything else is Office). It performs no verification and is development-only.
 
 ## Quality checks
 
@@ -47,4 +47,4 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
-Every production change must pass the required GitHub Actions workflows before merge.
+`test:integration` and `test:e2e` need the database running.

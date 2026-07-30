@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("an invited Admin can enter the responsive application shell", async ({ page }) => {
+test("an Admin can sign in and enter the responsive application shell", async ({ page }) => {
   await page.goto("/inventory");
 
   await expect(page).toHaveURL(/\/sign-in$/);
@@ -9,10 +9,6 @@ test("an invited Admin can enter the responsive application shell", async ({ pag
   await page.getByLabel("Work email").fill("admin.owner@example.com");
   await page.getByLabel("Password", { exact: true }).fill("development-password");
   await page.getByRole("button", { name: "Sign in" }).click();
-
-  await expect(page.getByRole("heading", { name: "Verify your identity" })).toBeVisible();
-  await page.getByLabel("Authenticator or recovery code").fill("123456");
-  await page.getByRole("button", { name: "Verify and continue" }).click();
 
   await expect(page).toHaveURL(/\/inventory$/);
   await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible();

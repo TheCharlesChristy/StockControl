@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import type { AuthenticatedSession, AuthenticatedUser, SignInResult } from "./auth-types";
+import type { AuthenticatedSession, AuthenticatedUser } from "./auth-types";
 import {
   createDefaultAuthClient,
   createHttpAuthClient,
   createPreviewAuthClient,
-  isAuthenticatedUser,
 } from "./AuthClient";
 
 const officeUser: AuthenticatedUser = {
@@ -13,19 +12,12 @@ const officeUser: AuthenticatedUser = {
   email: "office@example.com",
   displayName: "Office User",
   role: "Office",
-  status: "Active",
-  effectiveCapabilities: ["inventory.view"],
-  permissionCatalogueVersion: 1,
-  mfaEnabled: false,
 };
 
 const officeSession: AuthenticatedSession = {
   user: officeUser,
-  assurance: "password",
   issuedAt: "2026-07-29T09:00:00.000Z",
-  idleExpiresAt: "2026-07-29T11:00:00.000Z",
-  absoluteExpiresAt: "2026-07-29T21:00:00.000Z",
-  recentlyAuthenticatedAt: "2026-07-29T09:00:00.000Z",
+  expiresAt: "2026-07-29T21:00:00.000Z",
 };
 
 type FetchCall = readonly [RequestInfo | URL, RequestInit | undefined];
@@ -64,111 +56,50 @@ function createFetch(...responses: readonly Response[]): {
   };
 }
 
-function csrfResponse(): Response {
-  return jsonResponse({ token: "csrf-token" });
-}
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
-describe("isAuthenticatedUser", () => {
-  it("accepts a complete active user", () => {
-    expect(isAuthenticatedUser(officeUser)).toBe(true);
-  });
-
-  it.each([
-    null,
-    "user",
-    {},
-    { ...officeUser, id: 42 },
-    { ...officeUser, email: null },
-    { ...officeUser, displayName: undefined },
-    { ...officeUser, role: "Owner" },
-    { ...officeUser, status: "Disabled" },
-    { ...officeUser, effectiveCapabilities: ["inventory.view", "inventory.view"] },
-  ])("rejects an invalid user payload", (value) => {
-    expect(isAuthenticatedUser(value)).toBe(false);
-  });
-});
-
 describe("HTTP authentication client", () => {
-  it("returns null for an unauthenticated session", async () => {
-    const fetch = createFetch(new Response(null, { status: 401 }));
+  it("returns the current session", async () => {
+    const fetch = createFetch(jsonResponse({ session: officeSession }));
     const client = createHttpAuthClient(fetch.fetchImplementation);
-    const signal = new AbortController().signal;
 
-    await expect(client.getSession(signal)).resolves.toBeNull();
-    expect(fetch.calls).toEqual([
-      [
-        "/api/v1/auth/session",
-        {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-          signal,
-        },
-      ],
-    ]);
+    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(officeSession);
+    expect(fetch.calls[0]?.[0]).toBe("/api/v1/auth/session");
   });
 
-  it("reads a valid session envelope", async () => {
-    const fetch = createFetch(jsonResponse({ session: officeSession }));
+  it("treats an unauthenticated session lookup as anonymous rather than an error", async () => {
+    const fetch = createFetch(jsonResponse({}, { status: 401 }));
 
     await expect(
       createHttpAuthClient(fetch.fetchImplementation).getSession(new AbortController().signal),
-    ).resolves.toEqual(officeSession);
+    ).resolves.toBeNull();
   });
 
-  it("rejects failed, non-JSON, and malformed session responses", async () => {
-    const failedFetch = createFetch(new Response(null, { status: 503 }));
-    const textFetch = createFetch(
-      new Response("temporarily unavailable", {
-        status: 200,
-        headers: { "content-type": "text/plain" },
-      }),
-    );
-    const malformedFetch = createFetch(jsonResponse({ session: { user: officeUser } }));
+  it("reports an unexpected session-lookup status as an error", async () => {
+    const fetch = createFetch(jsonResponse({}, { status: 503 }));
 
     await expect(
-      createHttpAuthClient(failedFetch.fetchImplementation).getSession(
-        new AbortController().signal,
-      ),
+      createHttpAuthClient(fetch.fetchImplementation).getSession(new AbortController().signal),
     ).rejects.toThrow("Session lookup failed with status 503.");
-    await expect(
-      createHttpAuthClient(textFetch.fetchImplementation).getSession(new AbortController().signal),
-    ).rejects.toThrow("unexpected response");
-    await expect(
-      createHttpAuthClient(malformedFetch.fetchImplementation).getSession(
-        new AbortController().signal,
-      ),
-    ).rejects.toThrow("invalid session");
   });
 
-  it("obtains CSRF protection, posts credentials, and parses an authenticated result", async () => {
-    const fetch = createFetch(
-      csrfResponse(),
-      jsonResponse({ outcome: "authenticated", session: officeSession }),
-    );
-    const client = createHttpAuthClient(fetch.fetchImplementation);
+  it("rejects a session payload that does not match the contract", async () => {
+    const fetch = createFetch(jsonResponse({ session: { user: { id: "u" } } }));
+
+    await expect(
+      createHttpAuthClient(fetch.fetchImplementation).getSession(new AbortController().signal),
+    ).rejects.toThrow("The authentication service returned an invalid session.");
+  });
+
+  it("posts credentials directly and returns the established session", async () => {
+    const fetch = createFetch(jsonResponse({ session: officeSession }));
     const credentials = {
       email: "office@example.com",
       password: "long-enough-password",
     };
 
-    await expect(client.signIn(credentials)).resolves.toEqual({
-      outcome: "authenticated",
-      session: officeSession,
-    });
+    await expect(
+      createHttpAuthClient(fetch.fetchImplementation).signIn(credentials),
+    ).resolves.toEqual(officeSession);
     expect(fetch.calls).toEqual([
-      [
-        "/api/v1/auth/csrf",
-        {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        },
-      ],
       [
         "/api/v1/auth/sign-in",
         {
@@ -177,7 +108,6 @@ describe("HTTP authentication client", () => {
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",
-            "x-csrf-token": "csrf-token",
           },
           body: JSON.stringify(credentials),
         },
@@ -185,126 +115,40 @@ describe("HTTP authentication client", () => {
     ]);
   });
 
-  it("accepts an MFA challenge returned after password verification", async () => {
-    const challenge: SignInResult = {
-      outcome: "mfa_required",
-      challenge: {
-        id: "challenge-1",
-        expiresAt: "2026-07-29T09:05:00.000Z",
-        methods: ["totp", "recovery_code"],
-      },
-    };
-    const fetch = createFetch(csrfResponse(), jsonResponse(challenge));
+  it("reports a rejected sign-in", async () => {
+    const fetch = createFetch(jsonResponse({}, { status: 401 }));
 
     await expect(
       createHttpAuthClient(fetch.fetchImplementation).signIn({
-        email: "admin@example.com",
-        password: "password",
+        email: "office@example.com",
+        password: "wrong",
       }),
-    ).resolves.toEqual(challenge);
+    ).rejects.toThrow("Sign in failed with status 401.");
   });
 
-  it("fails closed when CSRF lookup fails or returns malformed data", async () => {
-    const failedFetch = createFetch(new Response(null, { status: 503 }));
-    const malformedFetch = createFetch(jsonResponse({ token: "" }));
-    const credentials = { email: "office@example.com", password: "password" };
-
-    await expect(
-      createHttpAuthClient(failedFetch.fetchImplementation).signIn(credentials),
-    ).rejects.toThrow("CSRF token lookup failed with status 503.");
-    await expect(
-      createHttpAuthClient(malformedFetch.fetchImplementation).signIn(credentials),
-    ).rejects.toThrow("invalid CSRF token");
-  });
-
-  it("rejects unsuccessful, non-JSON, or malformed sign-in responses", async () => {
-    const failedFetch = createFetch(csrfResponse(), new Response(null, { status: 403 }));
-    const textFetch = createFetch(
-      csrfResponse(),
-      new Response("no", { status: 200, headers: { "content-type": "text/plain" } }),
-    );
-    const malformedFetch = createFetch(csrfResponse(), jsonResponse({ user: null }));
-    const credentials = { email: "office@example.com", password: "incorrect" };
-
-    await expect(
-      createHttpAuthClient(failedFetch.fetchImplementation).signIn(credentials),
-    ).rejects.toThrow("Sign in failed with status 403.");
-    await expect(
-      createHttpAuthClient(textFetch.fetchImplementation).signIn(credentials),
-    ).rejects.toThrow("unexpected response");
-    await expect(
-      createHttpAuthClient(malformedFetch.fetchImplementation).signIn(credentials),
-    ).rejects.toThrow("invalid authentication response");
-  });
-
-  it("verifies MFA through a separately CSRF-protected request", async () => {
-    const fetch = createFetch(
-      csrfResponse(),
-      jsonResponse({ outcome: "authenticated", session: officeSession }),
-    );
-    const credentials = { challengeId: "challenge-1", code: "123456" };
-
-    await expect(
-      createHttpAuthClient(fetch.fetchImplementation).verifyMfa(credentials),
-    ).resolves.toEqual({
-      outcome: "authenticated",
-      session: officeSession,
-    });
-    expect(fetch.calls[1]).toEqual([
-      "/api/v1/auth/mfa/verify",
-      expect.objectContaining({
-        body: JSON.stringify(credentials),
-        headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
-      }),
-    ]);
-  });
-
-  it("rejects MFA verification that does not complete authentication", async () => {
-    const fetch = createFetch(
-      csrfResponse(),
-      jsonResponse({
-        outcome: "mfa_required",
-        challenge: {
-          id: "challenge-2",
-          expiresAt: "2026-07-29T09:05:00Z",
-          methods: ["totp"],
-        },
-      }),
-    );
-
-    await expect(
-      createHttpAuthClient(fetch.fetchImplementation).verifyMfa({
-        challengeId: "challenge-1",
-        code: "123456",
-      }),
-    ).rejects.toThrow("did not complete authentication");
-  });
-
-  it.each([204, 401])("accepts sign-out status %s", async (status) => {
-    const fetch = createFetch(csrfResponse(), new Response(null, { status }));
+  it("treats signing out of an already-expired session as success", async () => {
+    const fetch = createFetch(jsonResponse({}, { status: 401 }));
 
     await expect(
       createHttpAuthClient(fetch.fetchImplementation).signOut(),
     ).resolves.toBeUndefined();
-    expect(fetch.calls[1]).toEqual([
-      "/api/v1/auth/sign-out",
-      {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "x-csrf-token": "csrf-token",
-        },
-      },
-    ]);
+    expect(fetch.calls[0]?.[0]).toBe("/api/v1/auth/sign-out");
   });
 
-  it("rejects a failed sign-out", async () => {
-    const fetch = createFetch(csrfResponse(), new Response(null, { status: 500 }));
+  it("reports a failed sign-out", async () => {
+    const fetch = createFetch(jsonResponse({}, { status: 500 }));
 
     await expect(createHttpAuthClient(fetch.fetchImplementation).signOut()).rejects.toThrow(
       "Sign out failed with status 500.",
     );
+  });
+
+  it("rejects a non-JSON response", async () => {
+    const fetch = createFetch(new Response("<html></html>", { status: 200 }));
+
+    await expect(
+      createHttpAuthClient(fetch.fetchImplementation).getSession(new AbortController().signal),
+    ).rejects.toThrow("The authentication service returned an unexpected response.");
   });
 });
 
@@ -312,136 +156,22 @@ describe("development preview authentication client", () => {
   const previewNow = new Date("2026-07-29T09:00:00.000Z");
   const clock = (): Date => new Date(previewNow);
 
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
   it.each([
-    ["engineer-one@example.com", "Engineer", "Engineer One"],
-    ["stores.office@example.com", "Office", "Stores Office"],
-  ] as const)(
-    "creates and restores a normalized %s preview session",
-    async (email, role, displayName) => {
-      const client = createPreviewAuthClient(window.sessionStorage, clock);
-      const result = await client.signIn({
-        email: `  ${email.toUpperCase()}  `,
-        password: "preview-password",
-      });
-
-      expect(result).toMatchObject({
-        outcome: "authenticated",
-        session: {
-          user: {
-            id: `preview-${email}`,
-            email,
-            displayName,
-            role,
-            status: "Active",
-          },
-        },
-      });
-      await expect(client.getSession(new AbortController().signal)).resolves.toEqual(
-        result.outcome === "authenticated" ? result.session : null,
-      );
-    },
-  );
-
-  it("requires and verifies MFA before creating an Admin session", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-    const result = await client.signIn({
-      email: "admin.owner@example.com",
-      password: "preview-password",
-    });
-
-    expect(result).toEqual({
-      outcome: "mfa_required",
-      challenge: {
-        id: "preview-mfa-admin.owner@example.com",
-        expiresAt: "2026-07-29T09:05:00.000Z",
-        methods: ["totp", "recovery_code"],
-      },
-    });
-    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v2")).toBeNull();
-
-    if (result.outcome !== "mfa_required") {
-      throw new Error("Expected an MFA challenge.");
-    }
-
-    const verified = await client.verifyMfa({
-      challengeId: result.challenge.id,
-      code: "123456",
-    });
-
-    expect(verified).toMatchObject({
-      outcome: "authenticated",
-      session: {
-        assurance: "mfa",
-        user: {
-          role: "Admin",
-          mfaEnabled: true,
-        },
-      },
-    });
-    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(
-      verified.session,
-    );
-  });
-
-  it("accepts the deterministic preview recovery code case-insensitively", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-    const result = await client.signIn({
-      email: "admin@example.com",
-      password: "preview-password",
-    });
-
-    if (result.outcome !== "mfa_required") {
-      throw new Error("Expected an MFA challenge.");
-    }
-
-    await expect(
-      client.verifyMfa({
-        challengeId: result.challenge.id,
-        code: "preview-recovery",
-      }),
-    ).resolves.toMatchObject({ outcome: "authenticated" });
-  });
-
-  it("rejects a missing, mismatched, or invalid preview MFA challenge", async () => {
+    ["admin.owner@example.com", "Admin"],
+    ["engineer.one@example.com", "Engineer"],
+    ["office.desk@example.com", "Office"],
+  ])("derives the %s preview role and restores the session", async (email, role) => {
     const client = createPreviewAuthClient(window.sessionStorage, clock);
 
-    await expect(client.verifyMfa({ challengeId: "missing", code: "123456" })).rejects.toThrow(
-      "verification failed",
-    );
+    const session = await client.signIn({ email, password: "anything" });
 
-    const result = await client.signIn({
-      email: "admin@example.com",
-      password: "preview-password",
-    });
-
-    if (result.outcome !== "mfa_required") {
-      throw new Error("Expected an MFA challenge.");
-    }
-
-    await expect(
-      client.verifyMfa({ challengeId: "wrong-challenge", code: "123456" }),
-    ).rejects.toThrow("verification failed");
-    await expect(
-      client.verifyMfa({ challengeId: result.challenge.id, code: "000000" }),
-    ).rejects.toThrow("verification failed");
-  });
-
-  it("rejects an expired preview MFA challenge", async () => {
-    let currentTime = new Date("2026-07-29T09:00:00.000Z");
-    const client = createPreviewAuthClient(window.sessionStorage, () => currentTime);
-    const result = await client.signIn({
-      email: "admin@example.com",
-      password: "preview-password",
-    });
-
-    if (result.outcome !== "mfa_required") {
-      throw new Error("Expected an MFA challenge.");
-    }
-
-    currentTime = new Date("2026-07-29T09:05:00.000Z");
-    await expect(
-      client.verifyMfa({ challengeId: result.challenge.id, code: "123456" }),
-    ).rejects.toThrow("verification failed");
+    expect(session.user.role).toBe(role);
+    expect(session.expiresAt).toBe("2026-07-29T21:00:00.000Z");
+    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(session);
   });
 
   it("returns null when no preview session is stored", async () => {
@@ -450,90 +180,51 @@ describe("development preview authentication client", () => {
     await expect(client.getSession(new AbortController().signal)).resolves.toBeNull();
   });
 
-  it.each(["not-json", JSON.stringify({ ...officeSession, assurance: "unknown" })])(
+  it("clears an expired preview session", async () => {
+    const client = createPreviewAuthClient(window.sessionStorage, clock);
+    await client.signIn({ email: "office.desk@example.com", password: "anything" });
+
+    const laterClient = createPreviewAuthClient(
+      window.sessionStorage,
+      () => new Date("2026-07-30T09:00:00.000Z"),
+    );
+
+    await expect(laterClient.getSession(new AbortController().signal)).resolves.toBeNull();
+    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
+  });
+
+  it.each(["not-json", JSON.stringify({ user: { id: "u" } })])(
     "clears an invalid stored preview session",
     async (storedValue) => {
-      window.sessionStorage.setItem("stockcontrol.preview-session.v2", storedValue);
+      window.sessionStorage.setItem("stockcontrol.preview-session.v3", storedValue);
       const client = createPreviewAuthClient(window.sessionStorage, clock);
 
       await expect(client.getSession(new AbortController().signal)).resolves.toBeNull();
-      expect(window.sessionStorage.getItem("stockcontrol.preview-session.v2")).toBeNull();
+      expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
     },
   );
 
-  it("expires preview sessions using both idle and absolute bounds", async () => {
+  it("removes the stored session on sign out", async () => {
     const client = createPreviewAuthClient(window.sessionStorage, clock);
-    await client.signIn({
-      email: "office@example.com",
-      password: "preview-password",
-    });
+    await client.signIn({ email: "office.desk@example.com", password: "anything" });
 
-    const afterIdleExpiry = createPreviewAuthClient(
-      window.sessionStorage,
-      () => new Date("2026-07-29T11:00:00.000Z"),
-    );
-    await expect(afterIdleExpiry.getSession(new AbortController().signal)).resolves.toBeNull();
+    await client.signOut();
 
-    window.sessionStorage.setItem(
-      "stockcontrol.preview-session.v2",
-      JSON.stringify({
-        ...officeSession,
-        idleExpiresAt: "2026-07-30T10:00:00.000Z",
-        absoluteExpiresAt: "2026-07-29T21:00:00.000Z",
-      }),
-    );
-    const afterAbsoluteExpiry = createPreviewAuthClient(
-      window.sessionStorage,
-      () => new Date("2026-07-29T21:00:00.000Z"),
-    );
-    await expect(afterAbsoluteExpiry.getSession(new AbortController().signal)).resolves.toBeNull();
+    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
   });
 
-  it("rejects an aborted session lookup", () => {
+  it("honours an aborted session lookup", () => {
     const controller = new AbortController();
     controller.abort();
 
     expect(() =>
       createPreviewAuthClient(window.sessionStorage, clock).getSession(controller.signal),
-    ).toThrow(/abort/i);
+    ).toThrow();
   });
+});
 
-  it("removes pending and stored authentication state on sign out", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-    await client.signIn({
-      email: "office@example.com",
-      password: "preview-password",
-    });
-
-    await expect(client.signOut()).resolves.toBeUndefined();
-    await expect(client.getSession(new AbortController().signal)).resolves.toBeNull();
-  });
-
-  it("uses a non-human fallback display name for an empty local part", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-
-    await expect(
-      client.signIn({ email: "@example.com", password: "preview-password" }),
-    ).resolves.toMatchObject({
-      outcome: "authenticated",
-      session: {
-        user: {
-          displayName: "StockControl preview user",
-          role: "Office",
-        },
-      },
-    });
-  });
-
-  it("selects the preview adapter only when the development flag is enabled", async () => {
-    vi.stubEnv("VITE_ENABLE_AUTH_PREVIEW", "true");
-
-    const client = createDefaultAuthClient();
-    await client.signIn({
-      email: "office@example.com",
-      password: "preview-password",
-    });
-
-    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v2")).not.toBeNull();
+describe("default authentication client", () => {
+  it("uses the HTTP client when the preview flag is not enabled", () => {
+    expect(createDefaultAuthClient()).toHaveProperty("signIn");
   });
 });

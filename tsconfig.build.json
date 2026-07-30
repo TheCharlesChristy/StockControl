@@ -6,15 +6,6 @@
       "path": "./packages/contracts/tsconfig.build.json"
     },
     {
-      "path": "./packages/modules/identity/tsconfig.build.json"
-    },
-    {
-      "path": "./packages/modules/inventory/tsconfig.build.json"
-    },
-    {
-      "path": "./packages/modules/locations/tsconfig.build.json"
-    },
-    {
       "path": "./packages/modules/system/tsconfig.build.json"
     },
     {
@@ -22,12 +13,6 @@
     },
     {
       "path": "./packages/platform/database/tsconfig.build.json"
-    },
-    {
-      "path": "./packages/platform/identity-persistence/tsconfig.build.json"
-    },
-    {
-      "path": "./packages/platform/identity-security/tsconfig.build.json"
     },
     {
       "path": "./packages/testkit/tsconfig.build.json"
