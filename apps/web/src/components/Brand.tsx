@@ -22,7 +22,9 @@ export function Brand({ inverse = false, compact = false }: BrandProps): ReactEl
     >
       <Box
         component="img"
-        src={inverse ? "/christy-plumbing-logo-white-2025.png" : "/christy-plumbing-main-logo-2025.png"}
+        src={
+          inverse ? "/christy-plumbing-logo-white-2025.png" : "/christy-plumbing-main-logo-2025.png"
+        }
         alt="Christy Plumbing & Heating"
         sx={{
           position: "absolute",

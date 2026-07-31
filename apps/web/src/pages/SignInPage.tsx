@@ -37,35 +37,56 @@ const DEEP_LINK_PATTERNS: readonly RegExp[] = [
 
 export const DEFAULT_SIGNED_IN_PATH = "/dashboard";
 
-export function getRedirectPath(state: unknown): string {
-  if (typeof state !== "object" || state === null) {
-    return DEFAULT_SIGNED_IN_PATH;
-  }
+/** The query parameter carrying the page a signed-out visitor was trying to reach. */
+export const REDIRECT_QUERY_KEY = "next";
 
-  const redirectState = state as RedirectState;
-  const redirectPath = redirectState.from;
-
+/** Returns the candidate if it is a safe in-app deep link, otherwise null. */
+function safeDeepLink(candidate: unknown): string | null {
   if (
-    typeof redirectPath !== "string" ||
-    !redirectPath.startsWith("/") ||
-    redirectPath.startsWith("//") ||
-    redirectPath.includes("\\") ||
-    redirectPath === "/sign-in"
+    typeof candidate !== "string" ||
+    !candidate.startsWith("/") ||
+    candidate.startsWith("//") ||
+    candidate.includes("\\") ||
+    candidate === "/sign-in"
   ) {
-    return DEFAULT_SIGNED_IN_PATH;
+    return null;
   }
 
-  const resolvedUrl = new URL(redirectPath, window.location.origin);
+  const resolvedUrl = new URL(candidate, window.location.origin);
 
   if (resolvedUrl.origin !== window.location.origin) {
-    return DEFAULT_SIGNED_IN_PATH;
+    return null;
   }
 
   if (!DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname))) {
-    return DEFAULT_SIGNED_IN_PATH;
+    return null;
   }
 
   return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;
+}
+
+/**
+ * Where to land after signing in.
+ *
+ * The destination is read from the query string first and from router history
+ * state second. History state does not survive a full page load, which is
+ * exactly how someone arrives here from a scanned QR code, so the query string
+ * is what makes the deep link dependable; the state branch stays for in-app
+ * navigations that predate it.
+ */
+export function getRedirectPath(state: unknown, search = ""): string {
+  const fromQuery = new URLSearchParams(search).get(REDIRECT_QUERY_KEY);
+  const fromState =
+    typeof state === "object" && state !== null ? (state as RedirectState).from : undefined;
+
+  return safeDeepLink(fromQuery) ?? safeDeepLink(fromState) ?? DEFAULT_SIGNED_IN_PATH;
+}
+
+/** Builds the sign-in URL that remembers where the visitor was headed. */
+export function signInPathFor(attemptedPath: string): string {
+  return safeDeepLink(attemptedPath) === null
+    ? "/sign-in"
+    : `/sign-in?${REDIRECT_QUERY_KEY}=${encodeURIComponent(attemptedPath)}`;
 }
 
 export function SignInPage(): ReactElement {
@@ -98,7 +119,7 @@ export function SignInPage(): ReactElement {
 
     void signIn(normalizedEmail, password)
       .then(() => {
-        void navigate(getRedirectPath(location.state), { replace: true });
+        void navigate(getRedirectPath(location.state, location.search), { replace: true });
       })
       .catch(() => {
         setErrorMessage("We could not sign you in. Check your details and try again.");
@@ -188,11 +209,21 @@ export function SignInPage(): ReactElement {
               <Box>
                 <Typography
                   component="p"
-                  sx={{ color: "primary.main", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.04em" }}
+                  sx={{
+                    color: "primary.main",
+                    fontSize: "0.875rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                  }}
                 >
                   StockControl
                 </Typography>
-                <Typography id="sign-in-title" component="h1" variant="h2" sx={{ lineHeight: 1.05 }}>
+                <Typography
+                  id="sign-in-title"
+                  component="h1"
+                  variant="h2"
+                  sx={{ lineHeight: 1.05 }}
+                >
                   Sign in
                 </Typography>
               </Box>
@@ -206,7 +237,11 @@ export function SignInPage(): ReactElement {
                   </Alert>
                 )}
                 <Stack spacing={0.75}>
-                  <Typography component="label" htmlFor="email" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                  <Typography
+                    component="label"
+                    htmlFor="email"
+                    sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}
+                  >
                     Work email
                   </Typography>
                   <TextField
@@ -224,7 +259,11 @@ export function SignInPage(): ReactElement {
                   />
                 </Stack>
                 <Stack spacing={0.75}>
-                  <Typography component="label" htmlFor="password" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                  <Typography
+                    component="label"
+                    htmlFor="password"
+                    sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}
+                  >
                     Password
                   </Typography>
                   <TextField

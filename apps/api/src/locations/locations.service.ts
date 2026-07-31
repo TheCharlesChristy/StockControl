@@ -650,7 +650,7 @@ export class LocationsService {
                 display_name: region.displayName,
                 geometry: region.geometry as unknown as JsonObject,
                 z_order: region.zOrder,
-                search_aliases: [...region.searchAliases],
+                search_aliases: JSON.stringify(region.searchAliases),
                 status: region.status,
               })),
             )

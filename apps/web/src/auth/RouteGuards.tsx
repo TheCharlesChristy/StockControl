@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { FullPageLoading } from "../components/RouteStates";
+import { getRedirectPath, signInPathFor } from "../pages/SignInPage";
 import { useAuth } from "./AuthContext";
 
 interface SignedOutOnlyProps {
@@ -18,7 +19,7 @@ export function RequireAuthentication(): ReactElement {
   if (status !== "authenticated") {
     return (
       <Navigate
-        to="/sign-in"
+        to={signInPathFor(`${location.pathname}${location.search}${location.hash}`)}
         replace
         state={{ from: `${location.pathname}${location.search}${location.hash}` }}
       />
@@ -30,13 +31,21 @@ export function RequireAuthentication(): ReactElement {
 
 export function SignedOutOnly({ children }: SignedOutOnlyProps): ReactElement {
   const { status } = useAuth();
+  const location = useLocation();
 
   if (status === "checking") {
     return <FullPageLoading />;
   }
 
+  /*
+   * The same destination the sign-in page itself picks. Signing in flips the
+   * status here at the moment the page runs its own redirect, so if this sent
+   * everyone to the dashboard the two would race — and a visitor who arrived
+   * from a scanned QR code would be bounced off the item they asked for,
+   * intermittently, depending on which navigation landed last.
+   */
   if (status === "authenticated") {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={getRedirectPath(location.state, location.search)} replace />;
   }
 
   return <>{children}</>;

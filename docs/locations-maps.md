@@ -5,6 +5,30 @@ receive the `manageLocations` capability and can create hierarchy nodes, start
 blank building maps, draw rectangles or polygons, move regions with the arrow
 keys, and save a complete snapshot.
 
+## Editor controls
+
+| Input                                            | Action                                                                                                           |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Drag a region, or its corner handles             | Move or resize it                                                                                                |
+| Arrow keys                                       | Nudge the selected region; Shift moves farther                                                                   |
+| Delete or Backspace                              | Remove the selected region                                                                                       |
+| Rectangle tool                                   | Drag to draw; the outline follows the pointer                                                                    |
+| Polygon tool                                     | Click to add points; click the first point or press Enter to finish, Backspace to undo a point, Escape to cancel |
+| Snap toggle                                      | Aligns to a 1% grid; hold Alt to place freely                                                                    |
+| Ctrl/⌘ + wheel, or trackpad pinch                | Zoom towards the pointer                                                                                         |
+| Wheel, or two-finger scroll                      | Pan; Shift swaps the axes                                                                                        |
+| Space + drag, middle-mouse drag, or the Pan tool | Pan                                                                                                              |
+| `+` / `-` / `0`                                  | Zoom in, zoom out, fit to the canvas                                                                             |
+| Tab inside the canvas                            | Move the selection through the regions                                                                           |
+
+The canvas is a single tab stop that moves an `aria-activedescendant`, rather
+than one tab stop per region. Zoom is reported relative to the fitted view, so
+100% means the map fills the canvas.
+
+Drag geometry is held outside React state and published once per animation
+frame, so a drag re-renders only the shape being moved. The committed change
+reaches the editor's reducer once, when the pointer is released.
+
 The `locations` table remains the stock system's source of truth. Existing IDs,
 codes, balances, jobs, and transactions are retained by migration `0004`. A
 region is only a visual link to one hierarchy node; containing one SVG shape in

@@ -270,7 +270,11 @@ export function ItemDetailPage(): ReactElement {
                     Print label
                   </Button>
                 </Box>
-                <Box className="print-only" sx={{ display: "none" }} aria-label="Printable item label">
+                <Box
+                  className="print-only"
+                  sx={{ display: "none" }}
+                  aria-label="Printable item label"
+                >
                   <Typography component="p" className="print-name">
                     {data.name}
                   </Typography>

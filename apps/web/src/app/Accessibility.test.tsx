@@ -72,7 +72,7 @@ describe("StockControl automated accessibility checks", () => {
       </StockControlProviders>,
     );
 
-    await screen.findByRole("heading", { name: "Welcome back" });
+    await screen.findByRole("heading", { name: "Sign in" });
     await expectNoAccessibilityViolations(container);
   });
 
@@ -89,6 +89,34 @@ describe("StockControl automated accessibility checks", () => {
     );
 
     await screen.findByRole("heading", { name: /Good to see you/u });
+    await expectNoAccessibilityViolations(container);
+  });
+
+  it("has no detectable violations on the building map", async () => {
+    const { container } = render(
+      <StockControlProviders
+        authClient={new AccessibilityAuthClient(adminSession)}
+        apiClient={createFakeApiClient()}
+      >
+        <MemoryRouter initialEntries={["/locations"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </StockControlProviders>,
+    );
+
+    /* Generous: this route is code-split, so the chunk resolves before the map does. */
+    const canvas = await screen.findByRole(
+      "application",
+      { name: /Main warehouse map/u },
+      { timeout: 5000 },
+    );
+
+    /*
+     * The canvas is a single tab stop that moves an active descendant, rather
+     * than one tab stop per region plus four per selection handle.
+     */
+    expect(canvas).toHaveAttribute("tabindex", "0");
+    expect(container.querySelectorAll("svg [tabindex]")).toHaveLength(0);
     await expectNoAccessibilityViolations(container);
   });
 });

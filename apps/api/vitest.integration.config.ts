@@ -30,6 +30,10 @@ export default defineConfig({
         import.meta.dirname,
         "../../packages/contracts/src/index.ts",
       ),
+      "@stockcontrol/module-locations": path.resolve(
+        import.meta.dirname,
+        "../../packages/modules/locations/src/index.ts",
+      ),
       "@stockcontrol/module-system": path.resolve(
         import.meta.dirname,
         "../../packages/modules/system/src/index.ts",

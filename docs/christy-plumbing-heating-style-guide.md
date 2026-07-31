@@ -64,33 +64,33 @@ The site should feel designed around a real local business, not assembled from a
 
 ### Primary palette
 
-| Token | Colour | Intended use |
-|---|---:|---|
-| `brand-blue` | `#00309D` | Logo alignment, primary buttons, key headings, links and navigation accents |
-| `brand-blue-dark` | `#002477` | Hover states, dark panels and stronger text-on-light emphasis |
-| `brand-blue-deep` | `#071B3A` | Footer, hero overlays and high-contrast sections |
-| `brand-blue-pale` | `#EAF0FC` | Service-card backgrounds, highlighted information and alternating sections |
-| `white` | `#FFFFFF` | Main backgrounds and text on dark blue |
-| `off-white` | `#F7F8FA` | Soft page sections that need separation from white |
+| Token             |    Colour | Intended use                                                                |
+| ----------------- | --------: | --------------------------------------------------------------------------- |
+| `brand-blue`      | `#00309D` | Logo alignment, primary buttons, key headings, links and navigation accents |
+| `brand-blue-dark` | `#002477` | Hover states, dark panels and stronger text-on-light emphasis               |
+| `brand-blue-deep` | `#071B3A` | Footer, hero overlays and high-contrast sections                            |
+| `brand-blue-pale` | `#EAF0FC` | Service-card backgrounds, highlighted information and alternating sections  |
+| `white`           | `#FFFFFF` | Main backgrounds and text on dark blue                                      |
+| `off-white`       | `#F7F8FA` | Soft page sections that need separation from white                          |
 
 ### Neutral palette
 
-| Token | Colour | Intended use |
-|---|---:|---|
-| `text-strong` | `#172033` | Headings and important body copy |
-| `text-body` | `#3F4858` | Standard paragraph text |
-| `text-muted` | `#687386` | Metadata, captions and secondary details |
-| `border` | `#DCE2EA` | Cards, fields and dividers |
-| `surface-dark` | `#101828` | Optional dark content surfaces |
+| Token          |    Colour | Intended use                             |
+| -------------- | --------: | ---------------------------------------- |
+| `text-strong`  | `#172033` | Headings and important body copy         |
+| `text-body`    | `#3F4858` | Standard paragraph text                  |
+| `text-muted`   | `#687386` | Metadata, captions and secondary details |
+| `border`       | `#DCE2EA` | Cards, fields and dividers               |
+| `surface-dark` | `#101828` | Optional dark content surfaces           |
 
 ### Functional colours
 
-| Token | Colour | Intended use |
-|---|---:|---|
-| `urgent` | `#C2410C` | Emergency-only labels and urgent actions |
+| Token     |    Colour | Intended use                                |
+| --------- | --------: | ------------------------------------------- |
+| `urgent`  | `#C2410C` | Emergency-only labels and urgent actions    |
 | `success` | `#18794E` | Confirmation messages and valid form states |
-| `warning` | `#B45309` | Important notices |
-| `error` | `#B42318` | Form errors and destructive actions |
+| `warning` | `#B45309` | Important notices                           |
+| `error`   | `#B42318` | Form errors and destructive actions         |
 
 ### Colour rules
 
@@ -116,15 +116,15 @@ Alternative heading fonts that could work are **Libre Baskerville** or **Source 
 
 ### Usage
 
-| Element | Typeface | Suggested weight | Notes |
-|---|---|---:|---|
-| Display heading | Serif | 400 | Use for the main hero statement only |
-| H1–H3 | Serif | 400 | Keep wording direct and relatively short |
-| H4–H6 | Sans-serif | 600–700 | Better for card titles and compact sections |
-| Body | Sans-serif | 400 | Optimise for readability |
-| Navigation | Sans-serif | 600 | Avoid all caps |
-| Buttons | Sans-serif | 650–700 | Short action-led labels |
-| Labels/captions | Sans-serif | 500–600 | Use sparingly |
+| Element         | Typeface   | Suggested weight | Notes                                       |
+| --------------- | ---------- | ---------------: | ------------------------------------------- |
+| Display heading | Serif      |              400 | Use for the main hero statement only        |
+| H1–H3           | Serif      |              400 | Keep wording direct and relatively short    |
+| H4–H6           | Sans-serif |          600–700 | Better for card titles and compact sections |
+| Body            | Sans-serif |              400 | Optimise for readability                    |
+| Navigation      | Sans-serif |              600 | Avoid all caps                              |
+| Buttons         | Sans-serif |          650–700 | Short action-led labels                     |
+| Labels/captions | Sans-serif |          500–600 | Use sparingly                               |
 
 ### Suggested scale
 

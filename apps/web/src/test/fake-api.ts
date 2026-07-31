@@ -1,12 +1,19 @@
 import type {
   EngineerDashboardResponse,
+  HierarchyNodeView,
+  HierarchyTreeResponse,
   ItemDetailView,
   ItemListResponse,
   ItemSummaryView,
   JobDetailView,
   JobListResponse,
   LocationListResponse,
+  MapRegionInput,
+  MapRegionView,
+  MapSnapshot,
+  MapSummaryView,
   OfficeDashboardResponse,
+  SaveMapRequest,
   StockRequestListResponse,
   StockRequestView,
   TransactionListResponse,
@@ -207,6 +214,153 @@ const users: UserListResponse = {
   ],
 };
 
+/*
+ * Locations and building maps. Region identities are canonical UUIDs because
+ * that is what the server's value objects accept, and the editor now generates
+ * ids for new regions client-side.
+ */
+export const testBranchId = "11111111-1111-4111-8111-111111111111";
+export const testBuildingId = "22222222-2222-4222-8222-222222222222";
+export const testAreaId = "33333333-3333-4333-8333-333333333333";
+export const testAisleId = "44444444-4444-4444-8444-444444444444";
+export const testMapId = "55555555-5555-4555-8555-555555555555";
+export const testRectangleRegionId = "66666666-6666-4666-8666-666666666666";
+export const testPolygonRegionId = "77777777-7777-4777-8777-777777777777";
+
+const hierarchyNode = (
+  overrides: Partial<HierarchyNodeView> & Pick<HierarchyNodeView, "id" | "code" | "name">,
+): HierarchyNodeView => ({
+  nodeKind: "Area",
+  operationalKind: "Storage",
+  parentId: testBuildingId,
+  branchId: testBranchId,
+  buildingId: testBuildingId,
+  status: "Active",
+  generalFulfilmentEnabled: true,
+  children: [],
+  ...overrides,
+});
+
+export const testArea = hierarchyNode({ id: testAreaId, code: "MAIN-A", name: "Aisle A" });
+export const testAisle = hierarchyNode({
+  id: testAisleId,
+  code: "MAIN-B",
+  name: "Aisle B",
+  nodeKind: "Aisle",
+});
+export const testBuilding = hierarchyNode({
+  id: testBuildingId,
+  code: "MAIN",
+  name: "Main warehouse",
+  nodeKind: "Building",
+  parentId: testBranchId,
+  children: [testArea, testAisle],
+});
+export const testBranch = hierarchyNode({
+  id: testBranchId,
+  code: "BR",
+  name: "Northgate branch",
+  nodeKind: "Branch",
+  operationalKind: "Container",
+  parentId: null,
+  buildingId: null,
+  children: [testBuilding],
+});
+
+export const testHierarchyTree: HierarchyTreeResponse = {
+  root: testBranch,
+  buildings: [testBuilding],
+  capabilities: ["manageLocations"],
+};
+
+const availableStock: MapRegionView["stock"] = {
+  status: "Available",
+  colour: "#2E7D32",
+  text: "Available",
+  icon: "check-circle",
+  itemCount: 4,
+  quantity: "120",
+};
+
+export const testRectangleRegion: MapRegionView = {
+  id: testRectangleRegionId,
+  displayName: "Aisle A bays",
+  hierarchyNodeId: testAreaId,
+  parentRegionId: null,
+  geometry: { kind: "Rectangle", x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+  zOrder: 1,
+  searchAliases: ["bay row"],
+  status: "Active",
+  stock: availableStock,
+};
+
+export const testPolygonRegion: MapRegionView = {
+  id: testPolygonRegionId,
+  displayName: "Aisle B corner",
+  hierarchyNodeId: testAisleId,
+  parentRegionId: null,
+  geometry: {
+    kind: "Polygon",
+    points: [
+      { x: 0.6, y: 0.6 },
+      { x: 0.9, y: 0.6 },
+      { x: 0.75, y: 0.9 },
+    ],
+  },
+  zOrder: 2,
+  searchAliases: [],
+  status: "Active",
+  stock: { ...availableStock, status: "LowStock", colour: "#ED6C02", text: "Low stock" },
+};
+
+export const testMapSnapshot: MapSnapshot = {
+  id: testMapId,
+  buildingId: testBuildingId,
+  building: testBuilding,
+  status: "Active",
+  revision: 3,
+  background: { kind: "Blank" },
+  hierarchy: [testBuilding],
+  regions: [testRectangleRegion, testPolygonRegion],
+  capabilities: ["manageLocations"],
+};
+
+export const testMapSummary: MapSummaryView = {
+  id: testMapId,
+  buildingId: testBuildingId,
+  buildingCode: "MAIN",
+  buildingName: "Main warehouse",
+  status: "Active",
+  revision: 3,
+  background: { kind: "Blank" },
+  regionCount: 2,
+};
+
+/** Turns a save payload back into a snapshot, the way the API would. */
+function savedSnapshot(regions: readonly MapRegionInput[], revision: number): MapSnapshot {
+  return {
+    ...testMapSnapshot,
+    revision: revision + 1,
+    regions: regions.map((region, index) => ({
+      id: region.id ?? `server-${String(index)}`,
+      displayName: region.displayName,
+      hierarchyNodeId: region.hierarchyNodeId,
+      parentRegionId: region.parentRegionId ?? null,
+      geometry: region.geometry,
+      zOrder: region.zOrder,
+      searchAliases: region.searchAliases ?? [],
+      status: region.status ?? "Active",
+      stock: availableStock,
+    })),
+  };
+}
+
+export interface RecordedRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly body: unknown;
+}
+
 function jsonResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
     status: 200,
@@ -215,11 +369,18 @@ function jsonResponse(payload: unknown): Response {
 }
 
 /** Builds an ApiClient whose every GET resolves against the canned data above. */
-export function createFakeApiClient(overrides: Readonly<Record<string, unknown>> = {}): ApiClient {
-  return new ApiClient((input) => {
+export function createFakeApiClient(
+  overrides: Readonly<Record<string, unknown>> = {},
+  onRequest?: (request: RecordedRequest) => void,
+): ApiClient {
+  return new ApiClient((input, init) => {
     /* The client only ever passes a string path, so this is the whole surface. */
     const url = typeof input === "string" ? input : String((input as URL).href);
     const path = url.replace("/api/v1", "").split("?")[0] ?? "";
+    const method = init?.method ?? "GET";
+    const rawBody = init?.body;
+    const body: unknown = typeof rawBody === "string" ? JSON.parse(rawBody) : undefined;
+    onRequest?.({ method, path, body });
 
     for (const [pattern, payload] of Object.entries(overrides)) {
       if (path === pattern) {
@@ -227,6 +388,39 @@ export function createFakeApiClient(overrides: Readonly<Record<string, unknown>>
       }
     }
 
+    if (path === "/locations/tree") {
+      return Promise.resolve(jsonResponse(testHierarchyTree));
+    }
+    if (path === "/locations/search") {
+      const query = url.includes("query=") ? decodeURIComponent(url.split("query=")[1] ?? "") : "";
+      const matches = [testArea, testAisle].filter((node) =>
+        `${node.name} ${node.code}`.toLowerCase().includes(query.toLowerCase()),
+      );
+      return Promise.resolve(
+        jsonResponse(
+          query.length === 0
+            ? []
+            : matches.map((node) => ({
+                location: node,
+                regionId: node.id === testAreaId ? testRectangleRegionId : testPolygonRegionId,
+                mapId: testMapId,
+                matchedOn: "name",
+              })),
+        ),
+      );
+    }
+    if (path === "/maps") {
+      return Promise.resolve(jsonResponse([testMapSummary]));
+    }
+    if (path === `/maps/${testMapId}` && method === "PUT") {
+      const request = body as SaveMapRequest;
+      return Promise.resolve(
+        jsonResponse(savedSnapshot(request.regions, request.expectedRevision)),
+      );
+    }
+    if (path.startsWith("/maps/")) {
+      return Promise.resolve(jsonResponse(testMapSnapshot));
+    }
     if (path === "/dashboard") {
       return Promise.resolve(jsonResponse(officeDashboard));
     }

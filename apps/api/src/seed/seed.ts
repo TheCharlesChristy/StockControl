@@ -190,7 +190,7 @@ const seed = async (): Promise<void> => {
             display_name: "Main store north",
             geometry: { kind: "Rectangle", x: 0.05, y: 0.08, width: 0.4, height: 0.32 },
             z_order: 1,
-            search_aliases: ["north cache"],
+            search_aliases: JSON.stringify(["north cache"]),
             status: "Active",
           },
           {
@@ -209,7 +209,7 @@ const seed = async (): Promise<void> => {
               ],
             },
             z_order: 2,
-            search_aliases: ["south cache"],
+            search_aliases: JSON.stringify(["south cache"]),
             status: "Active",
           },
           {
@@ -220,7 +220,7 @@ const seed = async (): Promise<void> => {
             display_name: "Main store centre",
             geometry: { kind: "Rectangle", x: 0.2, y: 0.55, width: 0.5, height: 0.3 },
             z_order: 3,
-            search_aliases: ["centre cache"],
+            search_aliases: JSON.stringify(["centre cache"]),
             status: "Active",
           },
         ])
