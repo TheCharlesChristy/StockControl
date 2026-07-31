@@ -118,7 +118,7 @@ export function StockRequestDialog({
               fullWidth
             />
 
-            {error !== null && error.errors === undefined && (
+            {error !== null && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"}>
                 {error.message}
               </Alert>

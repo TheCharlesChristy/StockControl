@@ -165,7 +165,7 @@ export function AccessDeniedPage(): ReactElement {
       <StatePanel
         eyebrow="Permission required"
         title="Access restricted"
-        description="Your current role does not include this workspace. Ask an Admin if you need access for your work."
+        description="Your current role does not include this section. Ask an Admin if you need access for your work."
         icon={<LockOutlined />}
         actionLabel="Return to overview"
         onAction={() => {

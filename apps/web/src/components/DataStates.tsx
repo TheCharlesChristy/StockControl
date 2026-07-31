@@ -2,9 +2,26 @@ import ErrorOutlineRounded from "@mui/icons-material/ErrorOutlineRounded";
 import InboxRounded from "@mui/icons-material/InboxRounded";
 import LockOutlined from "@mui/icons-material/LockOutlined";
 import { Alert, AlertTitle, Box, Button, Paper, Skeleton, Stack, Typography } from "@mui/material";
+import type { TransactionKind } from "@stockcontrol/contracts";
 import type { ReactElement, ReactNode } from "react";
 
 import type { ApiError } from "../api/ApiClient";
+
+/**
+ * What each kind of movement is called on screen. The stored kind is `Issue`,
+ * but every button that performs one says "Take out", so the history says the
+ * same thing — one movement should not have two names depending on which page
+ * you are looking at. Every screen that shows a transaction reads from here.
+ */
+export const transactionKindLabels: Readonly<Record<TransactionKind, string>> = {
+  Receive: "Receive",
+  Issue: "Take out",
+  Transfer: "Transfer",
+  Adjust: "Adjust",
+  Reserve: "Reserve",
+  Collect: "Collect",
+  Release: "Release",
+};
 
 /** Trims trailing zeros so a table reads "7" and "7.5", not "7.000". */
 export function formatQuantity(value: string): string {

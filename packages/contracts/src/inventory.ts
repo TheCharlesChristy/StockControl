@@ -28,6 +28,12 @@ export interface LocationBalanceView {
   readonly locationName: string;
   readonly kind: LocationKind;
   readonly quantity: string;
+  /**
+   * Present only where the rows span more than one item, as they do at a job
+   * site. An item's own balances all share that item's unit, which the page
+   * already has, so repeating it there would be noise.
+   */
+  readonly unit?: string;
 }
 
 export interface ItemSummaryView {

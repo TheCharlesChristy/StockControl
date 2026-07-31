@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   Divider,
   Link,
@@ -37,6 +38,7 @@ import {
   LoadingRows,
   PageHeader,
   StatTile,
+  transactionKindLabels,
 } from "../components/DataStates";
 
 function asApiError(caught: unknown): ApiError {
@@ -102,7 +104,7 @@ function ReserveDialog({
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -211,7 +213,7 @@ function CollectDialog({
               {reservation.itemReference} — {reservation.itemName}.{" "}
               {formatQuantity(reservation.quantityOutstanding)} {reservation.unit} outstanding.
             </Typography>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -304,7 +306,7 @@ function ReleaseDialog({
               Gives back the {formatQuantity(reservation.quantityOutstanding)} {reservation.unit}{" "}
               that has not been collected. Anything already collected stays at the job site.
             </Typography>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -461,6 +463,7 @@ export function JobDetailPage(): ReactElement {
   const [collecting, setCollecting] = useState<ReservationView | null>(null);
   const [releasing, setReleasing] = useState<ReservationView | null>(null);
   const [closing, setClosing] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [closeError, setCloseError] = useState<ApiError | undefined>(undefined);
 
   const load = useCallback((signal: AbortSignal) => api.getJob(jobId, signal), [api, jobId]);
@@ -473,7 +476,10 @@ export function JobDetailPage(): ReactElement {
 
     void api
       .closeJob(jobId)
-      .then(() => job.reload())
+      .then(() => {
+        setConfirmingClose(false);
+        return job.reload();
+      })
       .catch((caught: unknown) => setCloseError(asApiError(caught)))
       .finally(() => setClosing(false));
   };
@@ -511,7 +517,7 @@ export function JobDetailPage(): ReactElement {
                   <Button
                     variant="outlined"
                     color="warning"
-                    onClick={handleClose}
+                    onClick={() => setConfirmingClose(true)}
                     disabled={closing}
                   >
                     {closing ? "Closing…" : "Close job"}
@@ -570,7 +576,7 @@ export function JobDetailPage(): ReactElement {
                         <TableCell align="right">Collected</TableCell>
                         <TableCell align="right">Outstanding</TableCell>
                         <TableCell>Status</TableCell>
-                        <TableCell>Raised by</TableCell>
+                        <TableCell>Reserved by</TableCell>
                         <TableCell align="right" />
                       </TableRow>
                     </TableHead>
@@ -589,14 +595,19 @@ export function JobDetailPage(): ReactElement {
                               {reservation.itemName}
                             </Typography>
                           </TableCell>
+                          {/*
+                           * With the unit, because "127 · 50.8 · 76.2" on its
+                           * own does not say whether those are metres or items,
+                           * and the reservation has always carried it.
+                           */}
                           <TableCell align="right">
-                            {formatQuantity(reservation.quantityReserved)}
+                            {formatQuantity(reservation.quantityReserved)} {reservation.unit}
                           </TableCell>
                           <TableCell align="right">
-                            {formatQuantity(reservation.quantityCollected)}
+                            {formatQuantity(reservation.quantityCollected)} {reservation.unit}
                           </TableCell>
                           <TableCell align="right" sx={{ fontWeight: 750 }}>
-                            {formatQuantity(reservation.quantityOutstanding)}
+                            {formatQuantity(reservation.quantityOutstanding)} {reservation.unit}
                           </TableCell>
                           <TableCell>
                             <Chip
@@ -659,7 +670,10 @@ export function JobDetailPage(): ReactElement {
                       {data.jobSiteStock.map((balance) => (
                         <TableRow key={`${balance.locationId}-${balance.locationName}`}>
                           <TableCell>{balance.locationName}</TableCell>
-                          <TableCell align="right">{formatQuantity(balance.quantity)}</TableCell>
+                          <TableCell align="right">
+                            {formatQuantity(balance.quantity)}
+                            {balance.unit === undefined ? "" : ` ${balance.unit}`}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -696,11 +710,15 @@ export function JobDetailPage(): ReactElement {
                             {formatDateTime(transaction.occurredAt)}
                           </TableCell>
                           <TableCell>
-                            <Chip label={transaction.kind} size="small" variant="outlined" />
+                            <Chip
+                              label={transactionKindLabels[transaction.kind]}
+                              size="small"
+                              variant="outlined"
+                            />
                           </TableCell>
                           <TableCell>{transaction.itemReference}</TableCell>
                           <TableCell align="right">
-                            {formatQuantity(transaction.quantity)}
+                            {formatQuantity(transaction.quantity)} {transaction.unit}
                           </TableCell>
                           <TableCell>{transaction.actorName}</TableCell>
                         </TableRow>
@@ -729,6 +747,41 @@ export function JobDetailPage(): ReactElement {
               onDone={job.reload}
             />
           )}
+          {/*
+           * Releasing one reservation asks for a written reason; closing the job
+           * releases every one of them at once. The larger act was the one with
+           * no question attached, so it gets asked here — with the count, so the
+           * consequence is a number rather than a warning.
+           */}
+          <Dialog
+            open={confirmingClose}
+            onClose={() => setConfirmingClose(false)}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>Close {data.number}?</DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                {openReservations.length === 0
+                  ? "Nothing is still reserved against this job."
+                  : `This releases ${String(openReservations.length)} uncollected reservation${
+                      openReservations.length === 1 ? "" : "s"
+                    } and gives that stock back to stores.`}
+                {data.jobSiteStock.length > 0 &&
+                  ` The ${String(data.jobSiteStock.length)} item${
+                    data.jobSiteStock.length === 1 ? "" : "s"
+                  } already collected stay at the job site.`}
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmingClose(false)} disabled={closing}>
+                Cancel
+              </Button>
+              <Button variant="contained" color="warning" onClick={handleClose} disabled={closing}>
+                {closing ? "Closing…" : "Close job"}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Box>

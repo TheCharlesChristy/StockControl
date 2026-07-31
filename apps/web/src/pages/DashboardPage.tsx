@@ -25,6 +25,7 @@ import { Link as RouterLink } from "react-router-dom";
 
 import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
+import { useCapability } from "../auth/useCapability";
 import {
   ErrorState,
   formatDateTime,
@@ -32,6 +33,7 @@ import {
   LoadingRows,
   PageHeader,
   StatTile,
+  transactionKindLabels,
 } from "../components/DataStates";
 import { InventoryTable } from "../components/InventoryTable";
 import { StockRequestList } from "../components/StockRequestList";
@@ -178,7 +180,9 @@ function EngineerDashboard({
                         key={`${job.id}-${balance.locationName}`}
                         size="small"
                         variant="outlined"
-                        label={`${balance.locationName} · ${formatQuantity(balance.quantity)}`}
+                        label={`${balance.locationName} · ${formatQuantity(balance.quantity)}${
+                          balance.unit === undefined ? "" : ` ${balance.unit}`
+                        }`}
                       />
                     ))}
                   </Stack>
@@ -220,6 +224,12 @@ function OfficeDashboard({
 }): ReactElement {
   const [mineOnly, setMineOnly] = useState(false);
   const reservations = mineOnly ? data.myReservations : data.openReservations;
+  /*
+   * Only roles that hold the capability get Approve and Turn down. Reaching
+   * this component already implies the role, but the guard belongs on the
+   * capability rather than on which branch rendered us.
+   */
+  const canReview = useCapability("reviewStockRequests");
 
   return (
     <Stack spacing={3}>
@@ -244,7 +254,7 @@ function OfficeDashboard({
         }
       >
         {data.lowStock.length === 0 ? (
-          <Empty>Nothing is below its threshold.</Empty>
+          <Empty>Nothing is below its minimum.</Empty>
         ) : (
           <List disablePadding>
             {data.lowStock.map((item) => (
@@ -255,9 +265,14 @@ function OfficeDashboard({
                       {item.reference} — {item.name}
                     </Link>
                   }
-                  secondary={`${formatQuantity(item.available)} ${item.unit} available, threshold ${formatQuantity(item.lowStockThreshold ?? "0")}`}
+                  secondary={`${formatQuantity(item.available)} ${item.unit} available, minimum ${formatQuantity(item.lowStockThreshold ?? "0")}`}
                 />
-                <Chip label="Reorder" size="small" color="warning" variant="outlined" />
+                {/*
+                 * A state, not an instruction. "Reorder" reads as a button that
+                 * places an order, and nothing here does that — this is the same
+                 * condition the inventory table flags, so it wears the same word.
+                 */}
+                <Chip label="Low" size="small" color="warning" variant="outlined" />
               </ListItem>
             ))}
           </List>
@@ -275,7 +290,11 @@ function OfficeDashboard({
         {data.pendingRequests.length === 0 ? (
           <Empty>Nothing is waiting for a decision.</Empty>
         ) : (
-          <StockRequestList requests={data.pendingRequests} canReview onChanged={onChanged} />
+          <StockRequestList
+            requests={data.pendingRequests}
+            canReview={canReview}
+            onChanged={onChanged}
+          />
         )}
       </Panel>
 
@@ -361,7 +380,11 @@ function OfficeDashboard({
                       alignItems="center"
                       sx={{ flexWrap: "wrap" }}
                     >
-                      <Chip label={transaction.kind} size="small" variant="outlined" />
+                      <Chip
+                        label={transactionKindLabels[transaction.kind]}
+                        size="small"
+                        variant="outlined"
+                      />
                       <Link
                         component={RouterLink}
                         to={`/inventory/${transaction.itemId}`}

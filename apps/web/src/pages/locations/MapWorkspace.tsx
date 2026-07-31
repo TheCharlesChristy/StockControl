@@ -103,18 +103,25 @@ export function MapWorkspace({
         onRevert={onRevert}
         onUploadClick={openFilePicker}
       />
-      <input
-        ref={fileInput}
-        hidden
-        type="file"
-        accept="image/png,image/jpeg"
-        aria-label="Upload floor plan"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (file !== undefined) onUploadFile(file);
-        }}
-      />
+      {/*
+       * Mounted only for a role that may upload. Being `hidden` keeps it out of
+       * sight either way, but a control nobody is allowed to use should not be
+       * in the tree at all — the guard here matches the button that opens it.
+       */}
+      {canEdit && (
+        <input
+          ref={fileInput}
+          hidden
+          type="file"
+          accept="image/png,image/jpeg"
+          aria-label="Upload floor plan"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file !== undefined) onUploadFile(file);
+          }}
+        />
+      )}
       {map === null ? (
         <Box sx={emptyCanvasSx}>
           {canCreateMap ? (

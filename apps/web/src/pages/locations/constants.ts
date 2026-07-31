@@ -15,8 +15,13 @@ export const gridLine = "#DFE5EE";
 export const selectionStroke = "#071B3A";
 export const shapeStroke = "#FFFFFF";
 
+/*
+ * Only the four states the server can actually produce. It emits Available,
+ * LowStock, OutOfStock and Archived and nothing else, so a fifth swatch here
+ * described a colour no region ever wears — and "Full" sitting beside
+ * "Available" implied a distinction between them that does not exist.
+ */
 export const statusLegend = [
-  { colour: "#1565C0", label: "Full" },
   { colour: "#2E7D32", label: "Available" },
   { colour: "#ED6C02", label: "Low stock" },
   { colour: "#D32F2F", label: "Out of stock" },
@@ -78,11 +83,23 @@ export const emptyCanvasSx: SxProps<Theme> = {
 };
 
 export const treeItemSlotProps = {
+  /*
+   * Wraps to two lines rather than cutting at one. Sibling bays share a long
+   * prefix — "Main store, aisle A, bay 1/2/3" — so a single truncated line
+   * rendered three different shelves as the identical "Main store, aisle A…"
+   * and left the code underneath as the only thing telling them apart.
+   */
   primary: {
-    noWrap: true,
     fontSize: "0.84rem",
     fontWeight: 700,
     color: "#17243B",
+    sx: {
+      display: "-webkit-box",
+      WebkitBoxOrient: "vertical",
+      WebkitLineClamp: 2,
+      overflow: "hidden",
+      lineHeight: 1.3,
+    },
   },
   secondary: {
     noWrap: true,

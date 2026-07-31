@@ -56,6 +56,18 @@ export class ApiError extends Error {
     return this.errors?.[field]?.[0];
   }
 
+  /**
+   * Whether every part of this failure is already spoken for by a field.
+   *
+   * A form that shows "Enter a location." under the empty select does not also
+   * need "Validation failed" shouted above it — the banner adds a word nobody
+   * outside software uses and says less than the message beneath it. A dialog
+   * uses this to keep the summary for failures the fields cannot explain.
+   */
+  public get hasFieldErrors(): boolean {
+    return Object.keys(this.errors ?? {}).length > 0;
+  }
+
   public get isValidation(): boolean {
     return this.status === 422;
   }

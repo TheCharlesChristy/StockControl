@@ -23,14 +23,19 @@ const titles: Readonly<Record<StockOperation, string>> = {
   receive: "Receive stock",
   issue: "Take out stock",
   transfer: "Transfer stock",
-  adjust: "Adjust count",
+  /*
+   * "Adjust" on its own suggests a difference — add three, take two away — but
+   * the field below is the new total. Someone who counts five boxes on a shelf
+   * holding six hundred should be in no doubt which number to type.
+   */
+  adjust: "Correct the counted quantity",
 };
 
 const submitLabels: Readonly<Record<StockOperation, string>> = {
   receive: "Receive",
   issue: "Take out",
   transfer: "Transfer",
-  adjust: "Post adjustment",
+  adjust: "Save new count",
 };
 
 interface StockOperationDialogProps {
@@ -134,7 +139,7 @@ export function StockOperationDialog({
               {item.reference} — {item.name}
             </Typography>
 
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -185,7 +190,7 @@ export function StockOperationDialog({
 
             <TextField
               required
-              label={operation === "adjust" ? "Counted quantity" : "Quantity"}
+              label={operation === "adjust" ? "Total counted" : "Quantity"}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
               disabled={submitting}
@@ -194,12 +199,21 @@ export function StockOperationDialog({
                 error?.fieldError("quantity") !== undefined ||
                 error?.fieldError("countedQuantity") !== undefined
               }
+              /*
+               * The replaces-not-adds sentence shows whether or not a location
+               * has been picked yet. It is the one thing a person must know
+               * before typing, so it cannot wait for the figure to appear.
+               */
               helperText={
                 error?.fieldError("quantity") ??
                 error?.fieldError("countedQuantity") ??
-                (operation === "adjust" && currentAtLocation !== undefined
-                  ? `Currently recorded: ${formatQuantity(currentAtLocation)} ${item.unit}`
-                  : `In ${item.unit}`)
+                (operation === "adjust"
+                  ? `Enter the total you counted — it replaces the figure on record, it is not added to it.${
+                      currentAtLocation === undefined
+                        ? ""
+                        : ` Currently recorded: ${formatQuantity(currentAtLocation)} ${item.unit}.`
+                    }`
+                  : `Quantity in ${item.unit}`)
               }
             />
 

@@ -32,7 +32,7 @@ import type {
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
-import { useAuth } from "../auth/AuthContext";
+import { useCapability } from "../auth/useCapability";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { mapBorder } from "./locations/constants";
 import {
@@ -57,8 +57,12 @@ const SEARCH_DEBOUNCE_MS = 250;
  */
 export function LocationsPage(): ReactElement {
   const api = useApi();
-  const { user } = useAuth();
-  const canEdit = user?.role === "Admin";
+  /*
+   * Editing the hierarchy and the map is one capability, resolved through the
+   * shared role map rather than a role name, so a change to ROLE_CAPABILITIES
+   * carries this screen with it. The server checks the same capability again.
+   */
+  const canEdit = useCapability("manageLocations");
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [editor, dispatch] = useReducer(editorReducer, initialEditor);
   const [query, setQuery] = useState("");
@@ -460,24 +464,39 @@ export function LocationsPage(): ReactElement {
                 ))}
               </Select>
             </FormControl>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddRounded />}
-              onClick={() => document.getElementById("new-location-code")?.focus()}
-              disabled={!canEdit || hierarchyRoot === null}
-            >
-              Add building
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<MapRounded />}
-              onClick={() => svgRef.current?.focus()}
-              disabled={draft === null}
-            >
-              Edit map
-            </Button>
+            {/*
+             * Both of these only exist for a role that can actually change
+             * something. A role that cannot gets no button at all rather than a
+             * greyed stub or — worse — a live one that quietly does nothing:
+             * the navigation already hides whole sections by role, and this is
+             * the same idea one level down.
+             */}
+            {canEdit && (
+              <>
+                <Tooltip title="Jumps to the new-location form below the hierarchy">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddRounded />}
+                      onClick={() => document.getElementById("new-location-code")?.focus()}
+                      disabled={hierarchyRoot === null}
+                    >
+                      Add building
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<MapRounded />}
+                  onClick={() => svgRef.current?.focus()}
+                  disabled={draft === null}
+                >
+                  Edit map
+                </Button>
+              </>
+            )}
           </Stack>
         </Stack>
         {(conflict || saveMessage !== null) && (
