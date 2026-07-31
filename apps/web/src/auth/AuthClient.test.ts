@@ -1,11 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { AuthenticatedSession, AuthenticatedUser } from "./auth-types";
-import {
-  createDefaultAuthClient,
-  createHttpAuthClient,
-  createPreviewAuthClient,
-} from "./AuthClient";
+import { createDefaultAuthClient, createHttpAuthClient } from "./AuthClient";
 
 const officeUser: AuthenticatedUser = {
   id: "user-office",
@@ -152,79 +148,8 @@ describe("HTTP authentication client", () => {
   });
 });
 
-describe("development preview authentication client", () => {
-  const previewNow = new Date("2026-07-29T09:00:00.000Z");
-  const clock = (): Date => new Date(previewNow);
-
-  afterEach(() => {
-    window.sessionStorage.clear();
-  });
-
-  it.each([
-    ["admin.owner@example.com", "Admin"],
-    ["engineer.one@example.com", "Engineer"],
-    ["office.desk@example.com", "Office"],
-  ])("derives the %s preview role and restores the session", async (email, role) => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-
-    const session = await client.signIn({ email, password: "anything" });
-
-    expect(session.user.role).toBe(role);
-    expect(session.expiresAt).toBe("2026-07-29T21:00:00.000Z");
-    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(session);
-  });
-
-  it("returns null when no preview session is stored", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-
-    await expect(client.getSession(new AbortController().signal)).resolves.toBeNull();
-  });
-
-  it("clears an expired preview session", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-    await client.signIn({ email: "office.desk@example.com", password: "anything" });
-
-    const laterClient = createPreviewAuthClient(
-      window.sessionStorage,
-      () => new Date("2026-07-30T09:00:00.000Z"),
-    );
-
-    await expect(laterClient.getSession(new AbortController().signal)).resolves.toBeNull();
-    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
-  });
-
-  it.each(["not-json", JSON.stringify({ user: { id: "u" } })])(
-    "clears an invalid stored preview session",
-    async (storedValue) => {
-      window.sessionStorage.setItem("stockcontrol.preview-session.v3", storedValue);
-      const client = createPreviewAuthClient(window.sessionStorage, clock);
-
-      await expect(client.getSession(new AbortController().signal)).resolves.toBeNull();
-      expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
-    },
-  );
-
-  it("removes the stored session on sign out", async () => {
-    const client = createPreviewAuthClient(window.sessionStorage, clock);
-    await client.signIn({ email: "office.desk@example.com", password: "anything" });
-
-    await client.signOut();
-
-    expect(window.sessionStorage.getItem("stockcontrol.preview-session.v3")).toBeNull();
-  });
-
-  it("honours an aborted session lookup", () => {
-    const controller = new AbortController();
-    controller.abort();
-
-    expect(() =>
-      createPreviewAuthClient(window.sessionStorage, clock).getSession(controller.signal),
-    ).toThrow();
-  });
-});
-
 describe("default authentication client", () => {
-  it("uses the HTTP client when the preview flag is not enabled", () => {
+  it("talks to the API", () => {
     expect(createDefaultAuthClient()).toHaveProperty("signIn");
   });
 });

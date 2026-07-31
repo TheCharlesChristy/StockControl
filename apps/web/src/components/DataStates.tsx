@@ -140,8 +140,13 @@ export function PageHeader({
           </Typography>
         )}
       </Box>
+      {/*
+       * Wraps rather than forcing every action onto one row: an item with all
+       * four stock operations available does not fit a phone otherwise, and a
+       * row that overflows its container drags the whole page sideways with it.
+       */}
       {actions !== undefined && (
-        <Stack direction="row" spacing={1.25} sx={{ flexShrink: 0 }}>
+        <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap" sx={{ flexShrink: 0 }}>
           {actions}
         </Stack>
       )}
@@ -166,8 +171,14 @@ export function StatTile({ label, value, caption, tone = "neutral" }: StatTilePr
   const palette = tones[tone];
 
   return (
+    /*
+     * Grouped and named so the figure is announced with the thing it counts.
+     * Reading "353" on its own tells nobody anything.
+     */
     <Paper
       variant="outlined"
+      role="group"
+      aria-label={label}
       sx={{ p: 2, flex: 1, minWidth: 140, bgcolor: palette.background, borderColor: "divider" }}
     >
       <Typography variant="caption" sx={{ fontWeight: 750, color: palette.foreground }}>

@@ -155,7 +155,8 @@ export function AppShell(): ReactElement | null {
           >
             {initials(user.displayName)}
           </Avatar>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
+          {/* Named so the two lines are announced as one fact, not two stray strings. */}
+          <Box role="group" aria-label="Signed in as" sx={{ minWidth: 0, flex: 1 }}>
             <Typography noWrap sx={{ color: "#FFFFFF", fontSize: "0.84rem", fontWeight: 750 }}>
               {user.displayName}
             </Typography>

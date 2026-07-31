@@ -17,6 +17,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -387,7 +388,7 @@ export function JobDetailPage(): ReactElement {
             title={data.name}
             description={`${data.customer} · created ${formatDateTime(data.createdAt)}`}
             actions={
-              <Stack direction="row" spacing={1}>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {data.status === "Open" && canReserve && (
                   <Button variant="contained" onClick={() => setReserving(true)}>
                     Reserve stock
@@ -445,75 +446,77 @@ export function JobDetailPage(): ReactElement {
                   </Typography>
                 </Box>
               ) : (
-                <Table size="small" aria-label="Reservations">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Item</TableCell>
-                      <TableCell align="right">Reserved</TableCell>
-                      <TableCell align="right">Collected</TableCell>
-                      <TableCell align="right">Outstanding</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Raised by</TableCell>
-                      <TableCell align="right" />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.reservations.map((reservation) => (
-                      <TableRow key={reservation.id}>
-                        <TableCell>
-                          <Link
-                            component={RouterLink}
-                            to={`/inventory/${reservation.itemId}`}
-                            underline="hover"
-                          >
-                            {reservation.itemReference}
-                          </Link>
-                          <Typography variant="body2" color="text.secondary">
-                            {reservation.itemName}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          {formatQuantity(reservation.quantityReserved)}
-                        </TableCell>
-                        <TableCell align="right">
-                          {formatQuantity(reservation.quantityCollected)}
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 750 }}>
-                          {formatQuantity(reservation.quantityOutstanding)}
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={reservation.status}
-                            size="small"
-                            variant="outlined"
-                            color={reservation.status === "Open" ? "primary" : "default"}
-                          />
-                        </TableCell>
-                        <TableCell>{reservation.createdByName}</TableCell>
-                        <TableCell align="right">
-                          {reservation.status === "Open" && (
-                            <Stack direction="row" spacing={1} justifyContent="flex-end">
-                              {canCollect && (
-                                <Button size="small" onClick={() => setCollecting(reservation)}>
-                                  Collect
-                                </Button>
-                              )}
-                              {canRelease && (
-                                <Button
-                                  size="small"
-                                  color="warning"
-                                  onClick={() => setReleasing(reservation)}
-                                >
-                                  Release
-                                </Button>
-                              )}
-                            </Stack>
-                          )}
-                        </TableCell>
+                <TableContainer>
+                  <Table size="small" aria-label="Reservations">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Item</TableCell>
+                        <TableCell align="right">Reserved</TableCell>
+                        <TableCell align="right">Collected</TableCell>
+                        <TableCell align="right">Outstanding</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Raised by</TableCell>
+                        <TableCell align="right" />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {data.reservations.map((reservation) => (
+                        <TableRow key={reservation.id}>
+                          <TableCell>
+                            <Link
+                              component={RouterLink}
+                              to={`/inventory/${reservation.itemId}`}
+                              underline="hover"
+                            >
+                              {reservation.itemReference}
+                            </Link>
+                            <Typography variant="body2" color="text.secondary">
+                              {reservation.itemName}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatQuantity(reservation.quantityReserved)}
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatQuantity(reservation.quantityCollected)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 750 }}>
+                            {formatQuantity(reservation.quantityOutstanding)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={reservation.status}
+                              size="small"
+                              variant="outlined"
+                              color={reservation.status === "Open" ? "primary" : "default"}
+                            />
+                          </TableCell>
+                          <TableCell>{reservation.createdByName}</TableCell>
+                          <TableCell align="right">
+                            {reservation.status === "Open" && (
+                              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                {canCollect && (
+                                  <Button size="small" onClick={() => setCollecting(reservation)}>
+                                    Collect
+                                  </Button>
+                                )}
+                                {canRelease && (
+                                  <Button
+                                    size="small"
+                                    color="warning"
+                                    onClick={() => setReleasing(reservation)}
+                                  >
+                                    Release
+                                  </Button>
+                                )}
+                              </Stack>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Paper>
 
@@ -529,22 +532,24 @@ export function JobDetailPage(): ReactElement {
                   </Typography>
                 </Box>
               ) : (
-                <Table size="small" aria-label="Stock at the job site">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Item</TableCell>
-                      <TableCell align="right">Quantity</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.jobSiteStock.map((balance) => (
-                      <TableRow key={`${balance.locationId}-${balance.locationName}`}>
-                        <TableCell>{balance.locationName}</TableCell>
-                        <TableCell align="right">{formatQuantity(balance.quantity)}</TableCell>
+                <TableContainer>
+                  <Table size="small" aria-label="Stock at the job site">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Item</TableCell>
+                        <TableCell align="right">Quantity</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {data.jobSiteStock.map((balance) => (
+                        <TableRow key={`${balance.locationId}-${balance.locationName}`}>
+                          <TableCell>{balance.locationName}</TableCell>
+                          <TableCell align="right">{formatQuantity(balance.quantity)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Paper>
 
@@ -558,32 +563,36 @@ export function JobDetailPage(): ReactElement {
                   <Typography color="text.secondary">Nothing has happened yet.</Typography>
                 </Box>
               ) : (
-                <Table size="small" aria-label="Job activity">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>When</TableCell>
-                      <TableCell>What</TableCell>
-                      <TableCell>Item</TableCell>
-                      <TableCell align="right">Quantity</TableCell>
-                      <TableCell>Who</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.recentTransactions.map((transaction) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          {formatDateTime(transaction.occurredAt)}
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={transaction.kind} size="small" variant="outlined" />
-                        </TableCell>
-                        <TableCell>{transaction.itemReference}</TableCell>
-                        <TableCell align="right">{formatQuantity(transaction.quantity)}</TableCell>
-                        <TableCell>{transaction.actorName}</TableCell>
+                <TableContainer>
+                  <Table size="small" aria-label="Job activity">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>When</TableCell>
+                        <TableCell>What</TableCell>
+                        <TableCell>Item</TableCell>
+                        <TableCell align="right">Quantity</TableCell>
+                        <TableCell>Who</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {data.recentTransactions.map((transaction) => (
+                        <TableRow key={transaction.id}>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>
+                            {formatDateTime(transaction.occurredAt)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={transaction.kind} size="small" variant="outlined" />
+                          </TableCell>
+                          <TableCell>{transaction.itemReference}</TableCell>
+                          <TableCell align="right">
+                            {formatQuantity(transaction.quantity)}
+                          </TableCell>
+                          <TableCell>{transaction.actorName}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Paper>
           </Stack>

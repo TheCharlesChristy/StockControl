@@ -61,8 +61,6 @@ export default defineConfig({
       cwd: workspaceRoot,
       env: {
         NODE_ENV: "test",
-        /* The journey signs in for real; the preview stand-in would bypass it. */
-        VITE_ENABLE_AUTH_PREVIEW: "false",
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

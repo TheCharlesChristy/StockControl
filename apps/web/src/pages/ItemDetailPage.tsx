@@ -10,6 +10,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -81,7 +82,16 @@ export function ItemDetailPage(): ReactElement {
               .filter((part) => part !== undefined)
               .join(" · ")}
             actions={
-              <Stack direction="row" spacing={1} className="no-print">
+              // Wraps onto a second line rather than pushing the page wider: a
+              // role with all four operations does not fit one row on a phone.
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                flexWrap="wrap"
+                justifyContent={{ xs: "flex-start", sm: "flex-end" }}
+                className="no-print"
+              >
                 {canManageStock && (
                   <Button variant="contained" onClick={() => setOperation("receive")}>
                     Receive
@@ -137,38 +147,40 @@ export function ItemDetailPage(): ReactElement {
                     </Typography>
                   </Box>
                 ) : (
-                  <Table size="small" aria-label="Stock by location">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Location</TableCell>
-                        <TableCell>Kind</TableCell>
-                        <TableCell align="right">Quantity</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {data.balances.map((balance) => (
-                        <TableRow key={balance.locationId}>
-                          <TableCell>
-                            <strong>{balance.locationCode}</strong>
-                            <Typography variant="body2" color="text.secondary">
-                              {balance.locationName}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={balance.kind === "Store" ? "Store" : "Job site"}
-                              size="small"
-                              variant="outlined"
-                              color={balance.kind === "Store" ? "default" : "secondary"}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            {formatQuantity(balance.quantity)} {data.unit}
-                          </TableCell>
+                  <TableContainer>
+                    <Table size="small" aria-label="Stock by location">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Location</TableCell>
+                          <TableCell>Kind</TableCell>
+                          <TableCell align="right">Quantity</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHead>
+                      <TableBody>
+                        {data.balances.map((balance) => (
+                          <TableRow key={balance.locationId}>
+                            <TableCell>
+                              <strong>{balance.locationCode}</strong>
+                              <Typography variant="body2" color="text.secondary">
+                                {balance.locationName}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={balance.kind === "Store" ? "Store" : "Job site"}
+                                size="small"
+                                variant="outlined"
+                                color={balance.kind === "Store" ? "default" : "secondary"}
+                              />
+                            </TableCell>
+                            <TableCell align="right">
+                              {formatQuantity(balance.quantity)} {data.unit}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 )}
               </Paper>
 
@@ -203,9 +215,23 @@ export function ItemDetailPage(): ReactElement {
             </Stack>
 
             <Paper variant="outlined" className="no-print">
-              <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
-                Recent transactions
-              </Typography>
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ px: 2.5, py: 2 }}
+              >
+                <Typography variant="h3" component="h2">
+                  Recent transactions
+                </Typography>
+                <Button
+                  component={RouterLink}
+                  to={`/transactions?itemId=${encodeURIComponent(data.reference)}`}
+                  size="small"
+                >
+                  See the full log
+                </Button>
+              </Stack>
               <Divider />
               {data.recentTransactions.length === 0 ? (
                 <Box sx={{ px: 2.5, py: 3 }}>
@@ -214,36 +240,40 @@ export function ItemDetailPage(): ReactElement {
                   </Typography>
                 </Box>
               ) : (
-                <Table size="small" aria-label="Recent transactions">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>When</TableCell>
-                      <TableCell>What</TableCell>
-                      <TableCell align="right">Quantity</TableCell>
-                      <TableCell>From</TableCell>
-                      <TableCell>To</TableCell>
-                      <TableCell>Who</TableCell>
-                      <TableCell>Reason</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.recentTransactions.map((transaction) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          {formatDateTime(transaction.occurredAt)}
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={transaction.kind} size="small" variant="outlined" />
-                        </TableCell>
-                        <TableCell align="right">{formatQuantity(transaction.quantity)}</TableCell>
-                        <TableCell>{transaction.fromLocationCode ?? "—"}</TableCell>
-                        <TableCell>{transaction.toLocationCode ?? "—"}</TableCell>
-                        <TableCell>{transaction.actorName}</TableCell>
-                        <TableCell>{transaction.reason ?? "—"}</TableCell>
+                <TableContainer>
+                  <Table size="small" aria-label="Recent transactions">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>When</TableCell>
+                        <TableCell>What</TableCell>
+                        <TableCell align="right">Quantity</TableCell>
+                        <TableCell>From</TableCell>
+                        <TableCell>To</TableCell>
+                        <TableCell>Who</TableCell>
+                        <TableCell>Reason</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {data.recentTransactions.map((transaction) => (
+                        <TableRow key={transaction.id}>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>
+                            {formatDateTime(transaction.occurredAt)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={transaction.kind} size="small" variant="outlined" />
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatQuantity(transaction.quantity)}
+                          </TableCell>
+                          <TableCell>{transaction.fromLocationCode ?? "—"}</TableCell>
+                          <TableCell>{transaction.toLocationCode ?? "—"}</TableCell>
+                          <TableCell>{transaction.actorName}</TableCell>
+                          <TableCell>{transaction.reason ?? "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Paper>
           </Stack>

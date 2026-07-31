@@ -23,6 +23,9 @@ import { parseQuantity } from "../stock/quantity";
 
 const SCHEMA = "stockcontrol" as const;
 
+/** Enough to outlast a demo audience all creating an item at once. */
+const GENERATED_REFERENCE_ATTEMPTS = 5;
+
 export interface NewItem {
   readonly reference: string | null;
   readonly name: string;
@@ -63,29 +66,47 @@ export class CatalogueService {
       );
     }
 
-    const reference = input.reference ?? (await this.nextItemReference());
     const id = randomUUID();
 
-    try {
-      await this.database
-        .withSchema(SCHEMA)
-        .insertInto("items")
-        .values({
-          id,
-          reference,
-          name: input.name,
-          unit: input.unit,
-          barcode: input.barcode,
-          part_number: input.partNumber,
-          low_stock_threshold: input.lowStockThreshold,
-          is_active: true,
-        })
-        .execute();
-    } catch (error: unknown) {
-      throw duplicateOrRethrow(error, {
-        items_reference_key: { reference: ["That item reference is already in use."] },
-        items_barcode_key: { barcode: ["That barcode already belongs to another item."] },
-      });
+    /*
+     * A generated reference is the highest existing one plus one, so two people
+     * pressing "New item" at the same moment compute the same string and one of
+     * them loses the unique index. Recomputing and retrying makes that
+     * invisible. A reference the caller typed is theirs to correct, so it is
+     * attempted once and the duplicate is reported.
+     */
+    const attempts = input.reference === null ? GENERATED_REFERENCE_ATTEMPTS : 1;
+
+    for (let attempt = 1; ; attempt += 1) {
+      const reference = input.reference ?? (await this.nextItemReference());
+
+      try {
+        await this.database
+          .withSchema(SCHEMA)
+          .insertInto("items")
+          .values({
+            id,
+            reference,
+            name: input.name,
+            unit: input.unit,
+            barcode: input.barcode,
+            part_number: input.partNumber,
+            low_stock_threshold: input.lowStockThreshold,
+            is_active: true,
+          })
+          .execute();
+
+        break;
+      } catch (error: unknown) {
+        if (attempt < attempts && isConstraintViolation(error, "items_reference_key")) {
+          continue;
+        }
+
+        throw duplicateOrRethrow(error, {
+          items_reference_key: { reference: ["That item reference is already in use."] },
+          items_barcode_key: { barcode: ["That barcode already belongs to another item."] },
+        });
+      }
     }
 
     const item = await findItemDetail(this.database, id);
@@ -138,6 +159,12 @@ export class CatalogueService {
 interface PostgresError {
   readonly constraint?: string;
   readonly code?: string;
+}
+
+function isConstraintViolation(error: unknown, constraint: string): boolean {
+  const candidate = error as PostgresError;
+
+  return candidate.code === "23505" && candidate.constraint === constraint;
 }
 
 function duplicateOrRethrow(

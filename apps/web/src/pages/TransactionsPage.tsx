@@ -66,13 +66,13 @@ export function TransactionsPage(): ReactElement {
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2.5 }}>
         <TextField
-          label="Item ID"
+          label="Item"
           value={itemId}
           onChange={(event) => {
             setItemId(event.target.value);
             setPage(1);
           }}
-          helperText="Paste an item's internal ID to narrow the log"
+          helperText="An item reference such as ITM-0001"
           sx={{ flex: 2 }}
         />
         <TextField

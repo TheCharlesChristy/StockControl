@@ -44,7 +44,7 @@ but outside this scope.
 
 ## 3. Work packets
 
-Packets **D1 through D8 are done**. D9 is next.
+Packets **D1 through D9 are done**.
 
 ### D1 — Trim the tree ✅
 
@@ -145,13 +145,36 @@ Three conventions the screens share, worth keeping if you add more:
 - **Role decides which controls render, never whether a rule holds.** `useCapability` hides buttons
   as a courtesy; the server checks the same rule on every request and the tests assert both.
 
-### D9 — Demo polish
+### D9 — Demo polish ✅
 
 **Outcome:** the end-to-end journey from requirements section 9 passes, CI is green, and the README
 tells a stranger how to run it in seven commands.
 
-Walk the acceptance list in requirements section 11 yourself, on a phone as well as a laptop, before
-calling this done.
+CI is one workflow (`.github/workflows/ci.yml`) with three jobs — quality, integration, and the demo
+journey in a browser — replacing the six left over from the full product, four of which validated
+`infra/` or scanned images that no longer exist in this baseline.
+
+The acceptance list in requirements section 11 was walked by hand, on a phone viewport and a laptop
+viewport, from an empty database, alongside the automated journey
+(`apps/e2e/tests/demo-journey.spec.ts`). Two real defects came out of that walk, both fixed:
+
+- **Item detail and job detail scrolled sideways on a phone.** Their widest tables (seven columns of
+  transaction detail, a reservations table with an actions column) were not wrapped in a
+  `TableContainer`, so the table's own width dragged the page with it. The action-button row above
+  each of those tables had the same problem for a different reason — `PageHeader`'s actions slot
+  never wrapped, so a role with all four stock operations available on one item did not fit 390px.
+  Both are fixed the same way `InventoryPage` already handled it: contain the scroll to the table,
+  and let the actions wrap onto a second line instead of pushing the page wider.
+- **Two items could collide on a generated reference.** `ITM-0001`, `ITM-0002`, … is computed as
+  "highest plus one" with no uniqueness reservation, so two people pressing "New item" at the same
+  moment could compute the same string and one insert would fail on the unique index. `createItem`
+  now retries with a freshly computed reference on that specific conflict; a reference the caller
+  typed themselves is attempted once, since correcting a typed duplicate is the caller's call to
+  make.
+
+The preview authentication stand-in (`VITE_ENABLE_AUTH_PREVIEW`) is gone. It predated D4 and had no
+remaining caller once sign-in was real; keeping a bypass in a demo whose whole point is showing role
+enforcement was a liability, not a convenience.
 
 ## 4. Definition of done, per packet
 

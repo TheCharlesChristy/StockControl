@@ -20,6 +20,8 @@ import {
 
 const SCHEMA: typeof STOCKCONTROL_SCHEMA = "stockcontrol";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type Database = Kysely<StockControlDatabase> | Transaction<StockControlDatabase>;
 
 export interface ItemQuery {
@@ -307,8 +309,18 @@ export async function listTransactions(
     .leftJoin("locations as to_location", "to_location.id", "transactions.to_location_id")
     .leftJoin("jobs", "jobs.id", "transactions.job_id");
 
+  /*
+   * The log is filtered by whichever identifier the caller has to hand. Screens
+   * link through with the reference people actually read off a label, and
+   * anything that is not a UUID is matched against it rather than compared to
+   * the id column, which would fail the uuid cast outright.
+   */
   if (query.itemId !== undefined) {
-    selection = selection.where("transactions.item_id", "=", query.itemId);
+    const filter = query.itemId;
+
+    selection = UUID_PATTERN.test(filter)
+      ? selection.where("transactions.item_id", "=", filter)
+      : selection.where(sql<string>`upper(items.reference)`, "=", filter.trim().toUpperCase());
   }
   if (query.jobId !== undefined) {
     selection = selection.where("transactions.job_id", "=", query.jobId);
