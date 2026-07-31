@@ -4,6 +4,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "../..");
 
+/*
+ * Lets a sandbox with a preinstalled Chromium run the suite without downloading
+ * the exact build Playwright pins. Unset everywhere else, so CI uses its own.
+ */
+const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?.trim();
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -25,6 +31,9 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        ...(chromiumExecutable === undefined || chromiumExecutable.length === 0
+          ? {}
+          : { launchOptions: { executablePath: chromiumExecutable } }),
       },
     },
   ],
@@ -52,7 +61,8 @@ export default defineConfig({
       cwd: workspaceRoot,
       env: {
         NODE_ENV: "test",
-        VITE_ENABLE_AUTH_PREVIEW: "true",
+        /* The journey signs in for real; the preview stand-in would bypass it. */
+        VITE_ENABLE_AUTH_PREVIEW: "false",
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

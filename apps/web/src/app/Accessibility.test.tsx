@@ -9,6 +9,7 @@ import type {
   AuthenticatedUser,
   SignInCredentials,
 } from "../auth/auth-types";
+import { createFakeApiClient } from "../test/fake-api";
 import { StockControlProviders } from "./App";
 import { AppRoutes } from "./AppRoutes";
 
@@ -61,7 +62,10 @@ async function expectNoAccessibilityViolations(container: HTMLElement): Promise<
 describe("StockControl automated accessibility checks", () => {
   it("has no detectable violations on the sign-in page", async () => {
     const { container } = render(
-      <StockControlProviders authClient={new AccessibilityAuthClient(null)}>
+      <StockControlProviders
+        authClient={new AccessibilityAuthClient(null)}
+        apiClient={createFakeApiClient()}
+      >
         <MemoryRouter initialEntries={["/sign-in"]}>
           <AppRoutes />
         </MemoryRouter>
@@ -74,14 +78,17 @@ describe("StockControl automated accessibility checks", () => {
 
   it("has no detectable violations in the authenticated dashboard shell", async () => {
     const { container } = render(
-      <StockControlProviders authClient={new AccessibilityAuthClient(adminSession)}>
+      <StockControlProviders
+        authClient={new AccessibilityAuthClient(adminSession)}
+        apiClient={createFakeApiClient()}
+      >
         <MemoryRouter initialEntries={["/dashboard"]}>
           <AppRoutes />
         </MemoryRouter>
       </StockControlProviders>,
     );
 
-    await screen.findByRole("heading", { name: "Inventory command centre" });
+    await screen.findByRole("heading", { name: /Good to see you/u });
     await expectNoAccessibilityViolations(container);
   });
 });

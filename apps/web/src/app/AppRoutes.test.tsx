@@ -9,6 +9,7 @@ import type {
   SignInCredentials,
   UserRole,
 } from "../auth/auth-types";
+import { createFakeApiClient } from "../test/fake-api";
 import { setDesktopViewport } from "../test/setup";
 import { StockControlProviders } from "./App";
 import { AppRoutes } from "./AppRoutes";
@@ -59,7 +60,7 @@ class FakeAuthClient implements AuthClient {
 
 function renderRoute(path: string, authClient: AuthClient = new FakeAuthClient()): RenderResult {
   return render(
-    <StockControlProviders authClient={authClient}>
+    <StockControlProviders authClient={authClient} apiClient={createFakeApiClient()}>
       <MemoryRouter initialEntries={[path]}>
         <AppRoutes />
       </MemoryRouter>
@@ -72,7 +73,7 @@ function renderSignInWithRedirect(
   authClient: AuthClient = new FakeAuthClient(),
 ): RenderResult {
   return render(
-    <StockControlProviders authClient={authClient}>
+    <StockControlProviders authClient={authClient} apiClient={createFakeApiClient()}>
       <MemoryRouter
         initialEntries={[
           {
@@ -169,7 +170,9 @@ describe("StockControl application routes", () => {
 
     await completeValidSignIn();
 
-    expect(await screen.findByRole("heading", { name: "Inventory" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "What you have, and where" }),
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -183,11 +186,7 @@ describe("StockControl application routes", () => {
 
     await completeValidSignIn();
 
-    expect(
-      await screen.findByRole("heading", {
-        name: "Keep stock moving without surprises",
-      }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Good to see you/u })).toBeInTheDocument();
   });
 
   it("signs an Admin into the role-aware dashboard shell", async () => {
@@ -202,36 +201,34 @@ describe("StockControl application routes", () => {
     });
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(
-      await screen.findByRole("heading", {
-        name: "Inventory command centre",
-      }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Good to see you/u })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Team & access" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   }, 15_000);
 
-  it("labels dashboard placeholders instead of presenting invented stock data", async () => {
+  it("shows counts and recent activity from the API rather than invented figures", async () => {
     renderRoute("/dashboard", new FakeAuthClient(userForRole("Admin")));
 
-    expect(await screen.findByText("Interface preview: no live stock data")).toBeInTheDocument();
-    expect(screen.getAllByText("—")).toHaveLength(3);
+    expect(await screen.findByRole("heading", { name: /Good to see you/u })).toBeInTheDocument();
+    expect(await screen.findByText("235")).toBeInTheDocument();
+    expect(screen.getByText(/Olivia Desk/u)).toBeInTheDocument();
     expect(screen.queryByText("£184k")).not.toBeInTheDocument();
-    expect(screen.queryByText(/encrypted backup/i)).not.toBeInTheDocument();
   });
 
   it("updates the document title and focuses main content after navigation", async () => {
     const user = userEvent.setup();
     renderRoute("/dashboard", new FakeAuthClient(userForRole("Admin")));
 
-    await screen.findByRole("heading", { name: "Inventory command centre" });
+    await screen.findByRole("heading", { name: /Good to see you/u });
     await waitFor(() => {
       expect(document.title).toBe("Overview · StockControl");
     });
 
     await user.click(screen.getByRole("link", { name: "Inventory" }));
 
-    expect(await screen.findByRole("heading", { name: "Inventory" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "What you have, and where" }),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(document.title).toBe("Inventory · StockControl");
       expect(screen.getByRole("main")).toHaveFocus();
@@ -253,7 +250,9 @@ describe("StockControl application routes", () => {
     expect(openNavigation).toHaveAttribute("aria-expanded", "true");
     await user.click(screen.getByRole("link", { name: "Inventory" }));
 
-    expect(await screen.findByRole("heading", { name: "Inventory" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "What you have, and where" }),
+    ).toBeInTheDocument();
     expect(openNavigation).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -270,7 +269,7 @@ describe("StockControl application routes", () => {
   it("gives an Admin the team section", async () => {
     renderRoute("/team", new FakeAuthClient(userForRole("Admin")));
 
-    expect(await screen.findByRole("heading", { name: "Team & access" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Who can do what" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Team & access" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Access restricted" })).not.toBeInTheDocument();
   });

@@ -44,7 +44,7 @@ but outside this scope.
 
 ## 3. Work packets
 
-Packets **D1 through D5 are done**. D6 is next.
+Packets **D1 through D8 are done**. D9 is next.
 
 ### D1 — Trim the tree ✅
 
@@ -122,18 +122,28 @@ Two things worth knowing before extending it:
 - **Locks are taken reservation-first, then stock levels in id order.** Keep that order in any new
   command or two of them will deadlock.
 
-### D6 — Inventory screens
+### D6 — Inventory screens ✅
 
 **Outcome:** dashboard, inventory table with search and expandable rows, item detail.
 
-### D7 — Jobs screens
+### D7 — Jobs screens ✅
 
 **Outcome:** job list, job detail, and the reserve/collect/release/close flows.
 
-### D8 — Transactions, users, and QR
+### D8 — Transactions, users, and QR ✅
 
 **Outcome:** the transaction log with filters, the Admin user screen, the QR code on item detail,
 and the print stylesheet.
+
+Three conventions the screens share, worth keeping if you add more:
+
+- **`useResource` is the whole data layer** — load on mount, cancel on unmount, reload on demand,
+  no cache. Pass it a `useCallback`-wrapped loader; that callback is the effect's dependency.
+- **Dialogs are mounted only while open** (`{operation !== null && <Dialog …/>}`) rather than kept
+  mounted and reset in an effect. React 19's lint rules reject the reset-in-effect pattern, and
+  fresh mounting is simpler anyway.
+- **Role decides which controls render, never whether a rule holds.** `useCapability` hides buttons
+  as a courtesy; the server checks the same rule on every request and the tests assert both.
 
 ### D9 — Demo polish
 

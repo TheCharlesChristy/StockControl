@@ -48,7 +48,15 @@ export function AppShell(): ReactElement | null {
   }
 
   const roleNavigation = navigationForUser(user);
-  const currentNavigationItem = navigationItems.find((item) => item.path === location.pathname);
+  /*
+   * Longest matching prefix, so a detail route such as /inventory/:id still
+   * names its section rather than falling back to the product name.
+   */
+  const currentNavigationItem = navigationItems
+    .filter(
+      (item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`),
+    )
+    .sort((left, right) => right.path.length - left.path.length)[0];
   const pageTitle = currentNavigationItem?.label ?? "StockControl";
 
   const drawerContent = (
@@ -56,7 +64,7 @@ export function AppShell(): ReactElement | null {
       <Box sx={{ px: 2.5, pt: 2.75, pb: 2.25 }}>
         <Brand inverse />
         <Chip
-          label="Preview workspace"
+          label="Demo installation"
           size="small"
           sx={{
             mt: 2.5,
