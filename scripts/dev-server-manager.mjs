@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -11,7 +12,9 @@ const repoRoot = path.resolve(__dirname, "..");
 const stateDir = path.join(repoRoot, ".dev-server");
 const pidFile = path.join(stateDir, "dev-server.pid");
 const logFile = path.join(stateDir, "dev-server.log");
+const envFile = path.join(repoRoot, ".env");
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const apiPort = Number(process.env.PORT ?? 3000);
 
 const ensureStateDir = () => {
   fs.mkdirSync(stateDir, { recursive: true });
@@ -59,29 +62,47 @@ const isProcessRunning = (pid) => {
   }
 };
 
+// Kills the whole process group headed by pid. Safe to call even if pid
+// itself has already exited — a process group can still have live members
+// after its original leader has gone away, and those are exactly the
+// orphans this guards against.
+const killProcessGroup = (pid) => {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    return;
+  }
+
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Ignore cleanup failures.
+    }
+  }
+};
+
 const stopProcessTree = (pid) => {
   if (!isProcessRunning(pid)) {
     return false;
   }
 
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-  } else {
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Ignore cleanup failures.
-      }
-    }
-  }
-
+  killProcessGroup(pid);
   return true;
 };
 
-const start = () => {
+const isPortInUse = (port) =>
+  new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(true));
+    tester.once("listening", () => {
+      tester.close(() => resolve(false));
+    });
+    tester.listen({ port, host: "0.0.0.0" });
+  });
+
+const start = async () => {
   const existingPid = readPid();
   if (existingPid !== undefined && isProcessRunning(existingPid)) {
     console.log(`Dev server already running with PID ${existingPid}.`);
@@ -92,8 +113,34 @@ const start = () => {
     removePid();
   }
 
+  if (!fs.existsSync(envFile)) {
+    console.error("Missing .env file — run: cp .env.example .env");
+    return;
+  }
+
+  if (await isPortInUse(apiPort)) {
+    console.error(
+      `Port ${apiPort} is already in use by another process. Find and stop it (e.g. ` +
+        `\`lsof -iTCP:${apiPort} -sTCP:LISTEN -Pn\`) before starting the dev server.`,
+    );
+    return;
+  }
+
   ensureStateDir();
   appendLog(`[${new Date().toISOString()}] Starting dev stack\n`);
+
+  console.log("Starting local services (docker compose up -d --wait)...");
+  const servicesUp = spawnSync(pnpmCommand, ["services:up"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
+
+  if (servicesUp.status !== 0) {
+    appendLog(`[${new Date().toISOString()}] Failed to start local services.\n`);
+    console.error("Failed to start local services (docker compose up). Aborting.");
+    return;
+  }
 
   const child = spawn(pnpmCommand, ["dev"], {
     cwd: repoRoot,
@@ -123,6 +170,11 @@ const start = () => {
     if (code !== 0) {
       appendLog(`[${new Date().toISOString()}] Dev server exited with code ${code}.\n`);
     }
+    // A failure in any parallel workspace script (e.g. EADDRINUSE) makes pnpm
+    // exit on its own, outside of the explicit stop() path. Without this, the
+    // still-running sibling processes (vite, worker, ...) become untracked
+    // orphans that keep holding their ports.
+    killProcessGroup(child.pid);
     if (readPid() !== undefined && Number(readPid()) === child.pid) {
       removePid();
     }
@@ -212,7 +264,7 @@ const command = process.argv[2] ?? "status";
 
 switch (command) {
   case "start":
-    start();
+    await start();
     break;
   case "stop":
     stop();

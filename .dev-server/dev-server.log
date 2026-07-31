@@ -1,1 +1,57 @@
-[2026-07-30T23:56:05.759Z] Starting dev stack
+[2026-07-31T09:54:36.159Z] Starting dev stack
+[WARN] Unsupported engine: wanted: {"node":">=24 <27"} (current: {"node":"v20.19.4","pnpm":"11.9.0"})
+$ pnpm -r --parallel --if-present dev
+.                                        | [WARN] Unsupported engine: wanted: {"node":">=24 <27"} (current: {"node":"v20.19.4","pnpm":"11.9.0"})
+Scope: 9 of 10 workspace projects
+apps/api dev$ pnpm start:dev
+apps/worker dev$ pnpm start:dev
+apps/web dev$ vite --configLoader runner
+apps/web dev:   [32m[1mVITE[22m v7.3.6[39m  [2mready in [0m[1m331[22m[2m[0m ms[22m
+apps/web dev:   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+apps/web dev: [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+apps/api dev: $ node --env-file-if-exists=../../.env --import tsx --watch src/main.ts
+apps/worker dev: $ node --env-file-if-exists=../../.env --import tsx --watch src/main.ts
+apps/worker dev: {"timestamp":"2026-07-31T09:54:39.873Z","level":"info","service":"stockcontrol-worker","message":"Starting Nest application...","parameters":["NestFactory"]}
+apps/worker dev: {"timestamp":"2026-07-31T09:54:39.874Z","level":"info","service":"stockcontrol-worker","message":"WorkerModule dependencies initialized","parameters":["InstanceLoader"]}
+apps/worker dev: {"timestamp":"2026-07-31T09:54:39.877Z","level":"info","service":"stockcontrol-worker","event":{"event":"worker.started","version":"dev","commit":"local","heartbeatMilliseconds":60000}}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.082Z","level":"info","service":"stockcontrol-api","message":"Starting Nest application...","parameters":["NestFactory"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"AppModule dependencies initialized","parameters":["InstanceLoader"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"SystemController {/api/v1}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/health/live, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/health/ready, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/version, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"AuthController {/api/v1/auth}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/auth/session, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/auth/sign-in, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/auth/sign-out, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"DashboardController {/api/v1/dashboard}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.083Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/dashboard, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"InventoryController {/api/v1}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/items, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/items/:id, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/items, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/locations, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/locations, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/stock/receive, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/stock/issue, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/stock/transfer, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/stock/adjust, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/transactions, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"JobsController {/api/v1}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/jobs, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/jobs/:id, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/jobs, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/jobs/:id/close, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/jobs/:id/reservations, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/reservations/:id/collect, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/reservations/:id/release, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"UsersController {/api/v1/users}:","parameters":["RoutesResolver"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/users, GET} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/users, POST} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Mapped {/api/v1/users/:id, PATCH} route","parameters":["RouterExplorer"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.084Z","level":"info","service":"stockcontrol-api","message":"Nest application successfully started","parameters":["NestApplication"]}
+apps/api dev: {"timestamp":"2026-07-31T09:54:40.085Z","level":"info","service":"stockcontrol-api","event":{"event":"api.started","host":"0.0.0.0","port":3000,"prefix":"api/v1"}}
+apps/api dev: {"timestamp":"2026-07-31T09:55:29.389Z","level":"warn","service":"stockcontrol-api","correlationId":"c8cd1131-1bc7-4df0-ad5e-62b82dcbac08","event":{"event":"http.request.failed","status":401,"method":"GET","url":"/api/v1/auth/session","failureKind":"AuthenticationRequired","failureCode":"auth.authentication_required","exception":"No active session."}}
+apps/worker dev: {"timestamp":"2026-07-31T09:55:39.911Z","level":"info","service":"stockcontrol-worker","correlationId":"d4cad64e-2e07-4456-b6bf-83c47febacc2","event":{"event":"worker.heartbeat"}}
+apps/worker dev: {"timestamp":"2026-07-31T09:56:39.915Z","level":"info","service":"stockcontrol-worker","correlationId":"e107d751-88e3-49cb-b328-186e6ac00578","event":{"event":"worker.heartbeat"}}
+apps/worker dev: {"timestamp":"2026-07-31T09:57:39.922Z","level":"info","service":"stockcontrol-worker","correlationId":"fc58d81c-9125-4dd0-a237-b4250c0d2e6b","event":{"event":"worker.heartbeat"}}
