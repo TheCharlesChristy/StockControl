@@ -125,7 +125,7 @@ export function ItemDetailPage(): ReactElement {
                 )}
                 {canIssue && (
                   <Button variant="outlined" onClick={() => setOperation("issue")}>
-                    Issue
+                    Take out
                   </Button>
                 )}
                 {canManageStock && (
@@ -162,7 +162,7 @@ export function ItemDetailPage(): ReactElement {
 
           {!data.isActive && (
             <Alert severity="info" sx={{ mb: 2.5 }} className="no-print">
-              This item is archived. Its history is kept, but it cannot be received, issued or
+              This item is archived. Its history is kept, but it cannot be received, taken out or
               reserved until it is restored.
             </Alert>
           )}

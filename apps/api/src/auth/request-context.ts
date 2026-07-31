@@ -69,7 +69,7 @@ export function canViewAllActivity(request: FastifyRequest): boolean {
 
 const descriptions: Readonly<Record<Capability, string>> = {
   view: "view this",
-  issue: "issue stock",
+  issue: "take stock out",
   reserve: "reserve stock",
   collect: "collect reserved stock",
   requestStock: "request stock",

@@ -278,8 +278,9 @@ const availableStock: MapRegionView["stock"] = {
   colour: "#2E7D32",
   text: "Available",
   icon: "check-circle",
-  itemCount: 4,
+  itemCount: 1,
   quantity: "120",
+  items: [{ name: testItem.name, quantity: "120" }],
 };
 
 export const testRectangleRegion: MapRegionView = {

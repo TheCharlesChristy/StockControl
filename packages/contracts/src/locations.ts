@@ -93,6 +93,12 @@ export interface MapStatusSummary {
   readonly icon: string;
   readonly itemCount: number;
   readonly quantity: string;
+  readonly items: readonly MapStockItem[];
+}
+
+export interface MapStockItem {
+  readonly name: string;
+  readonly quantity: string;
 }
 
 export interface MapRegionView {

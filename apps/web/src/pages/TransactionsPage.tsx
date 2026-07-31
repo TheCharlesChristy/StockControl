@@ -1,8 +1,11 @@
 import FileDownloadRounded from "@mui/icons-material/FileDownloadRounded";
+import ClearRounded from "@mui/icons-material/ClearRounded";
 import {
   Box,
   Button,
   Chip,
+  IconButton,
+  InputAdornment,
   Link,
   MenuItem,
   Pagination,
@@ -35,6 +38,49 @@ import {
 
 const PAGE_SIZE = 50;
 
+const transactionKindLabels: Readonly<Record<TransactionKind, string>> = {
+  Receive: "Receive",
+  Issue: "Take out",
+  Transfer: "Transfer",
+  Adjust: "Adjust",
+  Reserve: "Reserve",
+  Collect: "Collect",
+  Release: "Release",
+};
+
+/** Converts the human-facing UK date into an unambiguous UTC timestamp. */
+function parseUkDate(value: string, endOfDay = false): string | undefined {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value.trim());
+  if (match === null) return undefined;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+      endOfDay ? 23 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 999 : 0,
+    ),
+  );
+
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date.toISOString()
+    : undefined;
+}
+
+function normaliseDateQuery(value: string | null): string {
+  if (value === null) return "";
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  return isoMatch === null ? value : `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+}
+
 export function TransactionsPage(): ReactElement {
   const api = useApi();
   const seesEveryone = useCapability("viewAllActivity");
@@ -46,8 +92,8 @@ export function TransactionsPage(): ReactElement {
   const itemId = searchParams.get("itemId") ?? "";
   const kind = searchParams.get("kind") ?? "";
   const actorUserId = searchParams.get("actorUserId") ?? "";
-  const from = searchParams.get("from") ?? "";
-  const to = searchParams.get("to") ?? "";
+  const from = normaliseDateQuery(searchParams.get("from"));
+  const to = normaliseDateQuery(searchParams.get("to"));
   const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
 
   const setFilter = (key: string, value: string): void => {
@@ -80,14 +126,18 @@ export function TransactionsPage(): ReactElement {
 
   const deferredItemId = useDeferredValue(itemId);
   const query = useCallback(
-    (limit: number, offset: number) => ({
-      ...(deferredItemId.trim().length === 0 ? {} : { itemId: deferredItemId.trim() }),
-      ...(actorUserId.length === 0 ? {} : { actorUserId }),
-      ...(from.length === 0 ? {} : { from: new Date(from).toISOString() }),
-      ...(to.length === 0 ? {} : { to: new Date(`${to}T23:59:59`).toISOString() }),
-      limit,
-      offset,
-    }),
+    (limit: number, offset: number) => {
+      const fromTimestamp = parseUkDate(from);
+      const toTimestamp = parseUkDate(to, true);
+      return {
+        ...(deferredItemId.trim().length === 0 ? {} : { itemId: deferredItemId.trim() }),
+        ...(actorUserId.length === 0 ? {} : { actorUserId }),
+        ...(fromTimestamp === undefined ? {} : { from: fromTimestamp }),
+        ...(toTimestamp === undefined ? {} : { to: toTimestamp }),
+        limit,
+        offset,
+      };
+    },
     [deferredItemId, actorUserId, from, to],
   );
 
@@ -114,7 +164,7 @@ export function TransactionsPage(): ReactElement {
           toCsv(
             [
               "When",
-              "What",
+              "Action",
               "Item",
               "Name",
               "Quantity",
@@ -129,7 +179,7 @@ export function TransactionsPage(): ReactElement {
               .filter((row) => kind.length === 0 || row.kind === kind)
               .map((row) => [
                 row.occurredAt,
-                row.kind,
+                transactionKindLabels[row.kind],
                 row.itemReference,
                 row.itemName,
                 row.quantity,
@@ -154,7 +204,7 @@ export function TransactionsPage(): ReactElement {
         description={
           seesEveryone
             ? "An append-only record. Mistakes are corrected with a new adjustment, never by editing history."
-            : "Everything you have received, issued, collected or reserved. An append-only record — nothing here can be edited."
+            : "Everything you have received, taken out, collected or reserved. An append-only record — nothing here can be edited."
         }
         actions={
           <Button variant="outlined" startIcon={<FileDownloadRounded />} onClick={handleExport}>
@@ -163,61 +213,110 @@ export function TransactionsPage(): ReactElement {
         }
       />
 
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2.5 }}>
-        <TextField
-          label="Item"
-          value={itemId}
-          onChange={(event) => setFilter("itemId", event.target.value)}
-          helperText="An item reference such as ITM-0001"
-          sx={{ flex: 2 }}
-        />
-        <TextField
-          select
-          label="What"
-          value={kind}
-          onChange={(event) => setFilter("kind", event.target.value)}
-          sx={{ flex: 1, minWidth: 140 }}
-        >
-          <MenuItem value="">Anything</MenuItem>
-          {transactionKinds.map((option: TransactionKind) => (
-            <MenuItem key={option} value={option}>
-              {option}
-            </MenuItem>
-          ))}
-        </TextField>
-        {seesEveryone && (
+      <Paper variant="outlined" sx={{ mb: 2.5, p: { xs: 1.5, sm: 2 } }}>
+        <Typography variant="subtitle2" sx={{ mb: 1.25, fontWeight: 800 }}>
+          Filter the When column
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Search by the item reference, colloquial name, barcode, or part number. Dates use
+          <strong> dd/mm/yyyy</strong>.
+        </Typography>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
+          <TextField
+            label="Item"
+            value={itemId}
+            onChange={(event) => setFilter("itemId", event.target.value)}
+            placeholder="e.g. A2 Hex Bolt or ITM-0"
+            helperText="Partial matches are supported"
+            size="small"
+            sx={{ flex: 2 }}
+          />
           <TextField
             select
-            label="Who"
-            value={actorUserId}
-            onChange={(event) => setFilter("actorUserId", event.target.value)}
-            sx={{ flex: 1, minWidth: 160 }}
+            label="Action"
+            value={kind}
+            onChange={(event) => setFilter("kind", event.target.value)}
+            size="small"
+            sx={{ flex: 1, minWidth: 140 }}
           >
-            <MenuItem value="">Anyone</MenuItem>
-            {(people.data?.users ?? []).map((person) => (
-              <MenuItem key={person.id} value={person.id}>
-                {person.displayName}
+            <MenuItem value="">Anything</MenuItem>
+            {transactionKinds.map((option: TransactionKind) => (
+              <MenuItem key={option} value={option}>
+                {transactionKindLabels[option]}
               </MenuItem>
             ))}
           </TextField>
-        )}
-        <TextField
-          type="date"
-          label="From"
-          value={from}
-          onChange={(event) => setFilter("from", event.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ flex: 1 }}
-        />
-        <TextField
-          type="date"
-          label="To"
-          value={to}
-          onChange={(event) => setFilter("to", event.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ flex: 1 }}
-        />
-      </Stack>
+          {seesEveryone && (
+            <TextField
+              select
+              label="Who"
+              value={actorUserId}
+              onChange={(event) => setFilter("actorUserId", event.target.value)}
+              size="small"
+              sx={{ flex: 1, minWidth: 160 }}
+            >
+              <MenuItem value="">Anyone</MenuItem>
+              {(people.data?.users ?? []).map((person) => (
+                <MenuItem key={person.id} value={person.id}>
+                  {person.displayName}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+          <TextField
+            label="From date"
+            value={from}
+            onChange={(event) => setFilter("from", event.target.value)}
+            placeholder="dd/mm/yyyy"
+            size="small"
+            slotProps={{
+              htmlInput: { inputMode: "numeric", pattern: "[0-9/]*", "aria-label": "From date" },
+              input: {
+                endAdornment: from.length > 0 && (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      aria-label="Clear from date"
+                      onClick={() => setFilter("from", "")}
+                    >
+                      <ClearRounded fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
+            helperText={from.length > 0 && parseUkDate(from) === undefined ? "Use dd/mm/yyyy" : " "}
+            sx={{ flex: 1, minWidth: 150 }}
+          />
+          <TextField
+            label="To date"
+            value={to}
+            onChange={(event) => setFilter("to", event.target.value)}
+            placeholder="dd/mm/yyyy"
+            size="small"
+            slotProps={{
+              htmlInput: { inputMode: "numeric", pattern: "[0-9/]*", "aria-label": "To date" },
+              input: {
+                endAdornment: to.length > 0 && (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      aria-label="Clear to date"
+                      onClick={() => setFilter("to", "")}
+                    >
+                      <ClearRounded fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
+            helperText={
+              to.length > 0 && parseUkDate(to, true) === undefined ? "Use dd/mm/yyyy" : " "
+            }
+            sx={{ flex: 1, minWidth: 150 }}
+          />
+        </Stack>
+      </Paper>
 
       {transactions.status === "error" && transactions.error !== undefined && (
         <ErrorState error={transactions.error} onRetry={transactions.reload} />
@@ -239,7 +338,7 @@ export function TransactionsPage(): ReactElement {
               <TableHead>
                 <TableRow>
                   <TableCell>When</TableCell>
-                  <TableCell>What</TableCell>
+                  <TableCell>Action</TableCell>
                   <TableCell>Item</TableCell>
                   <TableCell align="right">Quantity</TableCell>
                   <TableCell>From</TableCell>
@@ -256,7 +355,11 @@ export function TransactionsPage(): ReactElement {
                       {formatDateTime(transaction.occurredAt)}
                     </TableCell>
                     <TableCell>
-                      <Chip label={transaction.kind} size="small" variant="outlined" />
+                      <Chip
+                        label={transactionKindLabels[transaction.kind]}
+                        size="small"
+                        variant="outlined"
+                      />
                     </TableCell>
                     <TableCell sx={{ minWidth: 180 }}>
                       <Link

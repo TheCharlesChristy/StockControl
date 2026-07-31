@@ -16,6 +16,7 @@ export const selectionStroke = "#071B3A";
 export const shapeStroke = "#FFFFFF";
 
 export const statusLegend = [
+  { colour: "#1565C0", label: "Full" },
   { colour: "#2E7D32", label: "Available" },
   { colour: "#ED6C02", label: "Low stock" },
   { colour: "#D32F2F", label: "Out of stock" },

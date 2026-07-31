@@ -329,10 +329,18 @@ export function LocationsPage(): ReactElement {
     [api, nodesById, reloadAll, reportFailure],
   );
 
-  const selectNode = useCallback((node: HierarchyNodeView): void => {
-    setSelectedNodeId(node.id);
-    if (node.nodeKind === "Building") setBuildingId(node.id);
-  }, []);
+  const selectNode = useCallback(
+    (node: HierarchyNodeView): void => {
+      setSelectedNodeId(node.id);
+      if (node.nodeKind === "Building") setBuildingId(node.id);
+      const region = regions.find((candidate) => candidate.hierarchyNodeId === node.id);
+      if (region !== undefined) {
+        setPendingFocusRegionId(region.id);
+        dispatch({ type: "select", id: region.id });
+      }
+    },
+    [regions],
+  );
 
   const toggleNode = useCallback((id: string): void => {
     setCollapsedIds((current) => {
@@ -356,9 +364,18 @@ export function LocationsPage(): ReactElement {
   const commitGeometry = useCallback((id: string, geometry: MapGeometry): void => {
     dispatch({ type: "commit-geometry", id, geometry });
   }, []);
-  const createRegion = useCallback((geometry: MapGeometry): void => {
-    dispatch({ type: "add-region", geometry });
-  }, []);
+  const createRegion = useCallback(
+    (geometry: MapGeometry): void => {
+      dispatch({
+        type: "add-region",
+        geometry,
+        ...(editor.mode === "entrance" || editor.mode === "exit"
+          ? { displayName: editor.mode === "entrance" ? "Entrance" : "Exit" }
+          : {}),
+      });
+    },
+    [editor.mode],
+  );
   const removeRegion = useCallback((id: string): void => {
     dispatch({ type: "remove-region", id });
   }, []);
@@ -606,13 +623,22 @@ export function LocationsPage(): ReactElement {
                 <MapRounded fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontWeight: 800 }}
+            <Button
+              variant="text"
+              size="small"
+              aria-label="Open region details"
+              onClick={() => {
+                setInspectorOpen(true);
+              }}
+              sx={{
+                writingMode: "vertical-rl",
+                transform: "rotate(180deg)",
+                fontSize: "0.75rem",
+                fontWeight: 800,
+              }}
             >
               Details
-            </Typography>
+            </Button>
           </Box>
         )}
       </Box>

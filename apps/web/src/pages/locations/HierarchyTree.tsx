@@ -4,7 +4,14 @@ import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import FolderRounded from "@mui/icons-material/FolderRounded";
 import { Box, IconButton, List, ListItemButton, ListItemText, styled } from "@mui/material";
-import { memo, useCallback, useMemo, type CSSProperties, type ReactElement } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactElement,
+} from "react";
 import type { HierarchyNodeView } from "@stockcontrol/contracts";
 
 import { treeItemSlotProps } from "./constants";
@@ -69,6 +76,7 @@ interface HierarchyTreeItemProps {
   readonly collapsed: boolean;
   readonly onSelect: (node: HierarchyNodeView) => void;
   readonly onToggle: (id: string) => void;
+  readonly onContextMenu: (event: MouseEvent<HTMLElement>, node: HierarchyNodeView) => void;
 }
 
 const HierarchyTreeItem = memo(function HierarchyTreeItem({
@@ -78,6 +86,7 @@ const HierarchyTreeItem = memo(function HierarchyTreeItem({
   collapsed,
   onSelect,
   onToggle,
+  onContextMenu,
 }: HierarchyTreeItemProps): ReactElement {
   const hasChildren = node.children.length > 0;
 
@@ -108,6 +117,9 @@ const HierarchyTreeItem = memo(function HierarchyTreeItem({
         onClick={() => {
           onSelect(node);
         }}
+        onContextMenu={(event) => {
+          onContextMenu(event, node);
+        }}
       >
         <Box sx={iconSx}>
           <HierarchyIcon nodeKind={node.nodeKind} />
@@ -129,6 +141,7 @@ interface HierarchyTreeProps {
   readonly collapsedIds: ReadonlySet<string>;
   readonly onSelect: (node: HierarchyNodeView) => void;
   readonly onToggle: (id: string) => void;
+  readonly onContextMenu: (event: MouseEvent<HTMLElement>, node: HierarchyNodeView) => void;
 }
 
 interface VisibleRow {
@@ -152,6 +165,7 @@ export const HierarchyTree = memo(function HierarchyTree({
   collapsedIds,
   onSelect,
   onToggle,
+  onContextMenu,
 }: HierarchyTreeProps): ReactElement {
   const rows = useMemo(() => visibleRows([root], collapsedIds), [root, collapsedIds]);
   const select = useCallback(
@@ -172,6 +186,7 @@ export const HierarchyTree = memo(function HierarchyTree({
           collapsed={collapsedIds.has(row.node.id)}
           onSelect={select}
           onToggle={onToggle}
+          onContextMenu={onContextMenu}
         />
       ))}
     </List>

@@ -324,7 +324,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>): void => {
-      const { canEdit, mode, viewport, onSelect } = optionsRef.current;
+      const { canEdit, mode, viewport, onSelect, onCreateRegion } = optionsRef.current;
       if (event.button !== 0 && event.button !== 1) return;
       const rect = viewport.refreshRect();
       const client = { x: event.clientX, y: event.clientY };
@@ -365,6 +365,19 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
       const point = normalizedFrom(event.clientX, event.clientY);
 
+      if (canEdit && (mode === "entrance" || mode === "exit")) {
+        const size = 0.045;
+        onCreateRegion({
+          kind: "Rectangle",
+          x: clamp(point.x - size / 2),
+          y: clamp(point.y - size / 2),
+          width: Math.min(size, 1 - clamp(point.x - size / 2)),
+          height: Math.min(size, 1 - clamp(point.y - size / 2)),
+        });
+        gestureRef.current = { kind: "idle" };
+        return;
+      }
+
       if (canEdit && mode === "polygon") {
         const next = snapped(point, event.altKey);
         const first = polygonRef.current[0];
@@ -393,8 +406,10 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       const target = event.target as Element;
       const handleElement = target.closest("[data-handle]");
       const handle = handleElement?.getAttribute("data-handle") ?? null;
+      const regionElement = target.closest("[data-region-id], [data-region-group-id]");
       const regionId =
-        target.closest("[data-region-id]")?.getAttribute("data-region-id") ??
+        regionElement?.getAttribute("data-region-id") ??
+        regionElement?.getAttribute("data-region-group-id") ??
         handleElement?.getAttribute("data-handle-region") ??
         null;
 

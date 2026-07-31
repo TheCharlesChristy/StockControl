@@ -21,14 +21,14 @@ export type StockOperation = "receive" | "issue" | "transfer" | "adjust";
 
 const titles: Readonly<Record<StockOperation, string>> = {
   receive: "Receive stock",
-  issue: "Issue stock",
+  issue: "Take out stock",
   transfer: "Transfer stock",
   adjust: "Adjust count",
 };
 
 const submitLabels: Readonly<Record<StockOperation, string>> = {
   receive: "Receive",
-  issue: "Issue",
+  issue: "Take out",
   transfer: "Transfer",
   adjust: "Post adjustment",
 };

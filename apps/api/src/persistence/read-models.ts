@@ -381,17 +381,25 @@ export async function listTransactions(
     .leftJoin("jobs", "jobs.id", "transactions.job_id");
 
   /*
-   * The log is filtered by whichever identifier the caller has to hand. Screens
-   * link through with the reference people actually read off a label, and
-   * anything that is not a UUID is matched against it rather than compared to
-   * the id column, which would fail the uuid cast outright.
+   * The log is filtered by whichever identifier or search phrase the caller
+   * has to hand. Screens link through with the reference people read off a
+   * label, while staff can also search by part of a name, barcode, or part
+   * number. UUIDs remain exact matches for internal links.
    */
   if (query.itemId !== undefined) {
-    const filter = query.itemId;
+    const filter = query.itemId.trim();
 
     selection = UUID_PATTERN.test(filter)
       ? selection.where("transactions.item_id", "=", filter)
-      : selection.where(sql<string>`upper(items.reference)`, "=", filter.trim().toUpperCase());
+      : selection.where((builder) => {
+          const pattern = `%${filter.trim().toLowerCase()}%`;
+          return builder.or([
+            builder(sql<string>`lower(items.reference)`, "like", pattern),
+            builder(sql<string>`lower(items.name)`, "like", pattern),
+            builder(sql<string>`lower(coalesce(items.barcode, ''))`, "like", pattern),
+            builder(sql<string>`lower(coalesce(items.part_number, ''))`, "like", pattern),
+          ]);
+        });
   }
   if (query.jobId !== undefined) {
     selection = selection.where("transactions.job_id", "=", query.jobId);

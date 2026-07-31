@@ -1,4 +1,4 @@
-import type { MapGeometry, MapSnapshot } from "@stockcontrol/contracts";
+import type { HierarchyNodeView, MapGeometry, MapSnapshot } from "@stockcontrol/contracts";
 import { Box } from "@mui/material";
 import { memo, useMemo, type ReactElement, type RefObject } from "react";
 
@@ -34,6 +34,18 @@ const GRID_ID = "map-editor-grid";
 /** Grid spacing in map units — one square is the snap step. */
 const GRID_STEP = 1;
 
+function hierarchyCodes(nodes: readonly HierarchyNodeView[]): Map<string, string> {
+  const result = new Map<string, string>();
+  const visit = (current: readonly HierarchyNodeView[]): void => {
+    for (const node of current) {
+      result.set(node.id, node.code);
+      visit(node.children);
+    }
+  };
+  visit(nodes);
+  return result;
+}
+
 export const MapCanvas = memo(function MapCanvas({
   map,
   canEdit,
@@ -50,6 +62,7 @@ export const MapCanvas = memo(function MapCanvas({
   onProblem,
 }: MapCanvasProps): ReactElement {
   const regions = useMemo(() => sortedByZOrder(map.regions), [map.regions]);
+  const hierarchyById = useMemo(() => hierarchyCodes(map.hierarchy), [map.hierarchy]);
   const selectedRegion = useMemo(
     () => regions.find((region) => region.id === selectedRegionId) ?? null,
     [regions, selectedRegionId],
@@ -142,6 +155,7 @@ export const MapCanvas = memo(function MapCanvas({
             <MapRegionShape
               key={region.id}
               region={region}
+              locationCode={hierarchyById.get(region.hierarchyNodeId)}
               selected={region.id === selectedRegionId}
               editable={canEdit}
               store={store}

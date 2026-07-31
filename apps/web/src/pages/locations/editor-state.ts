@@ -12,7 +12,7 @@ import type {
  * moving a region does not re-render the page sixty times a second.
  */
 
-export type EditorMode = "select" | "rectangle" | "polygon" | "pan";
+export type EditorMode = "select" | "rectangle" | "polygon" | "pan" | "entrance" | "exit";
 export type RegionChanges = Partial<Omit<MapRegionView, "id" | "geometry">>;
 
 export interface EditorState {
@@ -31,7 +31,11 @@ export type EditorAction =
   | { readonly type: "mode"; readonly mode: EditorMode }
   | { readonly type: "toggle-snap" }
   | { readonly type: "revert" }
-  | { readonly type: "add-region"; readonly geometry: MapGeometry }
+  | {
+      readonly type: "add-region";
+      readonly geometry: MapGeometry;
+      readonly displayName?: string;
+    }
   | { readonly type: "patch-region"; readonly id: string; readonly changes: RegionChanges }
   | { readonly type: "commit-geometry"; readonly id: string; readonly geometry: MapGeometry }
   | { readonly type: "remove-region"; readonly id: string }
@@ -57,6 +61,7 @@ const newRegionStock: MapRegionView["stock"] = {
   icon: "remove-circle",
   itemCount: 0,
   quantity: "0",
+  items: [],
 };
 
 /**
@@ -168,7 +173,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const orders = state.draft.regions.map((region) => Math.round(region.zOrder));
       const region: MapRegionView = {
         id,
-        displayName: "New region",
+        displayName: action.displayName ?? "New region",
         hierarchyNodeId: state.draft.buildingId,
         parentRegionId: null,
         geometry: action.geometry,

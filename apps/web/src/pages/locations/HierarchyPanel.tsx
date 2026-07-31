@@ -12,6 +12,7 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -24,7 +25,7 @@ import type {
   HierarchyNodeView,
   LocationSearchResult,
 } from "@stockcontrol/contracts";
-import { memo, useEffect, useMemo, useState, type ReactElement } from "react";
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactElement } from "react";
 
 import { panelBorder } from "./constants";
 import { HierarchyTree } from "./HierarchyTree";
@@ -94,6 +95,11 @@ export const HierarchyPanel = memo(function HierarchyPanel({
   const [newNodeKind, setNewNodeKind] = useState<CreatableKind>("Area");
   const [newNodeParentId, setNewNodeParentId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renameMenu, setRenameMenu] = useState<{
+    readonly anchorX: number;
+    readonly anchorY: number;
+    readonly node: HierarchyNodeView;
+  } | null>(null);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId),
@@ -105,6 +111,12 @@ export const HierarchyPanel = memo(function HierarchyPanel({
   useEffect(() => {
     setRenameValue(selectedNode?.name ?? "");
   }, [selectedNode]);
+
+  const handleContextMenu = (event: MouseEvent<HTMLElement>, node: HierarchyNodeView): void => {
+    if (!canEdit || node.nodeKind !== "Building") return;
+    event.preventDefault();
+    setRenameMenu({ anchorX: event.clientX, anchorY: event.clientY, node });
+  };
 
   const parentOptions = useMemo(
     () =>
@@ -213,8 +225,32 @@ export const HierarchyPanel = memo(function HierarchyPanel({
             collapsedIds={collapsedIds}
             onSelect={onSelectNode}
             onToggle={onToggleNode}
+            onContextMenu={handleContextMenu}
           />
         )}
+        <Menu
+          open={renameMenu !== null}
+          onClose={() => setRenameMenu(null)}
+          anchorReference="anchorPosition"
+          anchorPosition={
+            renameMenu === null ? undefined : { top: renameMenu.anchorY, left: renameMenu.anchorX }
+          }
+        >
+          <MenuItem
+            onClick={() => {
+              if (renameMenu !== null) {
+                onSelectNode(renameMenu.node);
+                setRenameMenu(null);
+                window.setTimeout(
+                  () => document.getElementById("rename-location-name")?.focus(),
+                  0,
+                );
+              }
+            }}
+          >
+            Rename building
+          </MenuItem>
+        </Menu>
         {canEdit && (
           <Stack spacing={1} sx={{ mt: 2, pt: 2, px: 1, borderTop: `1px solid ${panelBorder}` }}>
             <Typography variant="overline" color="text.secondary">
@@ -298,6 +334,7 @@ export const HierarchyPanel = memo(function HierarchyPanel({
                   Edit selected location
                 </Typography>
                 <TextField
+                  id="rename-location-name"
                   size="small"
                   label="Name"
                   value={renameValue}

@@ -876,6 +876,7 @@ export class LocationsService {
         "stock_levels.location_id as location_id",
         "stock_levels.item_id as item_id",
         "stock_levels.quantity as quantity",
+        "items.name as item_name",
         "items.low_stock_threshold as low_stock_threshold",
       ])
       .where(
@@ -907,6 +908,17 @@ export class LocationsService {
           Number(row.quantity) > 0,
       );
       const quantity = held.reduce((total, row) => total + Number(row.quantity), 0);
+      const itemTotals = new Map<string, { readonly name: string; readonly quantity: string }>();
+      for (const row of held) {
+        const existing = itemTotals.get(row.item_id);
+        itemTotals.set(row.item_id, {
+          name: row.item_name,
+          quantity: String(Number(existing?.quantity ?? "0") + Number(row.quantity)),
+        });
+      }
+      const items = [...itemTotals.values()].sort((left, right) =>
+        left.name.localeCompare(right.name),
+      );
       const low = held.some(
         (row) =>
           row.low_stock_threshold !== null &&
@@ -918,8 +930,9 @@ export class LocationsService {
             colour: "#757575",
             text: "Archived",
             icon: "archive",
-            itemCount: held.length,
+            itemCount: items.length,
             quantity: String(quantity),
+            items,
           }
         : low
           ? {
@@ -927,8 +940,9 @@ export class LocationsService {
               colour: "#ED6C02",
               text: "Low stock",
               icon: "warning",
-              itemCount: held.length,
+              itemCount: items.length,
               quantity: String(quantity),
+              items,
             }
           : quantity > 0
             ? {
@@ -936,8 +950,9 @@ export class LocationsService {
                 colour: "#2E7D32",
                 text: "Available",
                 icon: "check-circle",
-                itemCount: held.length,
+                itemCount: items.length,
                 quantity: String(quantity),
+                items,
               }
             : {
                 status: "OutOfStock",
@@ -946,6 +961,7 @@ export class LocationsService {
                 icon: "remove-circle",
                 itemCount: 0,
                 quantity: "0",
+                items: [],
               };
       return {
         id: raw.id,

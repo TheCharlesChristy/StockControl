@@ -204,7 +204,7 @@ describe("item detail", () => {
 
     await screen.findByRole("heading", { name: testItemDetail.name });
 
-    expect(screen.getByRole("button", { name: "Issue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take out" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request stock" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Receive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Adjust" })).not.toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("transactions", () => {
     await screen.findByRole("table", { name: "Transaction log" });
 
     expect(screen.getByRole("combobox", { name: "Who" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "What" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Action" })).toBeInTheDocument();
   });
 
   it("presents the log to an Engineer as their own record", async () => {
