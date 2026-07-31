@@ -118,7 +118,13 @@ export interface MapRegionsTable {
   readonly display_name: string;
   readonly geometry: JSONColumnType<JsonObject, JsonObject, JsonObject>;
   readonly z_order: number;
-  readonly search_aliases: JSONColumnType<readonly string[], readonly string[], readonly string[]>;
+  /*
+   * Written as serialised JSON, not as an array. node-postgres turns a JS array
+   * parameter into a PostgreSQL array literal — `{"north cache"}` — which a
+   * jsonb column rejects. Objects happen to serialise correctly, which is why
+   * `geometry` above works and this did not.
+   */
+  readonly search_aliases: JSONColumnType<readonly string[], string, string>;
   readonly status: Generated<MapRegionStatus>;
   readonly created_at: GeneratedImmutableColumn<Date>;
   readonly updated_at: Generated<Date>;

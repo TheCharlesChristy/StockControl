@@ -132,9 +132,25 @@ async function seedItem(reference: string): Promise<string> {
 async function seedLocation(code: string): Promise<string> {
   const id = randomUUID();
 
+  /*
+   * Mirrors what POST /locations writes. The hierarchy columns are not optional
+   * in practice: `general_fulfilment_enabled` defaults to false, and a store
+   * that is not fulfilment-enabled is excluded from availability, so a fixture
+   * that omits them holds stock nothing can see.
+   */
   await schema()
     .insertInto("locations")
-    .values({ id, code, name: `${code} store`, kind: "Store", job_id: null, is_active: true })
+    .values({
+      id,
+      code,
+      name: `${code} store`,
+      kind: "Store",
+      job_id: null,
+      is_active: true,
+      node_kind: "CustomSection",
+      operational_kind: "Storage",
+      general_fulfilment_enabled: true,
+    })
     .execute();
 
   return id;
