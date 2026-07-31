@@ -32,7 +32,7 @@ function StatePanel({
         mx: "auto",
         p: { xs: 3, sm: 5 },
         borderColor: "divider",
-        background: "linear-gradient(155deg, rgba(255,255,255,1) 0%, rgba(244,249,247,1) 100%)",
+        bgcolor: "background.paper",
       }}
     >
       <Stack spacing={2} alignItems="flex-start">

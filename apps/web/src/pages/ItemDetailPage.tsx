@@ -33,6 +33,7 @@ import {
   StatTile,
 } from "../components/DataStates";
 import { ItemQrCode } from "../components/ItemQrCode";
+import { isValidEan13, ItemBarcode } from "../components/ItemBarcode";
 import { StockOperationDialog, type StockOperation } from "../components/StockOperationDialog";
 import { StockRequestDialog } from "../components/StockRequestDialog";
 
@@ -239,33 +240,57 @@ export function ItemDetailPage(): ReactElement {
                 className="print-label"
                 sx={{ p: 3, width: { xs: "100%", md: 260 }, flexShrink: 0 }}
               >
-                <Typography variant="h3" component="h2" sx={{ mb: 2 }} className="no-print">
-                  Scan
-                </Typography>
-                <ItemQrCode reference={data.reference} url={window.location.href} />
-                {/* Only shown on paper: on screen the reference is already the page title. */}
-                <Box sx={{ display: "none" }} className="print-only">
-                  <Typography className="print-reference">{data.reference}</Typography>
-                  <Typography className="print-name">{data.name}</Typography>
+                <Box className="no-print">
+                  <Typography variant="h3" component="h2" sx={{ mb: 2 }}>
+                    Scan
+                  </Typography>
+                  <ItemQrCode reference={data.reference} url={window.location.href} />
+                  {isValidEan13(data.barcode) && (
+                    <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
+                      <Typography variant="caption" display="block" textAlign="center">
+                        Barcode
+                      </Typography>
+                      <ItemBarcode value={data.barcode} />
+                    </Box>
+                  )}
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mt: 2, textAlign: "center" }}
+                  >
+                    Point a phone camera at the QR code or barcode to identify this item.
+                  </Typography>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<PrintRounded />}
+                    onClick={() => window.print()}
+                    sx={{ mt: 2 }}
+                  >
+                    Print label
+                  </Button>
                 </Box>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mt: 2, textAlign: "center" }}
-                  className="no-print"
-                >
-                  Point a phone camera at this to open the item.
-                </Typography>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<PrintRounded />}
-                  onClick={() => window.print()}
-                  sx={{ mt: 2 }}
-                  className="no-print"
-                >
-                  Print label
-                </Button>
+                <Box className="print-only" sx={{ display: "none" }} aria-label="Printable item label">
+                  <Typography component="p" className="print-name">
+                    {data.name}
+                  </Typography>
+                  <Typography component="p" className="print-reference">
+                    {data.reference}
+                  </Typography>
+                  <Box className="print-qr">
+                    <ItemQrCode
+                      reference={data.reference}
+                      url={window.location.href}
+                      size={166}
+                      showReference={false}
+                    />
+                  </Box>
+                  {isValidEan13(data.barcode) && (
+                    <Box className="print-barcode">
+                      <ItemBarcode value={data.barcode} />
+                    </Box>
+                  )}
+                </Box>
               </Paper>
             </Stack>
 

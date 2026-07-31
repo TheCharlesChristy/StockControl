@@ -238,8 +238,14 @@ const groups: readonly CatalogueGroup[] = [
 ] as const;
 
 function eanBarcode(index: number): string {
-  const body = String(5_010_000_000_000 + index * 7_919).slice(0, 13);
-  return body.padStart(13, "0");
+  const body = String(5_010_000_000 + index * 7_919).padStart(12, "0").slice(-12);
+  let total = 0;
+
+  for (let position = 0; position < body.length; position += 1) {
+    total += Number(body[position]) * (position % 2 === 0 ? 1 : 3);
+  }
+
+  return `${body}${String((10 - (total % 10)) % 10)}`;
 }
 
 export function buildSeedItems(): readonly SeedItem[] {

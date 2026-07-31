@@ -6,6 +6,7 @@ interface ItemQrCodeProps {
   readonly reference: string;
   readonly url: string;
   readonly size?: number;
+  readonly showReference?: boolean;
 }
 
 /**
@@ -14,7 +15,12 @@ interface ItemQrCodeProps {
  * returned here afterwards. The code grants no authority of its own — the
  * server still checks the visitor's role.
  */
-export function ItemQrCode({ reference, url, size = 168 }: ItemQrCodeProps): ReactElement {
+export function ItemQrCode({
+  reference,
+  url,
+  size = 168,
+  showReference = true,
+}: ItemQrCodeProps): ReactElement {
   const [svg, setSvg] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -59,12 +65,14 @@ export function ItemQrCode({ reference, url, size = 168 }: ItemQrCodeProps): Rea
           }}
         />
       )}
-      <Typography
-        variant="caption"
-        sx={{ display: "block", mt: 1, fontWeight: 750, letterSpacing: "0.06em" }}
-      >
-        {reference}
-      </Typography>
+      {showReference && (
+        <Typography
+          variant="caption"
+          sx={{ display: "block", mt: 1, fontWeight: 750, letterSpacing: "0.06em" }}
+        >
+          {reference}
+        </Typography>
+      )}
     </Box>
   );
 }

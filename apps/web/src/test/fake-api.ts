@@ -27,7 +27,7 @@ export const testItem: ItemSummaryView = {
   reference: "ITM-0001",
   name: "M6 × 30 mm zinc-plated hex bolt",
   unit: "ea",
-  barcode: "5010000000017",
+  barcode: "5010000000011",
   partNumber: "PN-100037",
   lowStockThreshold: "100.000",
   isActive: true,

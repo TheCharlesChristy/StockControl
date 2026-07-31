@@ -38,8 +38,9 @@ type CameraState = "starting" | "scanning" | "unavailable";
 export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
   const api = useApi();
   const navigate = useNavigate();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
+  const scanInFlightRef = useRef(false);
   const [cameraState, setCameraState] = useState<CameraState>("starting");
   const [manualCode, setManualCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -102,19 +103,35 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
   );
 
   useEffect(() => {
-    if (!open) {
+    if (!open || videoElement === null) {
       return undefined;
     }
 
     let cancelled = false;
     const reader = new BrowserMultiFormatReader();
+    scanInFlightRef.current = false;
 
-    reader
-      .decodeFromVideoDevice(undefined, videoRef.current ?? undefined, (result) => {
-        if (result !== undefined) {
-          void resolve(result.getText());
-        }
-      })
+    void reader
+      .decodeFromConstraints(
+        {
+          video: {
+            // Prefer a rear-facing camera on phones, but do not require one:
+            // laptops normally only expose a user-facing webcam.
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        },
+        videoElement,
+        (result) => {
+          if (result !== undefined && !scanInFlightRef.current) {
+            scanInFlightRef.current = true;
+            void resolve(result.getText()).finally(() => {
+              scanInFlightRef.current = false;
+            });
+          }
+        },
+      )
       .then((controls) => {
         if (cancelled) {
           controls.stop();
@@ -135,7 +152,7 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [open, resolve]);
+  }, [open, resolve, videoElement]);
 
   const handleManualSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -158,11 +175,18 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
             }}
           >
             <video
-              ref={videoRef}
+              ref={setVideoElement}
+              autoPlay
               muted
               playsInline
               aria-label="Camera preview"
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              style={{
+                display: "block",
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                transform: "scaleX(-1)",
+              }}
             />
           </Box>
 

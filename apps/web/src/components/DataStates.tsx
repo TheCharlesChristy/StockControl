@@ -162,9 +162,9 @@ interface StatTileProps {
 }
 
 const tones = {
-  neutral: { background: "#F1F5F4", foreground: "#334B49" },
-  primary: { background: "#DDF1EE", foreground: "#075254" },
-  warning: { background: "#FDE8E7", foreground: "#9C241B" },
+  neutral: { background: "#F7F8FA", foreground: "#3F4858" },
+  primary: { background: "#EAF0FC", foreground: "#002477" },
+  warning: { background: "#FEF3C7", foreground: "#92400E" },
 } as const;
 
 export function StatTile({ label, value, caption, tone = "neutral" }: StatTileProps): ReactElement {

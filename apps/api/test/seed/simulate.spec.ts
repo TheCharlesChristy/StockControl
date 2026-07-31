@@ -37,6 +37,22 @@ describe("the demo catalogue", () => {
     expect(new Set(barcodes).size).toBe(barcodes.length);
   });
 
+  it("uses checksum-valid EAN-13 barcodes", () => {
+    const barcodes = items.map((item) => item.barcode).filter((code) => code !== null);
+
+    expect(
+      barcodes.every((barcode) => {
+        let total = 0;
+
+        for (let position = 0; position < 12; position += 1) {
+          total += Number(barcode[position]) * (position % 2 === 0 ? 1 : 3);
+        }
+
+        return /^\d{13}$/u.test(barcode) && (10 - (total % 10)) % 10 === Number(barcode[12]);
+      }),
+    ).toBe(true);
+  });
+
   it("uses realistic names and units rather than placeholders", () => {
     expect(items.every((item) => item.name.length > 5)).toBe(true);
     expect(new Set(items.map((item) => item.unit))).toEqual(new Set(["ea", "m", "L"]));

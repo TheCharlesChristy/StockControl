@@ -45,7 +45,7 @@ export default defineConfig({
         APP_VERSION: "e2e",
         DATABASE_URL:
           process.env.DATABASE_URL ??
-          "postgresql://stockcontrol_app:stockcontrol_app@127.0.0.1:5432/stockcontrol_e2e",
+          "postgresql://stockcontrol_app:stockcontrol_app@127.0.0.1:5432/stockcontrol",
         GIT_SHA: "e2e",
         HOST: "127.0.0.1",
         LOG_LEVEL: "warn",

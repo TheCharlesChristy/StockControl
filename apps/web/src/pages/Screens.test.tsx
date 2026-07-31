@@ -191,6 +191,14 @@ describe("item detail", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a valid item barcode", async () => {
+    renderScreen(<ItemDetailPage />, options);
+
+    expect(
+      await screen.findByRole("img", { name: "EAN-13 barcode 5010000000011" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows an Engineer only the operations their role allows", async () => {
     renderScreen(<ItemDetailPage />, { ...options, role: "Engineer" });
 

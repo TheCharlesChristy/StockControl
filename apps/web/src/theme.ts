@@ -1,39 +1,43 @@
 import { alpha, createTheme } from "@mui/material/styles";
 
-const ink = "#102A2E";
-const teal = "#0B6668";
-const amber = "#D9822B";
+const brandBlue = "#00309D";
+const brandBlueDark = "#002477";
+const brandBlueDeep = "#071B3A";
+const brandBluePale = "#EAF0FC";
+const ink = "#172033";
+const body = "#3F4858";
+const border = "#DCE2EA";
 
 export const stockControlTheme = createTheme({
   cssVariables: true,
   palette: {
     mode: "light",
     primary: {
-      main: teal,
-      dark: "#07494B",
-      light: "#D7EFEC",
+      main: brandBlue,
+      dark: brandBlueDark,
+      light: brandBluePale,
       contrastText: "#FFFFFF",
     },
     secondary: {
-      main: amber,
-      dark: "#9C5415",
-      light: "#FFF0D9",
-      contrastText: "#21180F",
+      main: brandBlueDeep,
+      dark: "#051329",
+      light: brandBluePale,
+      contrastText: "#FFFFFF",
     },
     background: {
-      default: "#F2F5F3",
+      default: "#F7F8FA",
       paper: "#FFFFFF",
     },
     text: {
       primary: ink,
-      secondary: "#52666A",
+      secondary: body,
     },
-    divider: "#D9E1DE",
+    divider: border,
     success: {
-      main: "#237A57",
+      main: "#18794E",
     },
     warning: {
-      main: "#B76512",
+      main: "#B45309",
     },
     error: {
       main: "#B42318",
@@ -46,25 +50,34 @@ export const stockControlTheme = createTheme({
     fontFamily:
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     h1: {
+      fontFamily: '"DM Serif Display", Georgia, serif',
       fontSize: "clamp(2rem, 5vw, 3.5rem)",
-      fontWeight: 760,
-      letterSpacing: "-0.035em",
-      lineHeight: 1.05,
+      fontWeight: 400,
+      letterSpacing: "-0.015em",
+      lineHeight: 1.1,
     },
     h2: {
+      fontFamily: '"DM Serif Display", Georgia, serif',
       fontSize: "clamp(1.65rem, 3vw, 2.25rem)",
-      fontWeight: 740,
-      letterSpacing: "-0.025em",
-      lineHeight: 1.12,
+      fontWeight: 400,
+      letterSpacing: "-0.01em",
+      lineHeight: 1.15,
     },
     h3: {
+      fontFamily: '"DM Serif Display", Georgia, serif',
       fontSize: "1.25rem",
-      fontWeight: 720,
-      letterSpacing: "-0.015em",
+      fontWeight: 400,
+      letterSpacing: "-0.005em",
     },
     h4: {
       fontSize: "1.05rem",
       fontWeight: 720,
+    },
+    body1: {
+      lineHeight: 1.6,
+    },
+    body2: {
+      lineHeight: 1.6,
     },
     button: {
       fontWeight: 700,
@@ -85,20 +98,25 @@ export const stockControlTheme = createTheme({
         html: {
           minWidth: 320,
           minHeight: "100%",
-          backgroundColor: "#F2F5F3",
+          backgroundColor: "#F7F8FA",
         },
         body: {
           minWidth: 320,
           minHeight: "100%",
           margin: 0,
-          backgroundColor: "#F2F5F3",
+          backgroundColor: "#F7F8FA",
+          color: body,
         },
         "#root": {
           minHeight: "100vh",
         },
         "::selection": {
-          color: ink,
-          backgroundColor: "#B8E0DB",
+          color: "#FFFFFF",
+          backgroundColor: brandBlue,
+        },
+        "*:focus-visible": {
+          outline: `3px solid ${alpha(brandBlue, 0.35)}`,
+          outlineOffset: 2,
         },
       },
     },
@@ -108,9 +126,9 @@ export const stockControlTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          minHeight: 42,
           borderRadius: 9,
           paddingInline: 18,
+          minHeight: 48,
         },
       },
     },
@@ -118,8 +136,8 @@ export const stockControlTheme = createTheme({
       styleOverrides: {
         root: {
           border: "1px solid",
-          borderColor: "#DDE5E2",
-          boxShadow: "0 12px 36px rgba(16, 42, 46, 0.06)",
+          borderColor: border,
+          boxShadow: "0 8px 24px rgba(16, 24, 40, 0.06)",
         },
       },
     },
@@ -135,10 +153,10 @@ export const stockControlTheme = createTheme({
         root: {
           backgroundColor: "#FFFFFF",
           "&:hover .MuiOutlinedInput-notchedOutline": {
-            borderColor: teal,
+            borderColor: brandBlue,
           },
           "&.Mui-focused": {
-            boxShadow: `0 0 0 3px ${alpha(teal, 0.12)}`,
+            boxShadow: `0 0 0 3px ${alpha(brandBlue, 0.14)}`,
           },
         },
       },

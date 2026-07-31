@@ -1,4 +1,3 @@
-import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
 import LockRounded from "@mui/icons-material/LockRounded";
 import VisibilityOffRounded from "@mui/icons-material/VisibilityOffRounded";
 import VisibilityRounded from "@mui/icons-material/VisibilityRounded";
@@ -69,12 +68,6 @@ export function getRedirectPath(state: unknown): string {
   return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;
 }
 
-const benefits = [
-  "Find stock and accountable custody quickly",
-  "Keep every movement and override auditable",
-  "Work comfortably on phone, tablet or desktop",
-] as const;
-
 export function SignInPage(): ReactElement {
   const { signIn } = useAuth();
   const navigate = useNavigate();
@@ -123,89 +116,46 @@ export function SignInPage(): ReactElement {
       sx={{
         minHeight: "100vh",
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "minmax(360px, 0.9fr) 1.1fr" },
+        gridTemplateColumns: { xs: "1fr", md: "minmax(280px, 0.72fr) minmax(420px, 1.28fr)" },
         bgcolor: "background.default",
+        backgroundImage: {
+          xs: "radial-gradient(circle at 50% 0%, #FFFFFF 0%, #F7F8FA 58%, #EDF1F6 100%)",
+          md: "none",
+        },
       }}
     >
       <Box
         sx={{
           display: { xs: "none", md: "flex" },
-          position: "relative",
-          overflow: "hidden",
           minHeight: "100vh",
-          p: { md: 6, lg: 9 },
+          alignItems: "center",
+          bgcolor: "#071B3A",
           color: "#FFFFFF",
-          background: "linear-gradient(145deg, #0A292D 0%, #0B484B 56%, #0A6262 100%)",
-          "&::before": {
-            content: '""',
-            position: "absolute",
-            inset: 0,
-            opacity: 0.18,
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.14) 1px, transparent 1px)",
-            backgroundSize: "44px 44px",
-          },
-          "&::after": {
-            content: '""',
-            position: "absolute",
-            width: 420,
-            height: 420,
-            right: -160,
-            bottom: -180,
-            borderRadius: "50%",
-            border: "80px solid rgba(240, 168, 76, 0.15)",
-          },
+          p: { md: 6, lg: 8 },
         }}
       >
-        <Stack
-          justifyContent="space-between"
-          sx={{ position: "relative", zIndex: 1, width: "100%" }}
-        >
+        <Stack spacing={7} sx={{ width: "100%" }}>
           <Brand inverse />
-          <Box sx={{ maxWidth: 560, py: 6 }}>
-            <Typography variant="overline" sx={{ color: "#F4B464" }}>
-              Stock confidence, built in
+          <Box>
+            <Typography component="h1" variant="h1" sx={{ color: "#FFFFFF" }}>
+              StockControl
             </Typography>
-            <Typography component="p" variant="h1" sx={{ mt: 1.5, color: "#FFFFFF" }}>
-              Know what you have. Know where it is.
-            </Typography>
-            <Typography
-              sx={{
-                mt: 3,
-                maxWidth: 510,
-                color: "rgba(255,255,255,0.76)",
-                fontSize: "1.05rem",
-                lineHeight: 1.8,
-              }}
-            >
-              A dependable workspace for stores, offices and engineers in the field.
-            </Typography>
-            <Stack spacing={1.75} sx={{ mt: 4 }}>
-              {benefits.map((benefit) => (
-                <Stack key={benefit} direction="row" spacing={1.5} alignItems="center">
-                  <CheckCircleRounded sx={{ color: "#73D0BF" }} aria-hidden="true" />
-                  <Typography fontWeight={650}>{benefit}</Typography>
-                </Stack>
-              ))}
-            </Stack>
           </Box>
-          <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-            Named accounts · role-aware access · immutable audit
-          </Typography>
         </Stack>
       </Box>
 
       <Container
-        maxWidth="sm"
+        maxWidth="xs"
         sx={{
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           py: { xs: 4, sm: 7 },
         }}
       >
-        <Box sx={{ width: "100%", maxWidth: 470 }}>
-          <Box sx={{ display: { xs: "block", md: "none" }, mb: 5 }}>
+        <Box sx={{ width: "100%", maxWidth: 440 }}>
+          <Box sx={{ display: { xs: "flex", md: "none" }, justifyContent: "center", mb: 4 }}>
             <Brand />
           </Box>
           <Paper
@@ -216,107 +166,134 @@ export function SignInPage(): ReactElement {
               p: { xs: 3, sm: 5 },
               border: "1px solid",
               borderColor: "divider",
-              boxShadow: "0 24px 70px rgba(16, 42, 46, 0.1)",
+              borderRadius: 3,
+              boxShadow: "0 20px 50px rgba(28, 45, 78, 0.1), 0 3px 10px rgba(28, 45, 78, 0.05)",
             }}
           >
-            <Box
-              sx={{
-                display: "grid",
-                placeItems: "center",
-                width: 46,
-                height: 46,
-                mb: 3,
-                color: "primary.main",
-                bgcolor: "primary.light",
-                borderRadius: 2.5,
-              }}
-            >
-              <LockRounded aria-hidden="true" />
-            </Box>
-            <Typography id="sign-in-title" component="h1" variant="h2">
-              Welcome back
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 1.25, lineHeight: 1.65 }}>
-              Sign in with your StockControl account.
-            </Typography>
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 3.5 }}>
+              <Box
+                sx={{
+                  display: "grid",
+                  placeItems: "center",
+                  width: 44,
+                  height: 44,
+                  flexShrink: 0,
+                  color: "primary.main",
+                  bgcolor: "primary.light",
+                  borderRadius: 2,
+                }}
+              >
+                <LockRounded aria-hidden="true" />
+              </Box>
+              <Box>
+                <Typography
+                  component="p"
+                  sx={{ color: "primary.main", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.04em" }}
+                >
+                  StockControl
+                </Typography>
+                <Typography id="sign-in-title" component="h1" variant="h2" sx={{ lineHeight: 1.05 }}>
+                  Sign in
+                </Typography>
+              </Box>
+            </Stack>
 
-            <Box component="form" noValidate onSubmit={handleSubmit} sx={{ mt: 4 }}>
+            <Box component="form" noValidate onSubmit={handleSubmit}>
               <Stack spacing={2.5}>
                 {errorMessage !== null && (
                   <Alert severity="error" role="alert">
                     {errorMessage}
                   </Alert>
                 )}
-                <TextField
-                  id="email"
-                  label="Work email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  autoComplete="email"
-                  required
-                  fullWidth
-                  disabled={submitting}
-                  slotProps={{
-                    htmlInput: {
-                      "aria-label": "Work email",
-                    },
-                  }}
-                />
-                <TextField
-                  id="password"
-                  label="Password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                  fullWidth
-                  disabled={submitting}
-                  slotProps={{
-                    htmlInput: {
-                      "aria-label": "Password",
-                    },
-                    input: {
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            edge="end"
-                            onClick={() => setShowPassword((visible) => !visible)}
-                            aria-label={showPassword ? "Hide password" : "Show password"}
-                          >
-                            {showPassword ? <VisibilityOffRounded /> : <VisibilityRounded />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
+                <Stack spacing={0.75}>
+                  <Typography component="label" htmlFor="email" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                    Work email
+                  </Typography>
+                  <TextField
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    fullWidth
+                    disabled={submitting}
+                    slotProps={{
+                      input: { sx: { minHeight: 52 } },
+                    }}
+                  />
+                </Stack>
+                <Stack spacing={0.75}>
+                  <Typography component="label" htmlFor="password" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                    Password
+                  </Typography>
+                  <TextField
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="current-password"
+                    required
+                    fullWidth
+                    disabled={submitting}
+                    slotProps={{
+                      input: {
+                        sx: { minHeight: 52 },
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              edge="end"
+                              onClick={() => setShowPassword((visible) => !visible)}
+                              aria-label={showPassword ? "Hide password" : "Show password"}
+                            >
+                              {showPassword ? <VisibilityOffRounded /> : <VisibilityRounded />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+                </Stack>
                 <Button
                   type="submit"
                   variant="contained"
                   size="large"
                   fullWidth
                   disabled={submitting}
+                  sx={{
+                    mt: 0.5,
+                    bgcolor: "primary.main",
+                    "&:hover": {
+                      bgcolor: "primary.dark",
+                      boxShadow: "0 5px 14px rgba(0, 48, 157, 0.22)",
+                    },
+                    "&:active": {
+                      transform: "translateY(1px)",
+                    },
+                  }}
                 >
                   {submitting ? "Signing in…" : "Sign in"}
                 </Button>
               </Stack>
             </Box>
+            <Box
+              sx={{
+                mt: 3.5,
+                mx: { xs: -3, sm: -5 },
+                mb: { xs: -3, sm: -5 },
+                px: { xs: 3, sm: 5 },
+                py: 1.75,
+                borderTop: "1px solid",
+                borderColor: "divider",
+                bgcolor: "#F7F8FA",
+                borderRadius: "0 0 12px 12px",
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Accounts are managed by your StockControl administrator.
+              </Typography>
+            </Box>
           </Paper>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{
-              display: "block",
-              mt: 2.5,
-              px: 1,
-              textAlign: "center",
-              lineHeight: 1.6,
-            }}
-          >
-            Accounts are created by your StockControl administrator.
-          </Typography>
         </Box>
       </Container>
     </Box>

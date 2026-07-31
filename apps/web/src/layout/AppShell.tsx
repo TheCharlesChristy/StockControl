@@ -76,16 +76,6 @@ export function AppShell(): ReactElement | null {
     <Stack sx={{ height: "100%" }} aria-label="Primary navigation">
       <Box sx={{ px: 2.5, pt: 2.75, pb: 2.25 }}>
         <Brand inverse />
-        <Chip
-          label="Demo installation"
-          size="small"
-          sx={{
-            mt: 2.5,
-            color: "rgba(255,255,255,0.88)",
-            bgcolor: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.14)",
-          }}
-        />
       </Box>
       <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
       <List
@@ -125,10 +115,10 @@ export function AppShell(): ReactElement | null {
                   },
                   "&.Mui-selected": {
                     color: "#FFFFFF",
-                    bgcolor: "rgba(99, 210, 192, 0.17)",
-                    boxShadow: "inset 3px 0 0 #72D7C7",
+                    bgcolor: "rgba(234, 240, 252, 0.14)",
+                    boxShadow: "inset 3px 0 0 #FFFFFF",
                     "&:hover": {
-                      bgcolor: "rgba(99, 210, 192, 0.22)",
+                      bgcolor: "rgba(234, 240, 252, 0.2)",
                     },
                   },
                 }}
@@ -166,8 +156,8 @@ export function AppShell(): ReactElement | null {
             sx={{
               width: 38,
               height: 38,
-              color: "#093E40",
-              bgcolor: "#A6E2D8",
+              color: "primary.dark",
+              bgcolor: "primary.light",
               fontSize: "0.85rem",
               fontWeight: 800,
             }}
@@ -259,7 +249,7 @@ export function AppShell(): ReactElement | null {
                 letterSpacing: "0.04em",
               }}
             >
-              STOCKCONTROL
+              StockControl
             </Typography>
             <Typography noWrap component="p" sx={{ fontWeight: 800, lineHeight: 1.25 }}>
               {pageTitle}
@@ -286,8 +276,7 @@ export function AppShell(): ReactElement | null {
               width: drawerWidth,
               color: "#FFFFFF",
               borderRight: 0,
-              bgcolor: "#0B3033",
-              backgroundImage: "linear-gradient(180deg, rgba(15,76,78,0.72), rgba(7,36,39,0.96))",
+              bgcolor: "#071B3A",
             },
           },
         }}
@@ -304,7 +293,7 @@ export function AppShell(): ReactElement | null {
           ml: { md: `${drawerWidth}px` },
           pt: { xs: "64px", sm: "70px" },
           backgroundImage:
-            "radial-gradient(circle at 95% 2%, rgba(11,102,104,0.08), transparent 28%)",
+            "radial-gradient(circle at 95% 2%, rgba(0,48,157,0.06), transparent 28%)",
         }}
       >
         <Box

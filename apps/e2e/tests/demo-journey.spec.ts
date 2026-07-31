@@ -463,12 +463,16 @@ test("the transaction log accounts for activity with its actor", async ({ page }
 
   const log = page.getByRole("table", { name: "Transaction log" });
   await expect(log).toBeVisible();
-  await expect(log.locator("tbody tr").first()).toContainText(/Receive|Issue|Transfer|Collect/);
+  await expect(log.locator("tbody tr").first()).toContainText(
+    /Receive|Issue|Transfer|Collect|Adjust/,
+  );
 
   /* The filter takes the reference people read off a label, not an internal id. */
   await page.getByLabel("Item", { exact: true }).fill("ITM-0001");
   await expect(log.locator("tbody tr").first()).toBeVisible();
-  await expect(log.locator("tbody tr").first()).toContainText(/Receive|Issue|Transfer|Collect/);
+  await expect(log.locator("tbody tr").first()).toContainText(
+    /Receive|Issue|Transfer|Collect|Adjust/,
+  );
 });
 
 async function noSidewaysScroll(page: Page): Promise<boolean> {
