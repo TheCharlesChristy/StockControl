@@ -57,12 +57,11 @@ const benefits = [
 ] as const;
 
 export function SignInPage(): ReactElement {
-  const { cancelMfa, mfaChallenge, signIn, status, verifyMfa } = useAuth();
+  const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mfaCode, setMfaCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -86,10 +85,8 @@ export function SignInPage(): ReactElement {
     setSubmitting(true);
 
     void signIn(normalizedEmail, password)
-      .then((outcome) => {
-        if (outcome === "authenticated") {
-          void navigate(getRedirectPath(location.state), { replace: true });
-        }
+      .then(() => {
+        void navigate(getRedirectPath(location.state), { replace: true });
       })
       .catch(() => {
         setErrorMessage("We could not sign you in. Check your details and try again.");
@@ -98,40 +95,6 @@ export function SignInPage(): ReactElement {
         setSubmitting(false);
       });
   };
-
-  const handleMfaSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    setErrorMessage(null);
-
-    const normalizedCode = mfaCode.trim();
-
-    if (normalizedCode.length === 0) {
-      setErrorMessage("Enter your authenticator code or a recovery code.");
-      return;
-    }
-
-    setSubmitting(true);
-
-    void verifyMfa(normalizedCode)
-      .then(() => {
-        void navigate(getRedirectPath(location.state), { replace: true });
-      })
-      .catch(() => {
-        setErrorMessage("That code could not be verified. Check it and try again.");
-      })
-      .finally(() => {
-        setSubmitting(false);
-      });
-  };
-
-  const handleUseAnotherAccount = (): void => {
-    cancelMfa();
-    setPassword("");
-    setMfaCode("");
-    setErrorMessage(null);
-  };
-
-  const verifyingMfa = status === "mfa_required" && mfaChallenge !== null;
 
   return (
     <Box
@@ -252,125 +215,75 @@ export function SignInPage(): ReactElement {
               <LockRounded aria-hidden="true" />
             </Box>
             <Typography id="sign-in-title" component="h1" variant="h2">
-              {verifyingMfa ? "Verify your identity" : "Welcome back"}
+              Welcome back
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1.25, lineHeight: 1.65 }}>
-              {verifyingMfa
-                ? "Enter a code from your authenticator app or one of your recovery codes."
-                : "Sign in with your invited StockControl account."}
+              Sign in with your StockControl account.
             </Typography>
 
-            {verifyingMfa ? (
-              <Box component="form" noValidate onSubmit={handleMfaSubmit} sx={{ mt: 4 }}>
-                <Stack spacing={2.5}>
-                  {errorMessage !== null && (
-                    <Alert severity="error" role="alert">
-                      {errorMessage}
-                    </Alert>
-                  )}
-                  <TextField
-                    id="mfa-code"
-                    label="Authenticator or recovery code"
-                    value={mfaCode}
-                    onChange={(event) => setMfaCode(event.target.value)}
-                    autoComplete="one-time-code"
-                    required
-                    fullWidth
-                    autoFocus
-                    disabled={submitting}
-                    slotProps={{
-                      htmlInput: {
-                        "aria-label": "Authenticator or recovery code",
-                        autoCapitalize: "characters",
-                        spellCheck: false,
-                      },
-                    }}
-                  />
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    size="large"
-                    fullWidth
-                    disabled={submitting}
-                  >
-                    {submitting ? "Verifying…" : "Verify and continue"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="text"
-                    fullWidth
-                    disabled={submitting}
-                    onClick={handleUseAnotherAccount}
-                  >
-                    Use another account
-                  </Button>
-                </Stack>
-              </Box>
-            ) : (
-              <Box component="form" noValidate onSubmit={handleSubmit} sx={{ mt: 4 }}>
-                <Stack spacing={2.5}>
-                  {errorMessage !== null && (
-                    <Alert severity="error" role="alert">
-                      {errorMessage}
-                    </Alert>
-                  )}
-                  <TextField
-                    id="email"
-                    label="Work email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    autoComplete="email"
-                    required
-                    fullWidth
-                    disabled={submitting}
-                    slotProps={{
-                      htmlInput: {
-                        "aria-label": "Work email",
-                      },
-                    }}
-                  />
-                  <TextField
-                    id="password"
-                    label="Password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    autoComplete="current-password"
-                    required
-                    fullWidth
-                    disabled={submitting}
-                    slotProps={{
-                      htmlInput: {
-                        "aria-label": "Password",
-                      },
-                      input: {
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              edge="end"
-                              onClick={() => setShowPassword((visible) => !visible)}
-                              aria-label={showPassword ? "Hide password" : "Show password"}
-                            >
-                              {showPassword ? <VisibilityOffRounded /> : <VisibilityRounded />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      },
-                    }}
-                  />
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    size="large"
-                    fullWidth
-                    disabled={submitting}
-                  >
-                    {submitting ? "Signing in…" : "Sign in"}
-                  </Button>
-                </Stack>
-              </Box>
-            )}
+            <Box component="form" noValidate onSubmit={handleSubmit} sx={{ mt: 4 }}>
+              <Stack spacing={2.5}>
+                {errorMessage !== null && (
+                  <Alert severity="error" role="alert">
+                    {errorMessage}
+                  </Alert>
+                )}
+                <TextField
+                  id="email"
+                  label="Work email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  required
+                  fullWidth
+                  disabled={submitting}
+                  slotProps={{
+                    htmlInput: {
+                      "aria-label": "Work email",
+                    },
+                  }}
+                />
+                <TextField
+                  id="password"
+                  label="Password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                  fullWidth
+                  disabled={submitting}
+                  slotProps={{
+                    htmlInput: {
+                      "aria-label": "Password",
+                    },
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            edge="end"
+                            onClick={() => setShowPassword((visible) => !visible)}
+                            aria-label={showPassword ? "Hide password" : "Show password"}
+                          >
+                            {showPassword ? <VisibilityOffRounded /> : <VisibilityRounded />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  disabled={submitting}
+                >
+                  {submitting ? "Signing in…" : "Sign in"}
+                </Button>
+              </Stack>
+            </Box>
           </Paper>
           <Typography
             variant="caption"
@@ -383,7 +296,7 @@ export function SignInPage(): ReactElement {
               lineHeight: 1.6,
             }}
           >
-            Protected access. Accounts are issued by your StockControl administrator.
+            Accounts are created by your StockControl administrator.
           </Typography>
         </Box>
       </Container>

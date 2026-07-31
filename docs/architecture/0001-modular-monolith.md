@@ -2,7 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Requirements: Product requirements 15.1 and 15.2
+- Demo MVP: live, though the demo needs far fewer modules — see [removal candidates](../demo-mvp-removal-candidates.md) group H9
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 15.1 and 15.2
 
 ## Context
 

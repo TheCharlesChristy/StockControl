@@ -1,31 +1,23 @@
 # Next work packet prompt
 
 ```text
-Continue StockControl development by identifying the next eligible work packet in
-docs/implementation-playbook.md.
+Continue StockControl by implementing the next incomplete packet in
+docs/implementation-playbook.md (packets D1 through D9, in order).
 
-Read the packet's dependencies, requirements, ADRs, relevant README files, existing
-code and tests. Choose the next packet based on the repository's actual completed
-work; do not assume its ID.
+Read first:
+1. docs/product-requirements.md — the demo MVP baseline;
+2. the packet and the standing rules in playbook section 2;
+3. docs/demo-mvp-removal-candidates.md if the packet touches existing code;
+4. the nearby code and tests.
 
-Implement only that packet, including its required tests. Preserve unrelated changes,
-run the focused checks and completion gate, and update documentation or traceability
-where appropriate.
+Work out which packet is actually next from the repository, not from this prompt.
+Implement only that packet. Stay inside the demo scope: anything in requirements
+section 10 is deferred, and existing code implementing deferred features is not a
+reason to keep it.
 
-Finish with the playbook handoff format:
+Run pnpm quality and pnpm test. Finish with a short report: what was built, files
+changed, tests added, commands run and their results, and anything left undone.
 
-- Packet
-- Status
-- Outcome
-- Files changed
-- Migrations/contracts changed
-- Tests added
-- Commands run and results
-- Commands not run and why
-- Security/data/permission considerations
-- Known limitations or follow-up
-- Recommended next packet
-
-If a prerequisite is missing or the packet is genuinely blocked, stop and report it
-instead of inventing a solution.
+If a decision is genuinely missing from the requirements, ask rather than inventing
+scope.
 ```

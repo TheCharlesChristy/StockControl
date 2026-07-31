@@ -1,8 +1,9 @@
 # ADR 0002: Use an immutable stock ledger and current projections
 
-- Status: Accepted
+- Status: Accepted, deferred beyond the demo MVP
 - Date: 2026-07-29
-- Requirements: Product requirements 3, 5, 6, 8, and 10
+- Demo MVP: deferred by [demo requirements v2.0](../product-requirements.md) section 10; retained for when the capability returns
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 3, 5, 6, 8, and 10
 
 ## Context
 

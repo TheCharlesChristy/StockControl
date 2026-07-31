@@ -93,8 +93,8 @@ const descriptorRecord = (
 };
 
 const completeState = (): IntegrityState => ({
-  applied: ["0001_foundation", "0002_identity"],
-  integrity: [descriptorRecord("0001_foundation"), descriptorRecord("0002_identity")],
+  applied: ["0001_foundation"],
+  integrity: [descriptorRecord("0001_foundation")],
   integrityTableExists: true,
   migrationTableExists: true,
 });
@@ -175,7 +175,7 @@ describe("migration integrity validation", () => {
     {
       code: "ChecksumMismatch",
       mutate: (state: IntegrityState) => {
-        const record = state.integrity[1];
+        const record = state.integrity[0];
         if (record !== undefined) {
           record.checksum = "0".repeat(64);
         }
@@ -224,7 +224,7 @@ describe("runMigrations", () => {
     runnerMocks.sqlTag.raw.mockClear();
   });
 
-  it("installs 0001 then 0002, validates both sides, and grants an exhaustive minimum registry", async () => {
+  it("installs the foundation migration, validates it, and grants the minimum registry", async () => {
     const state: IntegrityState = {
       applied: [],
       integrity: [],
@@ -236,11 +236,6 @@ describe("runMigrations", () => {
       {
         direction: "Up",
         migrationName: "0001_foundation",
-        status: "Success",
-      },
-      {
-        direction: "Up",
-        migrationName: "0002_identity",
         status: "Success",
       },
     ];
@@ -270,16 +265,16 @@ describe("runMigrations", () => {
     expect(runnerMocks.rawFragments).not.toContain("");
     expect(runnerMocks.identifiers).not.toContainEqual(["stockcontrol", "migration_integrity"]);
 
-    const auditPrivilegeIndex = Object.keys(RUNTIME_TABLE_PRIVILEGES)
+    const metadataPrivilegeIndex = Object.keys(RUNTIME_TABLE_PRIVILEGES)
       .filter(
         (table) =>
           RUNTIME_TABLE_PRIVILEGES[table as keyof typeof RUNTIME_TABLE_PRIVILEGES].length > 0,
       )
-      .indexOf("identity_audit_events");
-    const auditGrant = runnerMocks.queries[6 + auditPrivilegeIndex];
-    expect(auditGrant?.parameters).toEqual([
-      { raw: "select, insert" },
-      { identifier: ["stockcontrol", "identity_audit_events"] },
+      .indexOf("system_metadata");
+    const metadataGrant = runnerMocks.queries[6 + metadataPrivilegeIndex];
+    expect(metadataGrant?.parameters).toEqual([
+      { raw: "select, insert, update, delete" },
+      { identifier: ["stockcontrol", "system_metadata"] },
       { identifier: ["stockcontrol_app"] },
     ]);
 
@@ -289,41 +284,6 @@ describe("runMigrations", () => {
     expect(defaultPrivilegeQueries).toHaveLength(2);
     expect(defaultPrivilegeQueries.every((statement) => statement.includes("revoke"))).toBe(true);
     expect(defaultPrivilegeQueries.every((statement) => !statement.includes("grant"))).toBe(true);
-  });
-
-  it("supports a validated 0001 to 0002 upgrade", async () => {
-    const state: IntegrityState = {
-      applied: ["0001_foundation"],
-      integrity: [descriptorRecord("0001_foundation")],
-      integrityTableExists: true,
-      migrationTableExists: true,
-    };
-    const fake = createDatabase(state);
-    runnerMocks.migrateToLatest.mockImplementation(() => {
-      state.applied.push("0002_identity");
-      state.integrity.push(descriptorRecord("0002_identity"));
-      return Promise.resolve({
-        results: [
-          {
-            direction: "Up",
-            migrationName: "0002_identity",
-            status: "Success",
-          },
-        ],
-      });
-    });
-
-    await expect(
-      runMigrations(fake.database, { runtimeRole: "stockcontrol_app" }),
-    ).resolves.toEqual({
-      results: [
-        {
-          direction: "Up",
-          migrationName: "0002_identity",
-          status: "Success",
-        },
-      ],
-    });
   });
 
   it("returns an empty result list on a safe rerun", async () => {
@@ -346,7 +306,7 @@ describe("runMigrations", () => {
         {
           direction: "Up",
           error: cause,
-          migrationName: "0002_identity",
+          migrationName: "0002_example",
           status: "Error",
         },
       ],
@@ -364,7 +324,7 @@ describe("runMigrations", () => {
         results: [
           {
             direction: "Up",
-            migrationName: "0002_identity",
+            migrationName: "0002_example",
             status: "Error",
           },
         ],

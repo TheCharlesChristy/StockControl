@@ -1,25 +1,17 @@
-import type {
-  AuthenticatedSessionView,
-  AuthenticationCompleteResponse,
-  SignInRequest,
-  SignInResponse,
-  VerifyMfaRequest,
-} from "@stockcontrol/contracts";
+import type { AuthenticatedSession, SignInRequest } from "@stockcontrol/contracts";
 
 export {
-  apiUserRoles as userRoles,
-  type ApiUserRole as UserRole,
-  type AuthenticatedSessionView as AuthenticatedSession,
-  type AuthenticatedUserView as AuthenticatedUser,
-  type MfaChallengeView as MfaChallenge,
+  userRoles,
+  isAuthenticatedSession,
+  isAuthenticatedUser,
+  type AuthenticatedSession,
+  type AuthenticatedUser,
   type SignInRequest as SignInCredentials,
-  type SignInResponse as SignInResult,
-  type VerifyMfaRequest as VerifyMfaCredentials,
+  type UserRole,
 } from "@stockcontrol/contracts";
 
 export interface AuthClient {
-  getSession(signal: AbortSignal): Promise<AuthenticatedSessionView | null>;
-  signIn(credentials: SignInRequest): Promise<SignInResponse>;
-  verifyMfa(credentials: VerifyMfaRequest): Promise<AuthenticationCompleteResponse>;
+  getSession(signal: AbortSignal): Promise<AuthenticatedSession | null>;
+  signIn(credentials: SignInRequest): Promise<AuthenticatedSession>;
   signOut(): Promise<void>;
 }

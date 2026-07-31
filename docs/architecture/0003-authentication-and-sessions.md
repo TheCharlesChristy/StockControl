@@ -2,7 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Requirements: Product requirements 9.2, 9.3, and 12.3
+- Demo MVP: live in reduced form — password plus database-backed session only; MFA, invitations, resets, rate limiting, and recent-authentication are deferred by [demo requirements v2.0](../product-requirements.md) section 10
+- Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 9.2, 9.3, and 12.3
 
 ## Context
 

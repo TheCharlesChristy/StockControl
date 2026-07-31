@@ -1,18 +1,15 @@
-import AssessmentRounded from "@mui/icons-material/AssessmentRounded";
 import DashboardRounded from "@mui/icons-material/DashboardRounded";
-import FactCheckRounded from "@mui/icons-material/FactCheckRounded";
 import Inventory2Rounded from "@mui/icons-material/Inventory2Rounded";
 import ManageAccountsRounded from "@mui/icons-material/ManageAccountsRounded";
-import MapRounded from "@mui/icons-material/MapRounded";
-import PlaylistAddCheckRounded from "@mui/icons-material/PlaylistAddCheckRounded";
-import QrCodeScannerRounded from "@mui/icons-material/QrCodeScannerRounded";
-import ShoppingCartCheckoutRounded from "@mui/icons-material/ShoppingCartCheckoutRounded";
+import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import WorkOutlineRounded from "@mui/icons-material/WorkOutlineRounded";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import type { ComponentType } from "react";
 
-interface CapabilityHolder {
-  readonly effectiveCapabilities: readonly string[];
+import type { UserRole } from "./auth/auth-types";
+
+interface RoleHolder {
+  readonly role: UserRole;
 }
 
 export interface NavigationItem {
@@ -20,7 +17,8 @@ export interface NavigationItem {
   readonly label: string;
   readonly shortLabel: string;
   readonly description: string;
-  readonly anyCapabilities: readonly string[];
+  /** Roles that may open the section. An empty list means every signed-in user. */
+  readonly roles: readonly UserRole[];
   readonly icon: ComponentType<SvgIconProps>;
 }
 
@@ -29,96 +27,48 @@ export const navigationItems: readonly NavigationItem[] = [
     path: "/dashboard",
     label: "Overview",
     shortLabel: "Overview",
-    description: "Role-aware priorities, exceptions and quick actions.",
-    anyCapabilities: [],
+    description: "Low stock, your open reservations and recent activity.",
+    roles: [],
     icon: DashboardRounded,
   },
   {
     path: "/inventory",
     label: "Inventory",
     shortLabel: "Inventory",
-    description: "Search catalogue items, holdings, assets and availability.",
-    anyCapabilities: ["inventory.view"],
+    description: "Search items and see on-hand, reserved and available stock by location.",
+    roles: [],
     icon: Inventory2Rounded,
-  },
-  {
-    path: "/scan",
-    label: "Scan stock",
-    shortLabel: "Scan",
-    description: "Open fast, permission-aware QR stock actions.",
-    anyCapabilities: ["inventory.view", "inventory.take"],
-    icon: QrCodeScannerRounded,
   },
   {
     path: "/jobs",
     label: "Jobs",
     shortLabel: "Jobs",
-    description: "Manage job demand, reservations and reconciliation.",
-    anyCapabilities: ["jobs.view"],
+    description: "Manage jobs and their stock reservations and collections.",
+    roles: [],
     icon: WorkOutlineRounded,
   },
   {
-    path: "/requests",
-    label: "My requests",
-    shortLabel: "Requests",
-    description: "Track submitted reservation and purchase requests.",
-    anyCapabilities: ["jobs.reservations.request", "purchasing.request"],
-    icon: PlaylistAddCheckRounded,
-  },
-  {
-    path: "/purchasing",
-    label: "Purchasing",
-    shortLabel: "Purchasing",
-    description: "Control requests, purchase orders, receipts and invoices.",
-    anyCapabilities: ["purchasing.view"],
-    icon: ShoppingCartCheckoutRounded,
-  },
-  {
-    path: "/stocktakes",
-    label: "Stocktakes",
-    shortLabel: "Counts",
-    description: "Run blind counts, recounts and audited adjustments.",
-    anyCapabilities: ["stocktakes.start", "stocktakes.enter"],
-    icon: FactCheckRounded,
-  },
-  {
-    path: "/locations",
-    label: "Locations & maps",
-    shortLabel: "Locations",
-    description: "Manage the hierarchy and linked visual maps.",
-    anyCapabilities: ["locations.view"],
-    icon: MapRounded,
-  },
-  {
-    path: "/reports",
-    label: "Reports",
-    shortLabel: "Reports",
-    description: "Review locked operational, cost and audit reports.",
-    anyCapabilities: [
-      "reports.inventory",
-      "reports.operational",
-      "reports.financial",
-      "reports.export",
-    ],
-    icon: AssessmentRounded,
+    path: "/transactions",
+    label: "Transactions",
+    shortLabel: "Activity",
+    description: "Every stock change, with the actor, time and reason.",
+    roles: [],
+    icon: ReceiptLongRounded,
   },
   {
     path: "/team",
     label: "Team & access",
     shortLabel: "Team",
-    description: "Invite users and manage roles, permissions and safeguards.",
-    anyCapabilities: ["users.view", "users.invite", "users.manage", "users.permissions.manage"],
+    description: "Create users and set their role.",
+    roles: ["Admin"],
     icon: ManageAccountsRounded,
   },
 ] as const;
 
-export function canAccessNavigationItem(user: CapabilityHolder, item: NavigationItem): boolean {
-  return (
-    item.anyCapabilities.length === 0 ||
-    item.anyCapabilities.some((capability) => user.effectiveCapabilities.includes(capability))
-  );
+export function canAccessNavigationItem(user: RoleHolder, item: NavigationItem): boolean {
+  return item.roles.length === 0 || item.roles.includes(user.role);
 }
 
-export function navigationForUser(user: CapabilityHolder): readonly NavigationItem[] {
+export function navigationForUser(user: RoleHolder): readonly NavigationItem[] {
   return navigationItems.filter((item) => canAccessNavigationItem(user, item));
 }

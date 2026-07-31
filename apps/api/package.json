@@ -12,9 +12,11 @@
     "test": "vitest run --configLoader runner",
     "test:unit": "vitest run --configLoader runner",
     "test:coverage": "vitest run --coverage --configLoader runner",
-    "test:integration": "vitest run test/system.integration.spec.ts --configLoader runner"
+    "test:integration": "vitest run --config vitest.integration.config.ts --configLoader runner",
+    "seed": "node --env-file-if-exists=../../.env --import tsx src/seed/seed.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-fastify": "^11.1.28",

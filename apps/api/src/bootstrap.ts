@@ -1,5 +1,6 @@
 import "reflect-metadata";
 
+import fastifyCookie from "@fastify/cookie";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyInstance } from "fastify";
@@ -53,6 +54,7 @@ export const createApiApplication = async (): Promise<NestFastifyApplication> =>
   const logger = app.get<StructuredLogger>(SYSTEM_TOKENS.logger);
   const fastify: FastifyInstance = app.getHttpAdapter().getInstance();
 
+  await fastify.register(fastifyCookie);
   registerCorrelationIdHook(fastify, context);
   app.setGlobalPrefix(API_V1_PREFIX);
   app.useLogger(logger);

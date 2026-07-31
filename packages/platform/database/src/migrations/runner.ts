@@ -14,23 +14,16 @@ export type DatabaseRuntimePrivilege = "select" | "insert" | "update" | "delete"
  * not make it runtime-accessible until its minimum privileges are reviewed here.
  */
 export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
-  identity_audit_chain_head: ["select", "update"],
-  identity_audit_events: ["select", "insert"],
-  identity_auth_challenges: ["select", "insert", "update"],
-  identity_bootstrap_state: ["select", "insert", "update"],
-  identity_invitations: ["select", "insert", "update"],
-  identity_mfa_recovery_requests: ["select", "insert", "update"],
-  identity_password_credentials: ["select", "insert", "update"],
-  identity_password_resets: ["select", "insert", "update"],
-  identity_permission_overrides: ["select", "insert", "update", "delete"],
-  identity_rate_limit_buckets: ["select", "insert", "update", "delete"],
-  identity_recovery_codes: ["select", "insert", "update"],
-  identity_security_policy: ["select", "update"],
-  identity_sessions: ["select", "insert", "update"],
-  identity_totp_credentials: ["select", "insert", "update"],
-  identity_users: ["select", "insert", "update"],
+  items: ["select", "insert", "update"],
+  jobs: ["select", "insert", "update"],
+  locations: ["select", "insert", "update"],
   migration_integrity: [],
+  reservations: ["select", "insert", "update"],
+  sessions: ["select", "insert", "delete"],
+  stock_levels: ["select", "insert", "update"],
   system_metadata: ["select", "insert", "update", "delete"],
+  transactions: ["select", "insert"],
+  users: ["select", "insert", "update"],
 } as const satisfies Readonly<
   Record<keyof StockControlDatabase, readonly DatabaseRuntimePrivilege[]>
 >);
