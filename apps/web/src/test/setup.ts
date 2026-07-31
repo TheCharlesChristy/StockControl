@@ -24,6 +24,45 @@ Object.defineProperty(window, "matchMedia", {
   value: vi.fn((query: string) => createMediaQueryList(query, true)),
 });
 
+/*
+ * jsdom has neither a layout engine nor the pointer-capture API, both of which
+ * the map canvas relies on. Stub them so components can mount; tests that care
+ * about geometry install their own sizes with `mockCanvasLayout`.
+ */
+class TestResizeObserver implements ResizeObserver {
+  public constructor(callback: ResizeObserverCallback) {
+    void callback;
+  }
+
+  public observe(): void {
+    /*
+     * Deliberately inert: jsdom never resizes anything, and firing the callback
+     * synchronously from observe() re-enters React during commit. Code that
+     * needs a first measurement takes it itself.
+     */
+  }
+
+  public unobserve(): void {
+    /* Nothing is scheduled, so there is nothing to cancel. */
+  }
+
+  public disconnect(): void {
+    /* Nothing is scheduled, so there is nothing to cancel. */
+  }
+}
+
+globalThis.ResizeObserver = TestResizeObserver;
+
+Element.prototype.setPointerCapture = function setPointerCapture(): void {
+  /* Capture is a no-op here; events already dispatch to the target under test. */
+};
+Element.prototype.releasePointerCapture = function releasePointerCapture(): void {
+  /* See setPointerCapture. */
+};
+Element.prototype.hasPointerCapture = function hasPointerCapture(): boolean {
+  return false;
+};
+
 afterEach((): void => {
   cleanup();
   window.sessionStorage.clear();

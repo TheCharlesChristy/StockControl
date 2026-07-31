@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { Suspense, lazy, type ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
@@ -16,9 +16,16 @@ import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
-import { LocationsPage } from "../pages/LocationsPage";
 import { RouteErrorBoundary } from "./ErrorBoundaries";
 import { RouteTransitionManager } from "./RouteTransitionManager";
+
+/*
+ * The map editor and its twenty icon modules are worth their own chunk: no other
+ * screen needs them, and most sessions never open this one.
+ */
+const LocationsPage = lazy(async () => ({
+  default: (await import("../pages/LocationsPage")).LocationsPage,
+}));
 
 interface GuardedProps {
   readonly path: string;
@@ -87,7 +94,14 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/locations" element={<LocationsPage />} />
+            <Route
+              path="/locations"
+              element={
+                <Suspense fallback={<LoadingPage />}>
+                  <LocationsPage />
+                </Suspense>
+              }
+            />
             <Route
               path="/team"
               element={
