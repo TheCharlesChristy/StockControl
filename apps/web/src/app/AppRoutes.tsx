@@ -16,6 +16,7 @@ import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
+import { LocationsPage } from "../pages/LocationsPage";
 import { RouteErrorBoundary } from "./ErrorBoundaries";
 import { RouteTransitionManager } from "./RouteTransitionManager";
 
@@ -86,6 +87,7 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/locations" element={<LocationsPage />} />
             <Route
               path="/team"
               element={

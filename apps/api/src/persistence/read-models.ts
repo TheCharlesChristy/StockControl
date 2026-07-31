@@ -65,6 +65,10 @@ interface BalanceRow {
   readonly name: string;
   readonly kind: "Store" | "JobSite";
   readonly quantity: string;
+  readonly operational_kind:
+    "Container" | "Storage" | "Quarantine" | "Repair" | "Transit" | "VirtualJobSite";
+  readonly general_fulfilment_enabled: boolean;
+  readonly is_active: boolean;
 }
 
 async function balancesFor(
@@ -88,6 +92,9 @@ async function balancesFor(
       "locations.code as code",
       "locations.name as name",
       "locations.kind as kind",
+      "locations.operational_kind as operational_kind",
+      "locations.general_fulfilment_enabled as general_fulfilment_enabled",
+      "locations.is_active as is_active",
     ])
     .where("stock_levels.item_id", "in", itemIds)
     .orderBy("locations.code")
@@ -155,6 +162,9 @@ function summarise(
     locationCode: row.code,
     kind: row.kind,
     quantity: quantityFromDatabase(row.quantity),
+    operationalKind: row.operational_kind,
+    generalFulfilmentEnabled: row.general_fulfilment_enabled,
+    isActive: row.is_active,
   }));
   const availability = calculateAvailability({
     itemId: item.id,
@@ -342,6 +352,7 @@ export async function listLocations(database: Database): Promise<readonly Locati
     .withSchema(SCHEMA)
     .selectFrom("locations")
     .select(["id", "code", "name", "kind", "job_id", "is_active"])
+    .where("operational_kind", "in", ["Storage", "VirtualJobSite"])
     .orderBy("kind")
     .orderBy("code")
     .execute();

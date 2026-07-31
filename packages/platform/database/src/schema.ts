@@ -28,6 +28,13 @@ export interface MigrationIntegrityTable {
 
 export type UserRole = "Engineer" | "Office" | "Admin";
 export type LocationKind = "Store" | "JobSite";
+export type LocationNodeKind =
+  "Branch" | "Building" | "Area" | "Aisle" | "Shelf" | "Bin" | "CustomSection" | "JobSite";
+export type LocationOperationalKind =
+  "Container" | "Storage" | "Quarantine" | "Repair" | "Transit" | "VirtualJobSite";
+export type MapBackgroundKind = "Blank" | "FloorPlan";
+export type MapStatus = "Active" | "Archived";
+export type MapRegionStatus = "Active" | "Archived";
 export type JobStatus = "Open" | "Closed";
 export type ReservationStatus = "Open" | "Fulfilled" | "Released";
 export type TransactionKind =
@@ -69,8 +76,63 @@ export interface LocationsTable {
   readonly kind: ImmutableColumn<LocationKind>;
   readonly job_id: ImmutableColumn<string | null>;
   readonly is_active: Generated<boolean>;
+  readonly node_kind: Generated<LocationNodeKind>;
+  readonly operational_kind: Generated<LocationOperationalKind>;
+  readonly parent_id: string | null;
+  readonly building_id: string | null;
+  readonly general_fulfilment_enabled: Generated<boolean>;
+  readonly archived_at: Date | null;
   readonly created_at: GeneratedImmutableColumn<Date>;
   readonly updated_at: Generated<Date>;
+}
+
+export interface BuildingMapsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly building_location_id: ImmutableColumn<string>;
+  readonly building_node_kind: Generated<"Building">;
+  readonly background_kind: Generated<MapBackgroundKind>;
+  readonly background_asset_id: string | null;
+  readonly background_metadata: JSONColumnType<JsonObject, JsonObject, JsonObject>;
+  readonly status: Generated<MapStatus>;
+  readonly revision: Generated<number>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface FloorPlanDocumentsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly object_key: ImmutableColumn<string>;
+  readonly original_file_name: string;
+  readonly media_type: "image/png" | "image/jpeg";
+  readonly byte_length: number;
+  readonly sha256: string;
+  readonly created_by_user_id: ImmutableColumn<string>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface MapRegionsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly map_id: ImmutableColumn<string>;
+  readonly hierarchy_location_id: ImmutableColumn<string>;
+  readonly parent_region_id: string | null;
+  readonly display_name: string;
+  readonly geometry: JSONColumnType<JsonObject, JsonObject, JsonObject>;
+  readonly z_order: number;
+  readonly search_aliases: JSONColumnType<readonly string[], readonly string[], readonly string[]>;
+  readonly status: Generated<MapRegionStatus>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface MapEditEventsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly map_id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly action: string;
+  readonly before_state: JSONColumnType<JsonObject | null, JsonObject | null, JsonObject | null>;
+  readonly after_state: JSONColumnType<JsonObject | null, JsonObject | null, JsonObject | null>;
+  readonly reason: string | null;
+  readonly occurred_at: GeneratedImmutableColumn<Date>;
 }
 
 export interface ItemsTable {
@@ -154,6 +216,10 @@ export interface StockControlDatabase {
   readonly job_assignments: JobAssignmentsTable;
   readonly jobs: JobsTable;
   readonly locations: LocationsTable;
+  readonly building_maps: BuildingMapsTable;
+  readonly map_regions: MapRegionsTable;
+  readonly map_edit_events: MapEditEventsTable;
+  readonly floor_plan_documents: FloorPlanDocumentsTable;
   readonly migration_integrity: MigrationIntegrityTable;
   readonly reservations: ReservationsTable;
   readonly sessions: SessionsTable;

@@ -44,6 +44,7 @@ export const resolveApiListenerConfiguration = (
 
 export const createApiApplication = async (): Promise<NestFastifyApplication> => {
   const adapter = new FastifyAdapter({
+    bodyLimit: 16 * 1024 * 1024,
     logger: false,
     trustProxy: "loopback, linklocal, uniquelocal",
   });

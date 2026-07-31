@@ -4,6 +4,8 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "paths": {}
+    "paths": {
+      "@stockcontrol/module-locations": ["packages/modules/locations/dist/index.d.ts"]
+    }
   }
 }

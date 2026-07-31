@@ -4,6 +4,7 @@ import ManageAccountsRounded from "@mui/icons-material/ManageAccountsRounded";
 import PlaylistAddCheckRounded from "@mui/icons-material/PlaylistAddCheckRounded";
 import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import WorkOutlineRounded from "@mui/icons-material/WorkOutlineRounded";
+import MapRounded from "@mui/icons-material/MapRounded";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import type { ComponentType } from "react";
 
@@ -64,6 +65,13 @@ export const navigationItems: readonly NavigationItem[] = [
     description: "Every stock change, with the actor, time and reason.",
     roles: [],
     icon: ReceiptLongRounded,
+  },
+  {
+    path: "/locations",
+    label: "Locations",
+    description: "Browse the location hierarchy and building maps.",
+    roles: [],
+    icon: MapRounded,
   },
   {
     path: "/team",

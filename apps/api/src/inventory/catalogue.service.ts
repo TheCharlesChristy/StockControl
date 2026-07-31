@@ -202,7 +202,20 @@ export class CatalogueService {
       await this.database
         .withSchema(SCHEMA)
         .insertInto("locations")
-        .values({ id, code, name, kind: "Store", job_id: null, is_active: true })
+        .values({
+          id,
+          code,
+          name,
+          kind: "Store",
+          job_id: null,
+          is_active: true,
+          node_kind: "CustomSection",
+          operational_kind: "Storage",
+          parent_id: "00000000-0000-4000-8000-000000000002",
+          building_id: "00000000-0000-4000-8000-000000000002",
+          general_fulfilment_enabled: true,
+          archived_at: null,
+        })
         .execute();
     } catch (error: unknown) {
       throw duplicateOrRethrow(error, {

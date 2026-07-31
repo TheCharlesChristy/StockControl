@@ -12,6 +12,7 @@
     "paths": {
       "@stockcontrol/contracts": ["packages/contracts/src/index.ts"],
       "@stockcontrol/module-system": ["packages/modules/system/src/index.ts"],
+      "@stockcontrol/module-locations": ["packages/modules/locations/src/index.ts"],
       "@stockcontrol/platform": ["packages/platform/core/src/index.ts"],
       "@stockcontrol/platform-database": ["packages/platform/database/src/index.ts"],
       "@stockcontrol/testkit": ["packages/testkit/src/index.ts"]

@@ -22,6 +22,14 @@ import type {
   UserActivityResponse,
   UserListResponse,
   UserView,
+  HierarchyTreeResponse,
+  HierarchyNodeView,
+  LocationSearchResult,
+  MapSnapshot,
+  MapSummaryView,
+  SaveMapRequest,
+  UploadFloorPlanRequest,
+  CreateHierarchyNodeRequest,
 } from "@stockcontrol/contracts";
 
 /**
@@ -110,7 +118,7 @@ export class ApiClient {
   ) {}
 
   private async send<Result>(
-    method: "DELETE" | "GET" | "PATCH" | "POST",
+    method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT",
     path: string,
     options: {
       readonly body?: unknown;
@@ -196,6 +204,60 @@ export class ApiClient {
     });
 
     return location;
+  }
+
+  public getLocationTree(signal?: AbortSignal): Promise<HierarchyTreeResponse> {
+    return this.send("GET", "/locations/tree", { ...(signal === undefined ? {} : { signal }) });
+  }
+
+  public createHierarchyNode(body: CreateHierarchyNodeRequest): Promise<HierarchyNodeView> {
+    return this.send("POST", "/locations/hierarchy", { body });
+  }
+
+  public renameLocation(id: string, name: string): Promise<HierarchyNodeView> {
+    return this.send("PATCH", `/locations/${id}`, { body: { name } });
+  }
+
+  public moveLocation(id: string, parentId: string): Promise<HierarchyNodeView> {
+    return this.send("POST", `/locations/${id}/move`, { body: { parentId } });
+  }
+
+  public archiveLocation(id: string): Promise<HierarchyNodeView> {
+    return this.send("POST", `/locations/${id}/archive`);
+  }
+
+  public async deleteLocation(id: string): Promise<void> {
+    await this.send("DELETE", `/locations/${id}`);
+  }
+
+  public searchLocations(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<readonly LocationSearchResult[]> {
+    return this.send("GET", "/locations/search", {
+      query: { query },
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public listMaps(signal?: AbortSignal): Promise<readonly MapSummaryView[]> {
+    return this.send("GET", "/maps", { ...(signal === undefined ? {} : { signal }) });
+  }
+
+  public getMap(buildingId: string, signal?: AbortSignal): Promise<MapSnapshot> {
+    return this.send("GET", `/maps/${buildingId}`, { ...(signal === undefined ? {} : { signal }) });
+  }
+
+  public createMap(buildingId: string): Promise<MapSnapshot> {
+    return this.send("POST", `/maps/${buildingId}`, { body: { kind: "Blank" } });
+  }
+
+  public saveMap(mapId: string, body: SaveMapRequest): Promise<MapSnapshot> {
+    return this.send("PUT", `/maps/${mapId}`, { body });
+  }
+
+  public uploadFloorPlan(mapId: string, body: UploadFloorPlanRequest): Promise<MapSnapshot> {
+    return this.send("POST", `/maps/${mapId}/background`, { body });
   }
 
   public receive(body: {

@@ -19,6 +19,7 @@ export const capabilities = [
   "reviewStockRequests",
   "viewAllActivity",
   "manageUsers",
+  "manageLocations",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];
@@ -40,7 +41,7 @@ const office: readonly Capability[] = [
   "viewAllActivity",
 ];
 
-const admin: readonly Capability[] = [...office, "manageUsers"];
+const admin: readonly Capability[] = [...office, "manageUsers", "manageLocations"];
 
 export const ROLE_CAPABILITIES: Readonly<Record<UserRole, readonly Capability[]>> = Object.freeze({
   Engineer: Object.freeze(engineer),

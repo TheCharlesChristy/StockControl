@@ -26,6 +26,7 @@ const EXPECTED: Readonly<Record<Capability, readonly UserRole[]>> = {
   reviewStockRequests: ["Office", "Admin"],
   viewAllActivity: ["Office", "Admin"],
   manageUsers: ["Admin"],
+  manageLocations: ["Admin"],
 };
 
 describe("role capabilities", () => {

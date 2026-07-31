@@ -7,4 +7,5 @@ export const API_TOKENS = {
   stockRequestsService: Symbol("requests.stock-requests-service"),
   stockService: Symbol("inventory.stock-service"),
   usersService: Symbol("users.service"),
+  locationsService: Symbol("locations.service"),
 } as const;

@@ -7,6 +7,11 @@ export interface LocationBalance {
   readonly locationCode: string;
   readonly kind: LocationKind;
   readonly quantity: Quantity;
+  /** Present for hierarchy-backed rows; omitted by the legacy demo fixtures. */
+  readonly operationalKind?:
+    "Container" | "Storage" | "Quarantine" | "Repair" | "Transit" | "VirtualJobSite";
+  readonly generalFulfilmentEnabled?: boolean;
+  readonly isActive?: boolean;
 }
 
 export interface ItemStockSnapshot {
@@ -37,7 +42,13 @@ const quantitiesOfKind = function* (
   kind: LocationKind,
 ): Generator<Quantity> {
   for (const balance of balances) {
-    if (balance.kind === kind) {
+    const eligibleStore =
+      balance.kind === "Store" &&
+      (balance.operationalKind === undefined ||
+        (balance.operationalKind === "Storage" &&
+          balance.generalFulfilmentEnabled !== false &&
+          balance.isActive !== false));
+    if ((kind === "Store" && eligibleStore) || (kind === "JobSite" && balance.kind === kind)) {
       yield balance.quantity;
     }
   }

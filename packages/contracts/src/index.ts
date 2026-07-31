@@ -3,6 +3,7 @@ export * from "./auth";
 export * from "./background-jobs";
 export * from "./dashboard";
 export * from "./inventory";
+export * from "./locations";
 export * from "./jobs";
 export * from "./observability";
 export * from "./permissions";

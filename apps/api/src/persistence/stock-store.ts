@@ -61,13 +61,20 @@ export async function loadLocationFacts(
   const row = await tx
     .withSchema(SCHEMA)
     .selectFrom("locations")
-    .select(["id", "code", "kind", "is_active"])
+    .select(["id", "code", "kind", "is_active", "operational_kind", "general_fulfilment_enabled"])
     .where("id", "=", locationId)
     .executeTakeFirst();
 
   return row === undefined
     ? undefined
-    : { id: row.id, code: row.code, kind: row.kind, isActive: row.is_active };
+    : {
+        id: row.id,
+        code: row.code,
+        kind: row.kind,
+        isActive: row.is_active,
+        operationalKind: row.operational_kind,
+        generalFulfilmentEnabled: row.general_fulfilment_enabled,
+      };
 }
 
 export async function loadJobFacts(

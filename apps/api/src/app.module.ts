@@ -42,6 +42,8 @@ import { SystemController } from "./system/system.controller";
 import { SYSTEM_TOKENS } from "./system/system.tokens";
 import { UsersController } from "./users/users.controller";
 import { UsersService } from "./users/users.service";
+import { LocationsController } from "./locations/locations.controller";
+import { LocationsService } from "./locations/locations.service";
 
 type Database = Kysely<StockControlDatabase>;
 
@@ -138,6 +140,11 @@ const providers: Provider[] = [
     inject: [SYSTEM_TOKENS.database, API_TOKENS.stockService],
   },
   {
+    provide: API_TOKENS.locationsService,
+    useFactory: (database: Database) => new LocationsService(database),
+    inject: [SYSTEM_TOKENS.database],
+  },
+  {
     /*
      * Registered globally so a new route is authenticated by default. A handler
      * opts out explicitly with the Public decorator, which is visible in review.
@@ -158,6 +165,7 @@ const providers: Provider[] = [
     JobsController,
     StockRequestsController,
     UsersController,
+    LocationsController,
   ],
   providers,
 })

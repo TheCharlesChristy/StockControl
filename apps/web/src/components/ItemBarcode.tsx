@@ -75,6 +75,9 @@ export function isValidEan13(value: string | null): value is string {
 function encode(value: string): string {
   const first = Number(value[0]);
   const parity = LEFT_PARITY[first];
+  if (parity === undefined) {
+    return "";
+  }
   const left = value
     .slice(1, 7)
     .split("")
@@ -117,25 +120,45 @@ export function ItemBarcode({ value }: ItemBarcodeProps): ReactElement | null {
         preserveAspectRatio="xMidYMid meet"
         shapeRendering="crispEdges"
       >
-        {modules.split("").map((bit, index) =>
-          bit === "1" ? (
-            <rect
-              key={index}
-              x={quietZone + index * moduleWidth}
-              y={barTop}
-              width={moduleWidth}
-              height={index < 3 || (index >= 45 && index < 50) || index >= 92 ? guardBarHeight : normalBarHeight}
-              fill="currentColor"
-            />
-          ) : null,
-        )}
+        {modules
+          .split("")
+          .map((bit, index) =>
+            bit === "1" ? (
+              <rect
+                key={index}
+                x={quietZone + index * moduleWidth}
+                y={barTop}
+                width={moduleWidth}
+                height={
+                  index < 3 || (index >= 45 && index < 50) || index >= 92
+                    ? guardBarHeight
+                    : normalBarHeight
+                }
+                fill="currentColor"
+              />
+            ) : null,
+          )}
         <text x="4" y="94" fontSize="12" textAnchor="middle" fill="currentColor">
           {value[0]}
         </text>
-        <text x="52" y="94" fontSize="12" textAnchor="middle" letterSpacing="1.5" fill="currentColor">
+        <text
+          x="52"
+          y="94"
+          fontSize="12"
+          textAnchor="middle"
+          letterSpacing="1.5"
+          fill="currentColor"
+        >
           {value.slice(1, 7)}
         </text>
-        <text x="158" y="94" fontSize="12" textAnchor="middle" letterSpacing="1.5" fill="currentColor">
+        <text
+          x="158"
+          y="94"
+          fontSize="12"
+          textAnchor="middle"
+          letterSpacing="1.5"
+          fill="currentColor"
+        >
           {value.slice(7)}
         </text>
       </svg>

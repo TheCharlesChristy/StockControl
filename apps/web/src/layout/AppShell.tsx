@@ -61,6 +61,7 @@ export function AppShell(): ReactElement | null {
   };
 
   const roleNavigation = navigationForUser(user);
+  const isLocationWorkspace = location.pathname === "/locations";
   /*
    * Longest matching prefix, so a detail route such as /inventory/:id still
    * names its section rather than falling back to the product name.
@@ -290,8 +291,10 @@ export function AppShell(): ReactElement | null {
         tabIndex={-1}
         sx={{
           minHeight: "100vh",
+          height: isLocationWorkspace ? "100dvh" : undefined,
           ml: { md: `${drawerWidth}px` },
           pt: { xs: "64px", sm: "70px" },
+          overflow: isLocationWorkspace ? { xs: "auto", lg: "hidden" } : undefined,
           backgroundImage:
             "radial-gradient(circle at 95% 2%, rgba(0,48,157,0.06), transparent 28%)",
         }}
@@ -302,14 +305,18 @@ export function AppShell(): ReactElement | null {
             maxWidth: 1480,
             mx: "auto",
             px: { xs: 2, sm: 3, lg: 4 },
-            py: { xs: 2.5, md: 4 },
+            py: isLocationWorkspace ? { xs: 1.5, md: 2 } : { xs: 2.5, md: 4 },
+            height: isLocationWorkspace ? "100%" : undefined,
+            display: isLocationWorkspace ? "flex" : undefined,
+            flexDirection: isLocationWorkspace ? "column" : undefined,
+            boxSizing: "border-box",
           }}
         >
           <Outlet />
         </Box>
       </Box>
 
-      <ScanFab />
+      {!isLocationWorkspace && <ScanFab />}
     </Box>
   );
 }

@@ -15,8 +15,8 @@ until the capability returns.
 | [0003](./0003-authentication-and-sessions.md)      | Authentication and sessions                 | Live, reduced   |
 | [0004](./0004-postgresql-jobs-and-outbox.md)       | PostgreSQL jobs and transactional outbox    | Deferred        |
 | [0005](./0005-rest-and-openapi.md)                 | REST and OpenAPI                            | Live, reduced   |
-| [0006](./0006-private-documents-and-pdf.md)        | Private document storage and PDF generation | Deferred        |
-| [0007](./0007-abstract-location-maps.md)           | Abstract location maps                      | Deferred        |
+| [0006](./0006-private-documents-and-pdf.md)        | Private document storage and PDF generation | In progress     |
+| [0007](./0007-abstract-location-maps.md)           | Abstract location maps                      | Implemented     |
 | [0008](./0008-lightsail-deployment-and-backups.md) | AWS Lightsail deployment and backups        | Deferred        |
 
 ## Decision process

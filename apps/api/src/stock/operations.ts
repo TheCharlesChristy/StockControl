@@ -47,6 +47,9 @@ export interface LocationFacts {
   readonly code: string;
   readonly kind: "Store" | "JobSite";
   readonly isActive: boolean;
+  readonly operationalKind?:
+    "Container" | "Storage" | "Quarantine" | "Repair" | "Transit" | "VirtualJobSite";
+  readonly generalFulfilmentEnabled?: boolean;
 }
 
 export interface JobFacts {
@@ -121,7 +124,10 @@ const checkUsableLocation = (location: LocationFacts): StockError | null =>
   location.isActive ? null : locationInactive(location.code);
 
 const checkStoreLocation = (location: LocationFacts): StockError | null =>
-  location.kind === "Store" ? null : locationNotStore(location.code);
+  location.kind === "Store" &&
+  (location.operationalKind === undefined || location.operationalKind === "Storage")
+    ? null
+    : locationNotStore(location.code);
 
 const checkActiveItem = (item: ItemFacts): StockError | null =>
   item.isActive ? null : itemInactive(item.reference);

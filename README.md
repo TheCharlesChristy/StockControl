@@ -4,7 +4,7 @@ StockControl is an inventory-management application for small businesses with su
 holdings. This repository holds a **demonstrable MVP that runs on one laptop**: you can see what
 stock exists and where, move it, commit it to a job, and account for every change.
 
-The baseline it is built to is [`docs/product-requirements.md`](docs/product-requirements.md).
+The baseline it is built to is [`docs/product-requirements-full.md`](docs/product-requirements-full.md), with the interactive location map slice described in [`docs/architecture/0007-abstract-location-maps.md`](docs/architecture/0007-abstract-location-maps.md).
 
 ## Run it
 
@@ -14,7 +14,7 @@ Seven commands from nothing. No cloud account, no secrets to generate.
 git clone https://github.com/TheCharlesChristy/StockControl.git
 cd StockControl
 cp .env.example .env
-docker compose up -d          # one service: PostgreSQL on 127.0.0.1:5432
+docker compose up -d          # PostgreSQL plus private local MinIO for floor-plan assets
 pnpm install --frozen-lockfile
 pnpm db:migrate               # creates the schema
 pnpm db:seed                  # loads the demo dataset
@@ -23,8 +23,8 @@ pnpm dev                      # API on :3000, web on :5173
 
 Then open <http://localhost:5173> and sign in.
 
-You need **Node.js 24**, **pnpm 11**, and **Docker with Compose**. Nothing else — no object storage,
-no mail server, no background worker, no message broker, no reverse proxy.
+You need **Node.js 24**, **pnpm 11**, and **Docker with Compose**. MinIO is used only as a private local
+object store for floor-plan assets and is never exposed through a permanent public URL.
 
 ### Sign in
 
@@ -58,6 +58,13 @@ The application is shaped around the role signed in, not switched on and off by 
 
 Every role gets the scan button in the bottom-right corner. It opens the camera to read an item's
 QR code or barcode, and doubles as a text box for typing a code or using a handheld scanner.
+
+Every signed-in role can open **Locations** to browse the Branch → Building → Area → Aisle → Shelf →
+Bin hierarchy, search by code/name/region/alias, and inspect map stock status. Admins additionally
+create hierarchy nodes and edit the current SVG map snapshot. Coordinates are normalized from 0 to 1;
+visual nesting never changes the authoritative location hierarchy. Map saves are optimistic-concurrency
+checked and append an audit event. Floor-plan backgrounds are private PNG/JPEG assets; browser display
+must use an authorized API response or a short-lived signed URL.
 
 `pnpm db:seed` clears the business tables and rebuilds them, so it is safe to re-run whenever a
 demonstration has left the data untidy.
@@ -108,13 +115,14 @@ CI runs the same four in [one workflow](.github/workflows/ci.yml).
 
 ## Where things are
 
-| Path                 | What is in it                                                  |
-| -------------------- | -------------------------------------------------------------- |
-| `apps/api`           | NestJS API, the stock engine (`src/stock/`), and the demo seed |
-| `apps/web`           | React front end, one file per screen under `src/pages/`        |
-| `apps/e2e`           | The demo journey as a Playwright suite                         |
-| `packages/contracts` | Types and the role-to-capability map shared by both sides      |
-| `packages/platform`  | Database access, migrations, HTTP plumbing                     |
+| Path                         | What is in it                                                  |
+| ---------------------------- | -------------------------------------------------------------- |
+| `apps/api`                   | NestJS API, the stock engine (`src/stock/`), and the demo seed |
+| `apps/web`                   | React front end, one file per screen under `src/pages/`        |
+| `apps/e2e`                   | The demo journey as a Playwright suite                         |
+| `packages/contracts`         | Types and the role-to-capability map shared by both sides      |
+| `packages/modules/locations` | Framework-independent hierarchy, geometry, and map rules       |
+| `packages/platform`          | Database access, migrations, HTTP plumbing                     |
 
 The stock engine decides; it does not perform. Each operation returns the exact effects to apply, or
 a typed refusal, and one application function writes the stock level and its transaction row in a
@@ -128,8 +136,8 @@ deployment are deliberately absent — [requirements section 10](docs/product-re
 them. The v1.0 specification, its playbook, and its traceability matrix are preserved in
 [`docs/archive/`](docs/archive/README.md) for when scope is added back.
 
-- Build order: [`docs/implementation-playbook.md`](docs/implementation-playbook.md) — nine packets,
-  all done.
+- Build order: [`docs/next-work-packet-prompt.md`](docs/next-work-packet-prompt.md) — the location map
+  work is intentionally isolated from stock mutations.
 - What was removed and what remains optional:
   [`docs/demo-mvp-removal-candidates.md`](docs/demo-mvp-removal-candidates.md).
 

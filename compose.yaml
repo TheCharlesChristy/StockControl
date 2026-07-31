@@ -18,5 +18,34 @@ services:
       - postgres-data:/var/lib/postgresql
       - ./scripts/postgres/init:/docker-entrypoint-initdb.d:ro
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: stockcontrol_minio
+      MINIO_ROOT_PASSWORD: stockcontrol_minio_password
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      mc alias set local http://minio:9000 stockcontrol_minio stockcontrol_minio_password
+      && mc mb --ignore-existing local/stockcontrol-floor-plans
+      && mc anonymous set none local/stockcontrol-floor-plans
+
 volumes:
   postgres-data:
+  minio-data:

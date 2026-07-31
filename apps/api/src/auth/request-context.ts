@@ -80,6 +80,7 @@ const descriptions: Readonly<Record<Capability, string>> = {
   reviewStockRequests: "approve or reject stock requests",
   viewAllActivity: "see other people's activity",
   manageUsers: "manage users",
+  manageLocations: "manage locations and maps",
 };
 
 function describe(capability: Capability): string {

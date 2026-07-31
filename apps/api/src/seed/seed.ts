@@ -22,6 +22,10 @@ const DEMO_PASSWORD = "demo-password";
 
 async function clearExistingData(database: Kysely<StockControlDatabase>): Promise<void> {
   const schema = database.withSchema(STOCKCONTROL_SCHEMA);
+  await schema.deleteFrom("map_edit_events").execute();
+  await schema.deleteFrom("map_regions").execute();
+  await schema.deleteFrom("building_maps").execute();
+  await schema.deleteFrom("floor_plan_documents").execute();
 
   await schema.deleteFrom("transactions").execute();
   await schema.deleteFrom("stock_requests").execute();
@@ -87,17 +91,141 @@ const seed = async (): Promise<void> => {
 
     await schema
       .insertInto("locations")
-      .values(
-        world.locations.map((location) => ({
+      .values([
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          code: "BRANCH-001",
+          name: "Main Branch",
+          kind: "Store" as const,
+          job_id: null,
+          is_active: true,
+          node_kind: "Branch" as const,
+          operational_kind: "Container" as const,
+          parent_id: null,
+          building_id: null,
+          general_fulfilment_enabled: false,
+          archived_at: null,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          code: "BUILDING-001",
+          name: "Main Store",
+          kind: "Store" as const,
+          job_id: null,
+          is_active: true,
+          node_kind: "Building" as const,
+          operational_kind: "Container" as const,
+          parent_id: "00000000-0000-4000-8000-000000000001",
+          building_id: "00000000-0000-4000-8000-000000000002",
+          general_fulfilment_enabled: false,
+          archived_at: null,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          code: "BUILDING-002",
+          name: "Bulk Store",
+          kind: "Store" as const,
+          job_id: null,
+          is_active: true,
+          node_kind: "Building" as const,
+          operational_kind: "Container" as const,
+          parent_id: "00000000-0000-4000-8000-000000000001",
+          building_id: "00000000-0000-4000-8000-000000000003",
+          general_fulfilment_enabled: false,
+          archived_at: null,
+        },
+        ...world.locations.map((location) => ({
           id: location.id,
           code: location.code,
           name: location.name,
           kind: location.kind,
           job_id: location.jobId,
           is_active: true,
+          node_kind:
+            location.kind === "JobSite" ? ("JobSite" as const) : ("CustomSection" as const),
+          operational_kind:
+            location.kind === "JobSite" ? ("VirtualJobSite" as const) : ("Storage" as const),
+          parent_id: location.kind === "JobSite" ? null : "00000000-0000-4000-8000-000000000002",
+          building_id: location.kind === "JobSite" ? null : "00000000-0000-4000-8000-000000000002",
+          general_fulfilment_enabled: location.kind === "Store",
+          archived_at: null,
         })),
-      )
+      ])
       .execute();
+
+    await schema
+      .insertInto("building_maps")
+      .values([
+        {
+          id: "00000000-0000-4000-8000-000000000010",
+          building_location_id: "00000000-0000-4000-8000-000000000002",
+          background_kind: "Blank",
+          background_asset_id: null,
+          background_metadata: { kind: "Blank" },
+          status: "Active",
+          revision: 0,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000011",
+          building_location_id: "00000000-0000-4000-8000-000000000003",
+          background_kind: "Blank",
+          background_asset_id: null,
+          background_metadata: { kind: "Blank" },
+          status: "Active",
+          revision: 0,
+        },
+      ])
+      .execute();
+
+    const stores = world.locations.filter((location) => location.kind === "Store");
+    if (stores.length >= 3) {
+      await schema
+        .insertInto("map_regions")
+        .values([
+          {
+            id: randomUUID(),
+            map_id: "00000000-0000-4000-8000-000000000010",
+            hierarchy_location_id: stores[0]!.id,
+            parent_region_id: null,
+            display_name: "Main store north",
+            geometry: { kind: "Rectangle", x: 0.05, y: 0.08, width: 0.4, height: 0.32 },
+            z_order: 1,
+            search_aliases: ["north cache"],
+            status: "Active",
+          },
+          {
+            id: randomUUID(),
+            map_id: "00000000-0000-4000-8000-000000000010",
+            hierarchy_location_id: stores[1]!.id,
+            parent_region_id: null,
+            display_name: "Main store south",
+            geometry: {
+              kind: "Polygon",
+              points: [
+                { x: 0.55, y: 0.1 },
+                { x: 0.9, y: 0.1 },
+                { x: 0.82, y: 0.5 },
+                { x: 0.58, y: 0.42 },
+              ],
+            },
+            z_order: 2,
+            search_aliases: ["south cache"],
+            status: "Active",
+          },
+          {
+            id: randomUUID(),
+            map_id: "00000000-0000-4000-8000-000000000010",
+            hierarchy_location_id: stores[2]!.id,
+            parent_region_id: null,
+            display_name: "Main store centre",
+            geometry: { kind: "Rectangle", x: 0.2, y: 0.55, width: 0.5, height: 0.3 },
+            z_order: 3,
+            search_aliases: ["centre cache"],
+            status: "Active",
+          },
+        ])
+        .execute();
+    }
 
     await insertInChunks(world.items, 200, (chunk) =>
       schema

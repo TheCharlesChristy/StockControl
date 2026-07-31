@@ -181,6 +181,12 @@ export class JobsService {
             kind: "JobSite",
             job_id: jobId,
             is_active: true,
+            node_kind: "JobSite",
+            operational_kind: "VirtualJobSite",
+            parent_id: null,
+            building_id: null,
+            general_fulfilment_enabled: false,
+            archived_at: null,
           })
           .execute();
       });
