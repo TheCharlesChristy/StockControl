@@ -188,11 +188,21 @@ export function SignInPage(): ReactElement {
               <Box>
                 <Typography
                   component="p"
-                  sx={{ color: "primary.main", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.04em" }}
+                  sx={{
+                    color: "primary.main",
+                    fontSize: "0.875rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                  }}
                 >
                   StockControl
                 </Typography>
-                <Typography id="sign-in-title" component="h1" variant="h2" sx={{ lineHeight: 1.05 }}>
+                <Typography
+                  id="sign-in-title"
+                  component="h1"
+                  variant="h2"
+                  sx={{ lineHeight: 1.05 }}
+                >
                   Sign in
                 </Typography>
               </Box>
@@ -206,7 +216,11 @@ export function SignInPage(): ReactElement {
                   </Alert>
                 )}
                 <Stack spacing={0.75}>
-                  <Typography component="label" htmlFor="email" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                  <Typography
+                    component="label"
+                    htmlFor="email"
+                    sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}
+                  >
                     Work email
                   </Typography>
                   <TextField
@@ -224,7 +238,11 @@ export function SignInPage(): ReactElement {
                   />
                 </Stack>
                 <Stack spacing={0.75}>
-                  <Typography component="label" htmlFor="password" sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}>
+                  <Typography
+                    component="label"
+                    htmlFor="password"
+                    sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}
+                  >
                     Password
                   </Typography>
                   <TextField

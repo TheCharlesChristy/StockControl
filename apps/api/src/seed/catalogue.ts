@@ -238,7 +238,9 @@ const groups: readonly CatalogueGroup[] = [
 ] as const;
 
 function eanBarcode(index: number): string {
-  const body = String(5_010_000_000 + index * 7_919).padStart(12, "0").slice(-12);
+  const body = String(5_010_000_000 + index * 7_919)
+    .padStart(12, "0")
+    .slice(-12);
   let total = 0;
 
   for (let position = 0; position < body.length; position += 1) {

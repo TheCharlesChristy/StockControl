@@ -103,7 +103,7 @@ describe("StockControl application routes", () => {
   it("redirects an anonymous protected-route visit to sign in", async () => {
     renderRoute("/inventory");
 
-    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByLabelText("Work email")).toHaveAttribute("autocomplete", "email");
     expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
   });

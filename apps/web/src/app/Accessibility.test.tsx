@@ -72,7 +72,7 @@ describe("StockControl automated accessibility checks", () => {
       </StockControlProviders>,
     );
 
-    await screen.findByRole("heading", { name: "Welcome back" });
+    await screen.findByRole("heading", { name: "Sign in" });
     await expectNoAccessibilityViolations(container);
   });
 
