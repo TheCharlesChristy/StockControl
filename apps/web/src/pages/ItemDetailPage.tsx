@@ -1,6 +1,7 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import PrintRounded from "@mui/icons-material/PrintRounded";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -20,7 +21,9 @@ import { useCallback, useState, type ReactElement } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
 import { useApi, useResource } from "../api/ApiContext";
+import { useAuth } from "../auth/AuthContext";
 import { useCapability } from "../auth/useCapability";
+import { CreateItemDialog } from "../components/CreateItemDialog";
 import {
   ErrorState,
   formatDateTime,
@@ -31,13 +34,21 @@ import {
 } from "../components/DataStates";
 import { ItemQrCode } from "../components/ItemQrCode";
 import { StockOperationDialog, type StockOperation } from "../components/StockOperationDialog";
+import { StockRequestDialog } from "../components/StockRequestDialog";
 
 export function ItemDetailPage(): ReactElement {
   const api = useApi();
+  const { user } = useAuth();
   const { itemId = "" } = useParams<{ itemId: string }>();
   const canManageStock = useCapability("manageStock");
+  const canManageCatalogue = useCapability("manageCatalogue");
   const canIssue = useCapability("issue");
+  const canRequestStock = useCapability("requestStock");
+  const seesEveryonesActivity = useCapability("viewAllActivity");
   const [operation, setOperation] = useState<StockOperation | null>(null);
+  const [requesting, setRequesting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   const loadItem = useCallback((signal: AbortSignal) => api.getItem(itemId, signal), [api, itemId]);
   const loadLocations = useCallback((signal: AbortSignal) => api.listLocations(signal), [api]);
@@ -46,22 +57,36 @@ export function ItemDetailPage(): ReactElement {
 
   const data = item.data;
   const locationList: readonly LocationView[] = locations.data?.locations ?? [];
+  /* Engineers have no Inventory section, so their way back is the dashboard. */
+  const backTo = user?.role === "Engineer" ? "/dashboard" : "/inventory";
 
   const handleCompleted = (updated: ItemDetailView): void => {
     void updated;
     item.reload();
   };
 
+  const toggleArchived = (): void => {
+    if (data === undefined) {
+      return;
+    }
+
+    setArchiving(true);
+    void api
+      .updateItem(data.id, { isActive: !data.isActive })
+      .then(() => item.reload())
+      .finally(() => setArchiving(false));
+  };
+
   return (
     <Box>
       <Button
         component={RouterLink}
-        to="/inventory"
+        to={backTo}
         startIcon={<ArrowBackRounded />}
         sx={{ mb: 1.5 }}
         className="no-print"
       >
-        Back to inventory
+        {user?.role === "Engineer" ? "Back to overview" : "Back to inventory"}
       </Button>
 
       {item.status === "error" && item.error !== undefined && (
@@ -112,9 +137,34 @@ export function ItemDetailPage(): ReactElement {
                     </Button>
                   </>
                 )}
+                {canRequestStock && (
+                  <Button
+                    variant={canManageStock ? "outlined" : "contained"}
+                    onClick={() => setRequesting(true)}
+                  >
+                    Request stock
+                  </Button>
+                )}
+                {canManageCatalogue && (
+                  <>
+                    <Button variant="text" onClick={() => setEditing(true)}>
+                      Edit
+                    </Button>
+                    <Button variant="text" onClick={toggleArchived} disabled={archiving}>
+                      {data.isActive ? "Archive" : "Restore"}
+                    </Button>
+                  </>
+                )}
               </Stack>
             }
           />
+
+          {!data.isActive && (
+            <Alert severity="info" sx={{ mb: 2.5 }} className="no-print">
+              This item is archived. Its history is kept, but it cannot be received, issued or
+              reserved until it is restored.
+            </Alert>
+          )}
 
           <Stack spacing={3}>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
@@ -135,7 +185,7 @@ export function ItemDetailPage(): ReactElement {
             </Stack>
 
             <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems="flex-start">
-              <Paper variant="outlined" sx={{ flex: 1, width: "100%" }}>
+              <Paper variant="outlined" sx={{ flex: 1, width: "100%" }} className="no-print">
                 <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
                   Where it is
                 </Typography>
@@ -189,10 +239,15 @@ export function ItemDetailPage(): ReactElement {
                 className="print-label"
                 sx={{ p: 3, width: { xs: "100%", md: 260 }, flexShrink: 0 }}
               >
-                <Typography variant="h3" component="h2" sx={{ mb: 2 }}>
+                <Typography variant="h3" component="h2" sx={{ mb: 2 }} className="no-print">
                   Scan
                 </Typography>
                 <ItemQrCode reference={data.reference} url={window.location.href} />
+                {/* Only shown on paper: on screen the reference is already the page title. */}
+                <Box sx={{ display: "none" }} className="print-only">
+                  <Typography className="print-reference">{data.reference}</Typography>
+                  <Typography className="print-name">{data.name}</Typography>
+                </Box>
                 <Typography
                   variant="body2"
                   color="text.secondary"
@@ -222,7 +277,7 @@ export function ItemDetailPage(): ReactElement {
                 sx={{ px: 2.5, py: 2 }}
               >
                 <Typography variant="h3" component="h2">
-                  Recent transactions
+                  {seesEveryonesActivity ? "Recent transactions" : "Your activity on this item"}
                 </Typography>
                 <Button
                   component={RouterLink}
@@ -236,7 +291,9 @@ export function ItemDetailPage(): ReactElement {
               {data.recentTransactions.length === 0 ? (
                 <Box sx={{ px: 2.5, py: 3 }}>
                   <Typography color="text.secondary">
-                    Nothing has moved for this item yet.
+                    {seesEveryonesActivity
+                      ? "Nothing has moved for this item yet."
+                      : "You have not moved any of this item yet."}
                   </Typography>
                 </Box>
               ) : (
@@ -249,7 +306,7 @@ export function ItemDetailPage(): ReactElement {
                         <TableCell align="right">Quantity</TableCell>
                         <TableCell>From</TableCell>
                         <TableCell>To</TableCell>
-                        <TableCell>Who</TableCell>
+                        {seesEveryonesActivity && <TableCell>Who</TableCell>}
                         <TableCell>Reason</TableCell>
                       </TableRow>
                     </TableHead>
@@ -267,7 +324,7 @@ export function ItemDetailPage(): ReactElement {
                           </TableCell>
                           <TableCell>{transaction.fromLocationCode ?? "—"}</TableCell>
                           <TableCell>{transaction.toLocationCode ?? "—"}</TableCell>
-                          <TableCell>{transaction.actorName}</TableCell>
+                          {seesEveryonesActivity && <TableCell>{transaction.actorName}</TableCell>}
                           <TableCell>{transaction.reason ?? "—"}</TableCell>
                         </TableRow>
                       ))}
@@ -285,6 +342,28 @@ export function ItemDetailPage(): ReactElement {
               locations={locationList}
               onClose={() => setOperation(null)}
               onCompleted={handleCompleted}
+            />
+          )}
+
+          {requesting && (
+            <StockRequestDialog
+              item={data}
+              onClose={() => setRequesting(false)}
+              onCreated={() => {
+                setRequesting(false);
+                item.reload();
+              }}
+            />
+          )}
+
+          {editing && (
+            <CreateItemDialog
+              item={data}
+              onClose={() => setEditing(false)}
+              onCreated={() => {
+                setEditing(false);
+                item.reload();
+              }}
             />
           )}
         </>

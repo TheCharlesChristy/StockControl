@@ -1,11 +1,14 @@
 import type {
-  DashboardResponse,
+  EngineerDashboardResponse,
   ItemDetailView,
   ItemListResponse,
   ItemSummaryView,
   JobDetailView,
   JobListResponse,
   LocationListResponse,
+  OfficeDashboardResponse,
+  StockRequestListResponse,
+  StockRequestView,
   TransactionListResponse,
   TransactionView,
   UserListResponse,
@@ -32,6 +35,7 @@ export const testItem: ItemSummaryView = {
   inStores: "400.000",
   atJobSites: "20.000",
   reserved: "50.000",
+  reservedForYou: "30.000",
   available: "350.000",
   belowThreshold: false,
 };
@@ -48,6 +52,7 @@ export const testTransaction: TransactionView = {
   toLocationCode: "MAIN-A1",
   jobNumber: null,
   reason: null,
+  actorUserId: "test-office",
   actorName: "Olivia Desk",
   occurredAt: "2026-07-29T09:00:00.000Z",
 };
@@ -81,6 +86,7 @@ export const testJob: JobDetailView = {
   status: "Open",
   jobSiteLocationId: "location-job",
   openReservationCount: 1,
+  assignees: [{ userId: "test-engineer", displayName: "Sam Field", role: "Engineer" }],
   createdAt: "2026-07-20T09:00:00.000Z",
   closedAt: null,
   reservations: [
@@ -94,6 +100,7 @@ export const testJob: JobDetailView = {
       quantityCollected: "20.000",
       quantityOutstanding: "30.000",
       status: "Open",
+      createdById: "test-engineer",
       createdByName: "Sam Field",
       createdAt: "2026-07-21T09:00:00.000Z",
     },
@@ -110,18 +117,55 @@ export const testJob: JobDetailView = {
   recentTransactions: [testTransaction],
 };
 
-const dashboard: DashboardResponse = {
+export const testStockRequest: StockRequestView = {
+  id: "request-1",
+  reference: "REQ-0001",
+  itemId: testItem.id,
+  itemReference: testItem.reference,
+  itemName: testItem.name,
+  unit: "ea",
+  jobId: "job-1",
+  jobNumber: "J-1001",
+  jobName: "Retail unit fit-out",
+  quantity: "25.000",
+  note: "Running short on site",
+  status: "Pending",
+  requestedById: "test-engineer",
+  requestedByName: "Sam Field",
+  decidedByName: null,
+  decisionNote: null,
+  reservationId: null,
+  createdAt: "2026-07-28T09:00:00.000Z",
+  decidedAt: null,
+};
+
+const dashboardReservation = {
+  ...testJob.reservations[0]!,
+  jobId: testJob.id,
+  jobNumber: testJob.number,
+  jobName: testJob.name,
+};
+
+/*
+ * The dashboard payload differs by role, so the fake serves whichever shape the
+ * test's signed-in role would really receive.
+ */
+export const officeDashboard: OfficeDashboardResponse = {
+  role: "Office",
   lowStock: [{ ...testItem, id: "item-low", reference: "ITM-0099", belowThreshold: true }],
-  myReservations: [
-    {
-      ...testJob.reservations[0]!,
-      jobId: testJob.id,
-      jobNumber: testJob.number,
-      jobName: testJob.name,
-    },
-  ],
+  upcomingJobs: [testJob],
+  openReservations: [dashboardReservation],
+  myReservations: [dashboardReservation],
+  pendingRequests: [testStockRequest],
   recentTransactions: [testTransaction],
-  counts: { items: 235, openJobs: 3, openReservations: 18 },
+  counts: { items: 235, openJobs: 3, openReservations: 18, pendingRequests: 1 },
+};
+
+export const engineerDashboard: EngineerDashboardResponse = {
+  role: "Engineer",
+  myJobs: [{ ...testJob, jobSiteStock: testJob.jobSiteStock }],
+  myReservations: [dashboardReservation],
+  myRequests: [testStockRequest],
 };
 
 const items: ItemListResponse = { rows: [testItem], total: 1, limit: 25, offset: 0 };
@@ -138,6 +182,12 @@ const locations: LocationListResponse = {
   ],
 };
 const jobs: JobListResponse = { jobs: [testJob] };
+const stockRequests: StockRequestListResponse = {
+  rows: [testStockRequest],
+  total: 1,
+  limit: 50,
+  offset: 0,
+};
 const transactions: TransactionListResponse = {
   rows: [testTransaction],
   total: 1,
@@ -178,12 +228,15 @@ export function createFakeApiClient(overrides: Readonly<Record<string, unknown>>
     }
 
     if (path === "/dashboard") {
-      return Promise.resolve(jsonResponse(dashboard));
+      return Promise.resolve(jsonResponse(officeDashboard));
+    }
+    if (path === "/stock-requests") {
+      return Promise.resolve(jsonResponse(stockRequests));
     }
     if (path === "/items") {
       return Promise.resolve(jsonResponse(items));
     }
-    if (path.startsWith("/items/")) {
+    if (path === "/items/lookup" || path.startsWith("/items/")) {
       return Promise.resolve(jsonResponse({ item: testItemDetail }));
     }
     if (path === "/locations") {
@@ -200,6 +253,17 @@ export function createFakeApiClient(overrides: Readonly<Record<string, unknown>>
     }
     if (path === "/users") {
       return Promise.resolve(jsonResponse(users));
+    }
+    if (path.endsWith("/activity")) {
+      return Promise.resolve(
+        jsonResponse({
+          user: users.users[0],
+          recentTransactions: [testTransaction],
+          openReservations: testJob.reservations,
+          stockRequests: [testStockRequest],
+          counts: { transactions: 1, openReservations: 1, pendingRequests: 1 },
+        }),
+      );
     }
 
     return Promise.resolve(

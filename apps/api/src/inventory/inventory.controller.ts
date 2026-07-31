@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type {
   ItemDetailView,
   ItemListResponse,
@@ -7,20 +7,36 @@ import type {
   StockOperationResponse,
   TransactionListResponse,
 } from "@stockcontrol/contracts";
+import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
+import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
-import { requireCapability } from "../auth/request-context";
+import { canViewAllActivity, currentUser, requireCapability } from "../auth/request-context";
+import type { ItemDetailOptions } from "../persistence/read-models";
 import type { CatalogueService } from "./catalogue.service";
 import {
   bodyOf,
   optionalText,
   parsePaging,
   parseTimestamp,
+  readBoolean,
   readOptionalId,
   requireText,
 } from "./request-parsing";
 import { requireQuantity, type StockService } from "./stock.service";
+
+/**
+ * Who is looking, and whether they may see anyone else's activity. Requirements
+ * section 9.2 gives an Engineer their own record only, so the narrowing happens
+ * here rather than being left to the browser.
+ */
+function viewerOf(request: FastifyRequest): ItemDetailOptions {
+  return {
+    viewerUserId: currentUser(request).id,
+    scopeActivityToViewer: !canViewAllActivity(request),
+  };
+}
 
 @Controller()
 export class InventoryController {
@@ -36,9 +52,35 @@ export class InventoryController {
     @Query("limit") limit?: string,
     @Query("offset") offset?: string,
   ): Promise<ItemListResponse> {
+    const user = requireCapability(request, "view");
+
+    return this.catalogue.listItems({
+      ...parsePaging(limit, offset),
+      search,
+      viewerUserId: user.id,
+    });
+  }
+
+  /**
+   * Resolves whatever a camera or a keyboard-wedge scanner read — an item
+   * reference, a supplier barcode or a part number — to the item it belongs to.
+   */
+  @Get("items/lookup")
+  public async lookupItem(
+    @Req() request: FastifyRequest,
+    @Query("code") code?: string,
+  ): Promise<{ readonly item: ItemDetailView }> {
     requireCapability(request, "view");
 
-    return this.catalogue.listItems({ ...parsePaging(limit, offset), search });
+    const match = code === undefined ? undefined : await this.catalogue.findByCode(code);
+
+    if (match === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "No item matches that code." }),
+      );
+    }
+
+    return { item: await this.stock.itemDetail(match.id, viewerOf(request)) };
   }
 
   @Get("items/:id")
@@ -48,7 +90,7 @@ export class InventoryController {
   ): Promise<{ readonly item: ItemDetailView }> {
     requireCapability(request, "view");
 
-    return { item: await this.stock.itemDetail(id) };
+    return { item: await this.stock.itemDetail(id, viewerOf(request)) };
   }
 
   @Post("items")
@@ -60,14 +102,49 @@ export class InventoryController {
     const body = bodyOf(rawBody);
 
     return {
-      item: await this.catalogue.createItem({
-        reference: optionalText(body, "reference"),
-        name: requireText(body, "name", "an item name"),
-        unit: requireText(body, "unit", "a unit, for example ea or m"),
-        barcode: optionalText(body, "barcode"),
-        partNumber: optionalText(body, "partNumber"),
-        lowStockThreshold: optionalText(body, "lowStockThreshold"),
-      }),
+      item: await this.catalogue.createItem(
+        {
+          reference: optionalText(body, "reference"),
+          name: requireText(body, "name", "an item name"),
+          unit: requireText(body, "unit", "a unit, for example ea or m"),
+          barcode: optionalText(body, "barcode"),
+          partNumber: optionalText(body, "partNumber"),
+          lowStockThreshold: optionalText(body, "lowStockThreshold"),
+        },
+        viewerOf(request),
+      ),
+    };
+  }
+
+  @Patch("items/:id")
+  public async updateItem(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Body() rawBody: unknown,
+  ): Promise<{ readonly item: ItemDetailView }> {
+    requireCapability(request, "manageCatalogue");
+    const body = bodyOf(rawBody);
+    const name = optionalText(body, "name");
+
+    if ("name" in body && name === null) {
+      throw new ApplicationFailureException(validationFailed({ name: ["Enter an item name."] }));
+    }
+
+    return {
+      item: await this.catalogue.updateItem(
+        id,
+        {
+          ...("name" in body && name !== null ? { name } : {}),
+          ...("unit" in body ? { unit: requireText(body, "unit", "a unit") } : {}),
+          ...("barcode" in body ? { barcode: optionalText(body, "barcode") } : {}),
+          ...("partNumber" in body ? { partNumber: optionalText(body, "partNumber") } : {}),
+          ...("lowStockThreshold" in body
+            ? { lowStockThreshold: optionalText(body, "lowStockThreshold") }
+            : {}),
+          ...("isActive" in body ? { isActive: readBoolean(body, "isActive") } : {}),
+        },
+        viewerOf(request),
+      ),
     };
   }
 
@@ -104,6 +181,7 @@ export class InventoryController {
 
     return this.stock.receive({
       actorUserId: user.id,
+      scopeActivityToActor: !canViewAllActivity(request),
       itemId: requireText(body, "itemId", "an item"),
       locationId: requireText(body, "locationId", "a location"),
       quantity: requireQuantity(requireText(body, "quantity", "a quantity")),
@@ -120,6 +198,7 @@ export class InventoryController {
 
     return this.stock.issue({
       actorUserId: user.id,
+      scopeActivityToActor: !canViewAllActivity(request),
       itemId: requireText(body, "itemId", "an item"),
       locationId: requireText(body, "locationId", "a location"),
       quantity: requireQuantity(requireText(body, "quantity", "a quantity")),
@@ -137,6 +216,7 @@ export class InventoryController {
 
     return this.stock.transfer({
       actorUserId: user.id,
+      scopeActivityToActor: !canViewAllActivity(request),
       itemId: requireText(body, "itemId", "an item"),
       fromLocationId: requireText(body, "fromLocationId", "a source location"),
       toLocationId: requireText(body, "toLocationId", "a destination location"),
@@ -154,6 +234,7 @@ export class InventoryController {
 
     return this.stock.adjust({
       actorUserId: user.id,
+      scopeActivityToActor: !canViewAllActivity(request),
       itemId: requireText(body, "itemId", "an item"),
       locationId: requireText(body, "locationId", "a location"),
       countedQuantity: requireQuantity(
@@ -175,13 +256,20 @@ export class InventoryController {
     @Query("limit") limit?: string,
     @Query("offset") offset?: string,
   ): Promise<TransactionListResponse> {
-    requireCapability(request, "view");
+    const user = requireCapability(request, "view");
+
+    /*
+     * Without `viewAllActivity` the log is the caller's own record, whatever
+     * they asked for. Overriding rather than refusing keeps the screen usable:
+     * an Engineer following a link still lands on something meaningful.
+     */
+    const scopedActor = canViewAllActivity(request) ? actorUserId : user.id;
 
     return this.catalogue.listTransactions({
       ...parsePaging(limit, offset),
       itemId,
       jobId,
-      actorUserId,
+      actorUserId: scopedActor,
       from: parseTimestamp(from, "from"),
       to: parseTimestamp(to, "to"),
     });

@@ -1,5 +1,10 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Req } from "@nestjs/common";
-import type { UserListResponse, UserResponse, UserRole } from "@stockcontrol/contracts";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Req } from "@nestjs/common";
+import type {
+  UserActivityResponse,
+  UserListResponse,
+  UserResponse,
+  UserRole,
+} from "@stockcontrol/contracts";
 import { userRoles, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
@@ -17,11 +22,25 @@ function readRole(value: string): UserRole | undefined {
 export class UsersController {
   public constructor(@Inject(API_TOKENS.usersService) private readonly users: UsersService) {}
 
+  /*
+   * Listing people is a read, not user management: Office needs it to filter a
+   * log by who did something. Creating, editing and deleting stay with Admin.
+   */
   @Get()
   public async list(@Req() request: FastifyRequest): Promise<UserListResponse> {
-    requireCapability(request, "manageUsers");
+    requireCapability(request, "viewAllActivity");
 
     return { users: await this.users.list() };
+  }
+
+  @Get(":id/activity")
+  public async activity(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+  ): Promise<UserActivityResponse> {
+    requireCapability(request, "manageUsers");
+
+    return this.users.activity(id);
   }
 
   @Post()
@@ -68,13 +87,33 @@ export class UsersController {
     }
 
     const displayName = readText(body, "displayName");
+    const email = readText(body, "email");
 
     return {
       user: await this.users.update(id, {
+        ...(email.length === 0 ? {} : { email }),
         ...(displayName.length === 0 ? {} : { displayName }),
         ...(role === undefined ? {} : { role }),
         ...(isActive === undefined ? {} : { isActive }),
       }),
     };
+  }
+
+  @Delete(":id")
+  public async remove(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+  ): Promise<{ readonly deleted: true }> {
+    const actor = requireCapability(request, "manageUsers");
+
+    if (actor.id === id) {
+      throw new ApplicationFailureException(
+        validationFailed({ user: ["You cannot delete your own account."] }),
+      );
+    }
+
+    await this.users.remove(id);
+
+    return { deleted: true };
   }
 }

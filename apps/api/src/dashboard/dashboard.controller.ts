@@ -16,6 +16,6 @@ export class DashboardController {
   public async overview(@Req() request: FastifyRequest): Promise<DashboardResponse> {
     const user = requireCapability(request, "view");
 
-    return this.dashboard.forUser(user.id);
+    return this.dashboard.forUser({ id: user.id, role: user.role });
   }
 }

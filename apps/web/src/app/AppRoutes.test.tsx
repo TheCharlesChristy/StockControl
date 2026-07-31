@@ -165,13 +165,17 @@ describe("StockControl application routes", () => {
     expect(screen.getByLabelText("Work email")).toBeEnabled();
   });
 
-  it("returns a signed-in user to a safe requested section", async () => {
-    renderSignInWithRedirect("/inventory?query=bolts#results");
+  /*
+   * Scanning an item's QR code while signed out has to come back to that item
+   * once you have signed in. It is the only journey that survives sign-in.
+   */
+  it("returns a signed-in user to a record they asked for by link", async () => {
+    renderSignInWithRedirect("/inventory/item-1");
 
     await completeValidSignIn();
 
     expect(
-      await screen.findByRole("heading", { name: "What you have, and where" }),
+      await screen.findByRole("heading", { name: /M6 × 30 mm zinc-plated hex bolt/u }),
     ).toBeInTheDocument();
   });
 
@@ -181,7 +185,10 @@ describe("StockControl application routes", () => {
     "//malicious.example/steal",
     String.raw`/\malicious.example\steal`,
     "/sign-in",
-  ])("falls back to the dashboard for unsafe redirect state %#", async (from) => {
+    /* A section, not a record: signing in again starts at the dashboard. */
+    "/inventory?query=bolts#results",
+    "/transactions",
+  ])("falls back to the dashboard for redirect state %#", async (from) => {
     renderSignInWithRedirect(from);
 
     await completeValidSignIn();

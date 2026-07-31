@@ -20,6 +20,7 @@
     "@mui/icons-material": "7.3.9",
     "@mui/material": "7.3.9",
     "@stockcontrol/contracts": "workspace:*",
+    "@zxing/browser": "^0.1.5",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

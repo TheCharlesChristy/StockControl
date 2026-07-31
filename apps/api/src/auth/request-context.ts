@@ -62,15 +62,23 @@ export function requireCapability(request: FastifyRequest, capability: Capabilit
   return user;
 }
 
+/** True when the role may see what other people did, not just its own record. */
+export function canViewAllActivity(request: FastifyRequest): boolean {
+  return roleHasCapability(currentUser(request).role, "viewAllActivity");
+}
+
 const descriptions: Readonly<Record<Capability, string>> = {
   view: "view this",
   issue: "issue stock",
   reserve: "reserve stock",
   collect: "collect reserved stock",
+  requestStock: "request stock",
   manageStock: "receive, transfer or adjust stock",
   manageCatalogue: "create or edit items and locations",
   manageJobs: "create, edit or close jobs",
   releaseReservation: "release a reservation",
+  reviewStockRequests: "approve or reject stock requests",
+  viewAllActivity: "see other people's activity",
   manageUsers: "manage users",
 };
 

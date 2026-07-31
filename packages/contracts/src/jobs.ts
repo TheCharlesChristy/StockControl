@@ -1,3 +1,4 @@
+import type { UserRole } from "./auth";
 import type { LocationBalanceView, TransactionView } from "./inventory";
 
 export const jobStatuses = ["Open", "Closed"] as const;
@@ -5,6 +6,13 @@ export type JobStatus = (typeof jobStatuses)[number];
 
 export const reservationStatuses = ["Open", "Fulfilled", "Released"] as const;
 export type ReservationStatus = (typeof reservationStatuses)[number];
+
+/** Several people may work one job, so assignment is a list, not a field. */
+export interface JobAssigneeView {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly role: UserRole;
+}
 
 export interface JobSummaryView {
   readonly id: string;
@@ -14,6 +22,7 @@ export interface JobSummaryView {
   readonly status: JobStatus;
   readonly jobSiteLocationId: string;
   readonly openReservationCount: number;
+  readonly assignees: readonly JobAssigneeView[];
   readonly createdAt: string;
   readonly closedAt: string | null;
 }
@@ -28,6 +37,7 @@ export interface ReservationView {
   readonly quantityCollected: string;
   readonly quantityOutstanding: string;
   readonly status: ReservationStatus;
+  readonly createdById: string;
   readonly createdByName: string;
   readonly createdAt: string;
 }
@@ -47,6 +57,10 @@ export interface CreateJobRequest {
   readonly number?: string;
   readonly name: string;
   readonly customer: string;
+}
+
+export interface AssignJobRequest {
+  readonly userId: string;
 }
 
 export interface ReserveStockRequest {

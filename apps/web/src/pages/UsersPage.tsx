@@ -1,4 +1,5 @@
 import PersonAddRounded from "@mui/icons-material/PersonAddRounded";
+import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
   Alert,
   Box,
@@ -8,6 +9,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  InputAdornment,
+  Link,
   MenuItem,
   Paper,
   Stack,
@@ -23,11 +26,18 @@ import {
 } from "@mui/material";
 import { userRoles, type UserRole } from "@stockcontrol/contracts";
 import { useCallback, useState, type FormEvent, type ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
-import { ErrorState, formatDate, LoadingRows, PageHeader } from "../components/DataStates";
+import {
+  EmptyState,
+  ErrorState,
+  formatDate,
+  LoadingRows,
+  PageHeader,
+} from "../components/DataStates";
 
 function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError
@@ -146,12 +156,26 @@ export function UsersPage(): ReactElement {
   const api = useApi();
   const { user: signedInUser } = useAuth();
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
   const [actionError, setActionError] = useState<ApiError | undefined>(undefined);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback((signal: AbortSignal) => api.listUsers(signal), [api]);
   const users = useResource(load);
-  const rows = users.data?.users ?? [];
+  const allUsers = users.data?.users ?? [];
+  /*
+   * Filtered here rather than on the server: a team is tens of people, not
+   * thousands, so the whole list is already loaded and typing stays instant.
+   */
+  const term = search.trim().toLowerCase();
+  const rows =
+    term.length === 0
+      ? allUsers
+      : allUsers.filter((row) =>
+          [row.displayName, row.email, row.role].some((field) =>
+            field.toLowerCase().includes(term),
+          ),
+        );
 
   const update = (id: string, changes: { role?: UserRole; isActive?: boolean }): void => {
     setBusyId(id);
@@ -181,6 +205,24 @@ export function UsersPage(): ReactElement {
         }
       />
 
+      <TextField
+        fullWidth
+        label="Search the team"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Name, email or role"
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRounded fontSize="small" />
+              </InputAdornment>
+            ),
+          },
+        }}
+        sx={{ mb: 2.5 }}
+      />
+
       {actionError !== undefined && (
         <Alert severity="error" role="alert" sx={{ mb: 2 }}>
           {actionError.message}
@@ -192,6 +234,13 @@ export function UsersPage(): ReactElement {
       )}
 
       {users.status === "loading" && users.data === undefined && <LoadingRows rows={4} />}
+
+      {users.data !== undefined && rows.length === 0 && (
+        <EmptyState
+          title="Nobody matched that search"
+          description="Try part of a name, an email address, or a role such as Engineer."
+        />
+      )}
 
       {rows.length > 0 && (
         <Paper variant="outlined">
@@ -213,7 +262,14 @@ export function UsersPage(): ReactElement {
                   return (
                     <TableRow key={row.id} hover>
                       <TableCell>
-                        {row.displayName}
+                        <Link
+                          component={RouterLink}
+                          to={`/team/${row.id}`}
+                          underline="hover"
+                          sx={{ fontWeight: 600 }}
+                        >
+                          {row.displayName}
+                        </Link>
                         {isSelf && (
                           <Chip label="You" size="small" variant="outlined" sx={{ ml: 1 }} />
                         )}
@@ -256,8 +312,8 @@ export function UsersPage(): ReactElement {
             </Table>
           </TableContainer>
           <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
-            Disabling someone ends their active sessions immediately. You cannot change your own
-            role or disable yourself.
+            Open a name to edit their details or review what they have done. Disabling someone ends
+            their active sessions immediately. You cannot change your own role or disable yourself.
           </Typography>
         </Paper>
       )}

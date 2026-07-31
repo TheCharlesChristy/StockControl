@@ -20,13 +20,28 @@ const printStyles = (
       "@media print": {
         "header, nav, .no-print, .MuiAppBar-root, .MuiDrawer-root": { display: "none !important" },
         main: { paddingTop: "0 !important", marginLeft: "0 !important" },
+        /*
+         * The reference and name are hidden on screen — the page header already
+         * says them — but a printed label has no header, so they appear there.
+         */
+        ".print-only": { display: "block !important" },
         ".print-label": {
           border: "none !important",
           boxShadow: "none !important",
           margin: "0 auto",
           padding: "0 !important",
+          width: "62mm !important",
+          maxWidth: "62mm !important",
+          textAlign: "center",
         },
+        ".print-label .print-reference": {
+          fontSize: "12pt",
+          fontWeight: 700,
+          marginTop: "2mm",
+        },
+        ".print-label .print-name": { fontSize: "9pt" },
         body: { backgroundImage: "none !important" },
+        "@page": { margin: "8mm" },
       },
     }}
   />

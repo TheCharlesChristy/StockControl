@@ -61,6 +61,28 @@ export interface SeededJob {
   readonly customer: string;
   readonly jobSiteLocationId: string;
   readonly createdAt: Date;
+  readonly closedAt: Date | null;
+}
+
+export interface SeededJobAssignment {
+  readonly jobId: string;
+  readonly userId: string;
+  readonly assignedByUserId: string;
+}
+
+export interface SeededStockRequest {
+  readonly id: string;
+  readonly reference: string;
+  readonly itemId: string;
+  readonly jobId: string | null;
+  readonly quantity: string;
+  readonly note: string | null;
+  readonly status: "Pending" | "Approved" | "Rejected" | "Cancelled";
+  readonly requestedByUserId: string;
+  readonly decidedByUserId: string | null;
+  readonly decidedAt: Date | null;
+  readonly decisionNote: string | null;
+  readonly createdAt: Date;
 }
 
 export interface SeededReservation extends ReservationFacts {
@@ -84,7 +106,9 @@ export interface DemoWorld {
   readonly locations: readonly SeededLocation[];
   readonly items: readonly SeededItem[];
   readonly jobs: readonly SeededJob[];
+  readonly jobAssignments: readonly SeededJobAssignment[];
   readonly reservations: readonly SeededReservation[];
+  readonly stockRequests: readonly SeededStockRequest[];
   readonly stockLevels: readonly SeededStockLevel[];
   readonly transactions: readonly SeededTransaction[];
 }
@@ -231,15 +255,52 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
       displayName: "Sam Field",
       role: "Engineer",
     },
+    /*
+     * A second engineer is what makes "only your own activity" visible: sign in
+     * as one and the other's movements are absent, which is the point.
+     */
+    {
+      id: options.createId(),
+      email: "engineer.two@example.com",
+      displayName: "Priya Kaur",
+      role: "Engineer",
+    },
   ];
-  const [admin, office, engineer] = users as [SeededUser, SeededUser, SeededUser];
+  const [admin, office, engineer, secondEngineer] = users as [
+    SeededUser,
+    SeededUser,
+    SeededUser,
+    SeededUser,
+  ];
+  const engineers = [engineer, secondEngineer] as const;
 
   const jobs: readonly SeededJob[] = seedJobs.map((job, index) => ({
-    ...job,
+    number: job.number,
+    name: job.name,
+    customer: job.customer,
     id: options.createId(),
     jobSiteLocationId: options.createId(),
     createdAt: dayAgo(HISTORY_DAYS - index * 3),
+    closedAt: job.closed === true ? dayAgo(2) : null,
   }));
+  const openJobs = jobs.filter((job) => job.closedAt === null);
+
+  /* Both engineers work the first job; the rest have one each. */
+  const jobAssignments: readonly SeededJobAssignment[] = openJobs.flatMap((job, index) =>
+    index === 0
+      ? engineers.map((person) => ({
+          jobId: job.id,
+          userId: person.id,
+          assignedByUserId: office.id,
+        }))
+      : [
+          {
+            jobId: job.id,
+            userId: (engineers[index % engineers.length] as SeededUser).id,
+            assignedByUserId: office.id,
+          },
+        ],
+  );
 
   const storeLocations: readonly SeededLocation[] = seedLocations.map((location) => ({
     ...location,
@@ -333,7 +394,7 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
           quantity: portion,
           snapshot,
           job: random() < 0.4 ? (jobFacts.get(pick(jobs).id) as JobFacts) : null,
-          actorUserId: random() < 0.6 ? engineer.id : office.id,
+          actorUserId: random() < 0.6 ? pick(engineers).id : office.id,
         }),
         occurredAt,
       );
@@ -368,8 +429,16 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
     }
   }
 
-  for (const job of jobs) {
+  for (const job of openJobs) {
     const facts = jobFacts.get(job.id) as JobFacts;
+    /* Whoever is on the job is who reserves and collects for it. */
+    const jobEngineers = engineers.filter((person) =>
+      jobAssignments.some(
+        (assignment) => assignment.jobId === job.id && assignment.userId === person.id,
+      ),
+    );
+    const actorFor = (index: number): SeededUser =>
+      jobEngineers[index % Math.max(1, jobEngineers.length)] ?? engineer;
 
     for (let index = 0; index < 6; index += 1) {
       const item = pick(items);
@@ -389,7 +458,7 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
         job: facts,
         quantity,
         snapshot,
-        actorUserId: engineer.id,
+        actorUserId: actorFor(index).id,
       });
 
       if (!decision.ok) {
@@ -424,19 +493,85 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
           source: locationFacts.get(source.locationId) as LocationFacts,
           quantity: collectQuantity,
           snapshot: collectSnapshot,
-          actorUserId: engineer.id,
+          actorUserId: actorFor(index).id,
         }),
         dayAgo(Math.max(1, 9 - index)),
       );
     }
   }
 
+  /*
+   * A few requests in each state, so the queue, the engineer's own list and the
+   * decided history all have something in them on a fresh database.
+   */
+  const requestItems = [pick(items), pick(items), pick(items), pick(items)] as const;
+  const stockRequests: readonly SeededStockRequest[] = [
+    {
+      id: options.createId(),
+      reference: "REQ-0001",
+      itemId: requestItems[0].id,
+      jobId: openJobs[0]?.id ?? null,
+      quantity: "24",
+      note: "Running short on site, need these for Thursday.",
+      status: "Pending",
+      requestedByUserId: engineer.id,
+      decidedByUserId: null,
+      decidedAt: null,
+      decisionNote: null,
+      createdAt: dayAgo(2),
+    },
+    {
+      id: options.createId(),
+      reference: "REQ-0002",
+      itemId: requestItems[1].id,
+      jobId: null,
+      quantity: "100",
+      note: "We are down to the last box in the van stock.",
+      status: "Pending",
+      requestedByUserId: secondEngineer.id,
+      decidedByUserId: null,
+      decidedAt: null,
+      decisionNote: null,
+      createdAt: dayAgo(1),
+    },
+    {
+      id: options.createId(),
+      reference: "REQ-0003",
+      itemId: requestItems[2].id,
+      jobId: null,
+      quantity: "12",
+      note: "Spare set for the second fix.",
+      status: "Approved",
+      requestedByUserId: engineer.id,
+      decidedByUserId: office.id,
+      decidedAt: dayAgo(4),
+      decisionNote: "Ordered with the weekly delivery.",
+      createdAt: dayAgo(5),
+    },
+    {
+      id: options.createId(),
+      reference: "REQ-0004",
+      itemId: requestItems[3].id,
+      jobId: null,
+      quantity: "500",
+      note: "Might as well take a full pallet.",
+      status: "Rejected",
+      requestedByUserId: secondEngineer.id,
+      decidedByUserId: admin.id,
+      decidedAt: dayAgo(6),
+      decisionNote: "Too much for one job — take what you need from the main store.",
+      createdAt: dayAgo(7),
+    },
+  ];
+
   return {
     users,
     locations,
     items,
     jobs,
+    jobAssignments,
     reservations: [...ledger.reservations.values()],
+    stockRequests,
     stockLevels: ledger.stockLevels(),
     transactions: ledger.transactions
       .slice()

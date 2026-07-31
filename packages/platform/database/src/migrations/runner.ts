@@ -15,15 +15,20 @@ export type DatabaseRuntimePrivilege = "select" | "insert" | "update" | "delete"
  */
 export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
   items: ["select", "insert", "update"],
+  job_assignments: ["select", "insert", "delete"],
   jobs: ["select", "insert", "update"],
   locations: ["select", "insert", "update"],
   migration_integrity: [],
   reservations: ["select", "insert", "update"],
   sessions: ["select", "insert", "delete"],
   stock_levels: ["select", "insert", "update"],
+  stock_requests: ["select", "insert", "update"],
   system_metadata: ["select", "insert", "update", "delete"],
   transactions: ["select", "insert"],
-  users: ["select", "insert", "update"],
+  // Delete is granted so an Admin can remove an account created by mistake.
+  // Every table that records what a person did references users with
+  // `on delete restrict`, so the database refuses to erase anyone with history.
+  users: ["select", "insert", "update", "delete"],
 } as const satisfies Readonly<
   Record<keyof StockControlDatabase, readonly DatabaseRuntimePrivilege[]>
 >);

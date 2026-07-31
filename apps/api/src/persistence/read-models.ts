@@ -1,9 +1,13 @@
 import type {
+  DashboardReservationView,
   ItemDetailView,
   ItemSummaryView,
+  JobAssigneeView,
   LocationBalanceView,
   LocationView,
   ReservationView,
+  StockRequestStatus,
+  StockRequestView,
   TransactionView,
 } from "@stockcontrol/contracts";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
@@ -29,6 +33,8 @@ export interface ItemQuery {
   readonly limit: number;
   readonly offset: number;
   readonly belowThresholdOnly?: boolean | undefined;
+  /** Whose commitments `reservedForYou` reports. */
+  readonly viewerUserId: string;
 }
 
 export interface TransactionQuery {
@@ -97,6 +103,7 @@ async function balancesFor(
 async function openReservedFor(
   database: Database,
   itemIds: readonly string[],
+  createdByUserId?: string,
 ): Promise<Map<string, Quantity>> {
   const reserved = new Map<string, Quantity>();
 
@@ -104,7 +111,7 @@ async function openReservedFor(
     return reserved;
   }
 
-  const rows = await database
+  let selection = database
     .withSchema(SCHEMA)
     .selectFrom("reservations")
     .select((builder) => [
@@ -112,9 +119,13 @@ async function openReservedFor(
       builder.fn.sum<string>(sql<string>`quantity_reserved - quantity_collected`).as("outstanding"),
     ])
     .where("item_id", "in", itemIds)
-    .where("status", "=", "Open")
-    .groupBy("item_id")
-    .execute();
+    .where("status", "=", "Open");
+
+  if (createdByUserId !== undefined) {
+    selection = selection.where("created_by_user_id", "=", createdByUserId);
+  }
+
+  const rows = await selection.groupBy("item_id").execute();
 
   for (const row of rows) {
     reserved.set(row.item_id, quantityFromDatabase(row.outstanding));
@@ -137,6 +148,7 @@ function summarise(
   item: ItemRow,
   balanceRows: readonly BalanceRow[],
   openReserved: Quantity,
+  reservedForViewer: Quantity,
 ): ItemSummaryView {
   const balances: LocationBalance[] = balanceRows.map((row) => ({
     locationId: row.location_id,
@@ -165,6 +177,7 @@ function summarise(
     inStores: formatQuantity(availability.inStores),
     atJobSites: formatQuantity(availability.atJobSites),
     reserved: formatQuantity(availability.reserved),
+    reservedForYou: formatQuantity(reservedForViewer),
     available: formatQuantity(availability.available),
     belowThreshold: threshold !== null && availability.available < threshold,
   };
@@ -211,13 +224,19 @@ export async function listItems(
     .execute()) as readonly ItemRow[];
 
   const itemIds = rows.map((row) => row.id);
-  const [balances, reserved] = await Promise.all([
+  const [balances, reserved, reservedForViewer] = await Promise.all([
     balancesFor(database, itemIds),
     openReservedFor(database, itemIds),
+    openReservedFor(database, itemIds, query.viewerUserId),
   ]);
 
   const summaries = rows.map((row) =>
-    summarise(row, balances.get(row.id) ?? [], reserved.get(row.id) ?? ZERO),
+    summarise(
+      row,
+      balances.get(row.id) ?? [],
+      reserved.get(row.id) ?? ZERO,
+      reservedForViewer.get(row.id) ?? ZERO,
+    ),
   );
 
   return {
@@ -227,9 +246,20 @@ export async function listItems(
   };
 }
 
+export interface ItemDetailOptions {
+  readonly viewerUserId: string;
+  /**
+   * When the viewer may not see other people's activity, the item's history is
+   * narrowed to their own. Requirements section 9.2 gives an Engineer their own
+   * activity and nobody else's.
+   */
+  readonly scopeActivityToViewer: boolean;
+}
+
 export async function findItemDetail(
   database: Database,
   itemId: string,
+  options: ItemDetailOptions,
 ): Promise<ItemDetailView | undefined> {
   const item = (await database
     .withSchema(SCHEMA)
@@ -251,29 +281,59 @@ export async function findItemDetail(
     return undefined;
   }
 
-  const [balances, reserved, transactions] = await Promise.all([
+  const [balances, reserved, reservedForViewer, transactions] = await Promise.all([
     balancesFor(database, [itemId]),
     openReservedFor(database, [itemId]),
-    listTransactions(database, { itemId, limit: 20, offset: 0 }),
+    openReservedFor(database, [itemId], options.viewerUserId),
+    listTransactions(database, {
+      itemId,
+      limit: 20,
+      offset: 0,
+      ...(options.scopeActivityToViewer ? { actorUserId: options.viewerUserId } : {}),
+    }),
   ]);
   const balanceRows = balances.get(itemId) ?? [];
 
   return {
-    ...summarise(item, balanceRows, reserved.get(itemId) ?? ZERO),
+    ...summarise(
+      item,
+      balanceRows,
+      reserved.get(itemId) ?? ZERO,
+      reservedForViewer.get(itemId) ?? ZERO,
+    ),
     balances: balanceRows.map(toBalanceView),
     recentTransactions: transactions.rows,
   };
 }
 
-export async function findItemByReference(
+/**
+ * Resolves whatever is printed on a label or read by a scanner: the internal
+ * reference, a supplier barcode, or a manufacturer part number.
+ */
+export async function findItemByCode(
   database: Database,
-  reference: string,
+  code: string,
 ): Promise<{ readonly id: string } | undefined> {
+  const trimmed = code.trim();
+
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const upper = trimmed.toUpperCase();
+
   return database
     .withSchema(SCHEMA)
     .selectFrom("items")
     .select("id")
-    .where("reference", "=", reference)
+    .where((builder) =>
+      builder.or([
+        builder(sql<string>`upper(reference)`, "=", upper),
+        builder(sql<string>`upper(coalesce(barcode, ''))`, "=", upper),
+        builder(sql<string>`upper(coalesce(part_number, ''))`, "=", upper),
+      ]),
+    )
+    .orderBy(sql`case when upper(reference) = ${upper} then 0 else 1 end`)
     .executeTakeFirst();
 }
 
@@ -353,6 +413,7 @@ export async function listTransactions(
       "from_location.code as from_code",
       "to_location.code as to_code",
       "jobs.number as job_number",
+      "transactions.actor_user_id as actor_user_id",
       "users.display_name as actor_name",
     ])
     .orderBy("transactions.occurred_at", "desc")
@@ -375,6 +436,7 @@ export async function listTransactions(
       toLocationCode: row.to_code,
       jobNumber: row.job_number,
       reason: row.reason,
+      actorUserId: row.actor_user_id,
       actorName: row.actor_name,
       occurredAt: row.occurred_at.toISOString(),
     })),
@@ -400,6 +462,7 @@ export async function listReservationsForJob(
       "items.reference as item_reference",
       "items.name as item_name",
       "items.unit as unit",
+      "reservations.created_by_user_id as created_by_user_id",
       "users.display_name as created_by_name",
     ])
     .where("reservations.job_id", "=", jobId)
@@ -421,9 +484,215 @@ export async function listReservationsForJob(
       ),
     ),
     status: row.status,
+    createdById: row.created_by_user_id,
     createdByName: row.created_by_name,
     createdAt: row.created_at.toISOString(),
   }));
+}
+
+/**
+ * Open reservations across jobs, for the dashboards. `createdByUserId` narrows
+ * it to one person's commitments; without it the caller sees the whole
+ * outstanding book, which is what an Office user coordinates against.
+ */
+export async function listOpenReservations(
+  database: Database,
+  options: {
+    readonly createdByUserId?: string | undefined;
+    readonly limit: number;
+  },
+): Promise<readonly DashboardReservationView[]> {
+  let selection = database
+    .withSchema(SCHEMA)
+    .selectFrom("reservations")
+    .innerJoin("items", "items.id", "reservations.item_id")
+    .innerJoin("jobs", "jobs.id", "reservations.job_id")
+    .innerJoin("users", "users.id", "reservations.created_by_user_id")
+    .where("reservations.status", "=", "Open");
+
+  if (options.createdByUserId !== undefined) {
+    selection = selection.where("reservations.created_by_user_id", "=", options.createdByUserId);
+  }
+
+  const rows = await selection
+    .select([
+      "reservations.id as id",
+      "reservations.item_id as item_id",
+      "reservations.quantity_reserved as quantity_reserved",
+      "reservations.quantity_collected as quantity_collected",
+      "reservations.status as status",
+      "reservations.created_at as created_at",
+      "reservations.created_by_user_id as created_by_user_id",
+      "items.reference as item_reference",
+      "items.name as item_name",
+      "items.unit as unit",
+      "jobs.id as job_id",
+      "jobs.number as job_number",
+      "jobs.name as job_name",
+      "users.display_name as created_by_name",
+    ])
+    .orderBy("reservations.created_at", "desc")
+    .limit(options.limit)
+    .execute();
+
+  return rows.map((row) => ({
+    id: row.id,
+    itemId: row.item_id,
+    itemReference: row.item_reference,
+    itemName: row.item_name,
+    unit: row.unit,
+    quantityReserved: row.quantity_reserved,
+    quantityCollected: row.quantity_collected,
+    quantityOutstanding: formatQuantity(
+      subtract(
+        quantityFromDatabase(row.quantity_reserved),
+        quantityFromDatabase(row.quantity_collected),
+      ),
+    ),
+    status: row.status,
+    createdById: row.created_by_user_id,
+    createdByName: row.created_by_name,
+    createdAt: row.created_at.toISOString(),
+    jobId: row.job_id,
+    jobNumber: row.job_number,
+    jobName: row.job_name,
+  }));
+}
+
+/** Who is assigned to each of the given jobs, keyed by job id. */
+export async function assigneesForJobs(
+  database: Database,
+  jobIds: readonly string[],
+): Promise<Map<string, JobAssigneeView[]>> {
+  const grouped = new Map<string, JobAssigneeView[]>();
+
+  if (jobIds.length === 0) {
+    return grouped;
+  }
+
+  const rows = await database
+    .withSchema(SCHEMA)
+    .selectFrom("job_assignments")
+    .innerJoin("users", "users.id", "job_assignments.user_id")
+    .select([
+      "job_assignments.job_id as job_id",
+      "job_assignments.user_id as user_id",
+      "users.display_name as display_name",
+      "users.role as role",
+    ])
+    .where("job_assignments.job_id", "in", jobIds)
+    .orderBy("users.display_name")
+    .execute();
+
+  for (const row of rows) {
+    grouped.set(row.job_id, [
+      ...(grouped.get(row.job_id) ?? []),
+      { userId: row.user_id, displayName: row.display_name, role: row.role },
+    ]);
+  }
+
+  return grouped;
+}
+
+export interface StockRequestQuery {
+  readonly id?: string | undefined;
+  readonly status?: StockRequestStatus | undefined;
+  readonly requestedByUserId?: string | undefined;
+  readonly itemId?: string | undefined;
+  readonly jobId?: string | undefined;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export async function listStockRequests(
+  database: Database,
+  query: StockRequestQuery,
+): Promise<{ readonly rows: readonly StockRequestView[]; readonly total: number }> {
+  let selection = database
+    .withSchema(SCHEMA)
+    .selectFrom("stock_requests")
+    .innerJoin("items", "items.id", "stock_requests.item_id")
+    .innerJoin("users as requester", "requester.id", "stock_requests.requested_by_user_id")
+    .leftJoin("users as decider", "decider.id", "stock_requests.decided_by_user_id")
+    .leftJoin("jobs", "jobs.id", "stock_requests.job_id");
+
+  if (query.id !== undefined) {
+    selection = selection.where("stock_requests.id", "=", query.id);
+  }
+  if (query.status !== undefined) {
+    selection = selection.where("stock_requests.status", "=", query.status);
+  }
+  if (query.requestedByUserId !== undefined) {
+    selection = selection.where(
+      "stock_requests.requested_by_user_id",
+      "=",
+      query.requestedByUserId,
+    );
+  }
+  if (query.itemId !== undefined) {
+    selection = selection.where("stock_requests.item_id", "=", query.itemId);
+  }
+  if (query.jobId !== undefined) {
+    selection = selection.where("stock_requests.job_id", "=", query.jobId);
+  }
+
+  const totalRow = await selection
+    .select((builder) => builder.fn.countAll<string>().as("total"))
+    .executeTakeFirst();
+
+  const rows = await selection
+    .select([
+      "stock_requests.id as id",
+      "stock_requests.reference as reference",
+      "stock_requests.item_id as item_id",
+      "stock_requests.job_id as job_id",
+      "stock_requests.quantity as quantity",
+      "stock_requests.note as note",
+      "stock_requests.status as status",
+      "stock_requests.requested_by_user_id as requested_by_user_id",
+      "stock_requests.decision_note as decision_note",
+      "stock_requests.reservation_id as reservation_id",
+      "stock_requests.created_at as created_at",
+      "stock_requests.decided_at as decided_at",
+      "items.reference as item_reference",
+      "items.name as item_name",
+      "items.unit as unit",
+      "jobs.number as job_number",
+      "jobs.name as job_name",
+      "requester.display_name as requested_by_name",
+      "decider.display_name as decided_by_name",
+    ])
+    /* Pending first: the queue is the point of the screen. */
+    .orderBy(sql`case when stock_requests.status = 'Pending' then 0 else 1 end`)
+    .orderBy("stock_requests.created_at", "desc")
+    .limit(query.limit)
+    .offset(query.offset)
+    .execute();
+
+  return {
+    total: Number(totalRow?.total ?? 0),
+    rows: rows.map((row) => ({
+      id: row.id,
+      reference: row.reference,
+      itemId: row.item_id,
+      itemReference: row.item_reference,
+      itemName: row.item_name,
+      unit: row.unit,
+      jobId: row.job_id,
+      jobNumber: row.job_number,
+      jobName: row.job_name,
+      quantity: row.quantity,
+      note: row.note,
+      status: row.status,
+      requestedById: row.requested_by_user_id,
+      requestedByName: row.requested_by_name,
+      decidedByName: row.decided_by_name,
+      decisionNote: row.decision_note,
+      reservationId: row.reservation_id,
+      createdAt: row.created_at.toISOString(),
+      decidedAt: row.decided_at?.toISOString() ?? null,
+    })),
+  };
 }
 
 export async function jobSiteStock(

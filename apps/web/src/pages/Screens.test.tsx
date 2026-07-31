@@ -7,11 +7,12 @@ import { describe, expect, it } from "vitest";
 import type { ApiClient } from "../api/ApiClient";
 import { StockControlProviders } from "../app/App";
 import type { AuthClient, SignInCredentials } from "../auth/auth-types";
-import { createFakeApiClient, testItemDetail, testJob } from "../test/fake-api";
+import { createFakeApiClient, engineerDashboard, testItemDetail, testJob } from "../test/fake-api";
 import { DashboardPage } from "./DashboardPage";
 import { InventoryPage } from "./InventoryPage";
 import { ItemDetailPage } from "./ItemDetailPage";
 import { JobDetailPage } from "./JobDetailPage";
+import { RequestsPage } from "./RequestsPage";
 import { TransactionsPage } from "./TransactionsPage";
 import { UsersPage } from "./UsersPage";
 
@@ -79,14 +80,52 @@ describe("dashboard", () => {
     expect(screen.getByText("18")).toBeInTheDocument();
   });
 
-  it("surfaces low stock and the user's own open reservations", async () => {
+  it("surfaces low stock, the request queue and open reservations for Office", async () => {
     renderScreen(<DashboardPage />);
 
     await screen.findByRole("heading", { name: /Good to see you/u });
 
-    expect(screen.getByRole("heading", { name: "Low stock" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Low on stock" })).toBeInTheDocument();
     expect(screen.getByText(/ITM-0099/u)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Stock requests" })).toBeInTheDocument();
+    expect(screen.getByText(/REQ-0001/u)).toBeInTheDocument();
     expect(screen.getByText(/30 ea outstanding for J-1001/u)).toBeInTheDocument();
+  });
+
+  /*
+   * The Engineer dashboard is a different screen, not the same one with pieces
+   * hidden: no business totals, no low stock, no activity feed — just the stock
+   * list, their jobs, and what they have committed or asked for.
+   */
+  it("gives an Engineer their own stock, jobs and commitments instead", async () => {
+    renderScreen(<DashboardPage />, {
+      role: "Engineer",
+      api: createFakeApiClient({ "/dashboard": engineerDashboard }),
+    });
+
+    await screen.findByRole("heading", { name: /Good to see you/u });
+
+    expect(await screen.findByRole("table", { name: "Inventory" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your jobs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your reservations" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your stock requests" })).toBeInTheDocument();
+
+    expect(screen.queryByRole("heading", { name: "Low on stock" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent activity" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Catalogue items" })).not.toBeInTheDocument();
+  });
+
+  it("shows an Engineer how much of an item is reserved for them", async () => {
+    renderScreen(<DashboardPage />, {
+      role: "Engineer",
+      api: createFakeApiClient({ "/dashboard": engineerDashboard }),
+    });
+
+    const table = await screen.findByRole("table", { name: "Inventory" });
+
+    expect(within(table).getByRole("columnheader", { name: "For you" })).toBeInTheDocument();
+    const row = within(table).getByText("M6 × 30 mm zinc-plated hex bolt").closest("tr");
+    expect(within(row as HTMLElement).getByText("30")).toBeInTheDocument();
   });
 });
 
@@ -158,8 +197,36 @@ describe("item detail", () => {
     await screen.findByRole("heading", { name: testItemDetail.name });
 
     expect(screen.getByRole("button", { name: "Issue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request stock" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Receive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Adjust" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  /*
+   * The server already narrows the payload; this checks the screen does not
+   * then label somebody else's movements as if they were shared.
+   */
+  it("titles an Engineer's history as their own and drops the actor column", async () => {
+    renderScreen(<ItemDetailPage />, { ...options, role: "Engineer" });
+
+    await screen.findByRole("heading", { name: testItemDetail.name });
+
+    expect(screen.getByRole("heading", { name: "Your activity on this item" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent transactions" })).not.toBeInTheDocument();
+
+    const table = screen.getByRole("table", { name: "Recent transactions" });
+    expect(within(table).queryByRole("columnheader", { name: "Who" })).not.toBeInTheDocument();
+  });
+
+  it("offers Office the catalogue controls an Engineer does not get", async () => {
+    renderScreen(<ItemDetailPage />, options);
+
+    await screen.findByRole("heading", { name: testItemDetail.name });
+
+    expect(screen.getByRole("heading", { name: "Recent transactions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
   });
 
   it("requires a reason before an adjustment can be submitted", async () => {
@@ -233,6 +300,72 @@ describe("transactions", () => {
     expect(within(table).getByText("Olivia Desk")).toBeInTheDocument();
     expect(within(table).getByText("Receive")).toBeInTheDocument();
     expect(within(table).getByText("MAIN-A1")).toBeInTheDocument();
+  });
+
+  it("offers Office a filter for who did something", async () => {
+    renderScreen(<TransactionsPage />);
+
+    await screen.findByRole("table", { name: "Transaction log" });
+
+    expect(screen.getByRole("combobox", { name: "Who" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "What" })).toBeInTheDocument();
+  });
+
+  it("presents the log to an Engineer as their own record", async () => {
+    renderScreen(<TransactionsPage />, { role: "Engineer" });
+
+    expect(await screen.findByRole("heading", { name: "Your activity" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Who" })).not.toBeInTheDocument();
+
+    const table = screen.getByRole("table", { name: "Transaction log" });
+    expect(within(table).queryByRole("columnheader", { name: "Who" })).not.toBeInTheDocument();
+  });
+
+  /* Filters live in the URL so a narrowed log can be linked to and shared. */
+  it("keeps its filters in the address bar", async () => {
+    const user = userEvent.setup();
+    renderScreen(<TransactionsPage />, {
+      path: "/transactions",
+      route: "/transactions?itemId=ITM-0001",
+    });
+
+    await screen.findByRole("table", { name: "Transaction log" });
+    expect(screen.getByLabelText("Item")).toHaveValue("ITM-0001");
+
+    await user.clear(screen.getByLabelText("Item"));
+    await user.type(screen.getByLabelText("Item"), "ITM-0002");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Item")).toHaveValue("ITM-0002");
+    });
+  });
+});
+
+describe("stock requests", () => {
+  it("lets Office decide a request and shows who asked for what", async () => {
+    const user = userEvent.setup();
+    renderScreen(<RequestsPage />);
+
+    expect(await screen.findByText(/REQ-0001/u)).toBeInTheDocument();
+    expect(screen.getByText(/Sam Field/u)).toBeInTheDocument();
+    expect(screen.getByText(/Running short on site/u)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+
+    const dialog = await screen.findByRole("dialog");
+    /* A refusal has to say why, so the person who asked is not left guessing. */
+    expect(within(dialog).getByRole("button", { name: "Turn down" })).toBeDisabled();
+  });
+
+  it("offers an Engineer no way to decide their own request", async () => {
+    renderScreen(<DashboardPage />, {
+      role: "Engineer",
+      api: createFakeApiClient({ "/dashboard": engineerDashboard }),
+    });
+
+    expect(await screen.findByText(/REQ-0001/u)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 });
 

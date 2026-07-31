@@ -23,9 +23,24 @@ interface RedirectState {
   readonly from?: string;
 }
 
-function getRedirectPath(state: unknown): string {
+/**
+ * Signing in lands on the dashboard. The one exception is a link to a specific
+ * record: scanning an item's QR code while signed out has to come back to that
+ * item once you have signed in, which requirements section 7 asks for. Anything
+ * else — including whichever page you happened to be on when you signed out —
+ * gives way to the dashboard, so a new session always starts from the top.
+ */
+const DEEP_LINK_PATTERNS: readonly RegExp[] = [
+  /^\/inventory\/[^/]+$/u,
+  /^\/jobs\/[^/]+$/u,
+  /^\/requests\/[^/]+$/u,
+];
+
+export const DEFAULT_SIGNED_IN_PATH = "/dashboard";
+
+export function getRedirectPath(state: unknown): string {
   if (typeof state !== "object" || state === null) {
-    return "/dashboard";
+    return DEFAULT_SIGNED_IN_PATH;
   }
 
   const redirectState = state as RedirectState;
@@ -38,13 +53,17 @@ function getRedirectPath(state: unknown): string {
     redirectPath.includes("\\") ||
     redirectPath === "/sign-in"
   ) {
-    return "/dashboard";
+    return DEFAULT_SIGNED_IN_PATH;
   }
 
   const resolvedUrl = new URL(redirectPath, window.location.origin);
 
   if (resolvedUrl.origin !== window.location.origin) {
-    return "/dashboard";
+    return DEFAULT_SIGNED_IN_PATH;
+  }
+
+  if (!DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname))) {
+    return DEFAULT_SIGNED_IN_PATH;
   }
 
   return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;

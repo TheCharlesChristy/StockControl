@@ -11,23 +11,33 @@ export const capabilities = [
   "issue",
   "reserve",
   "collect",
+  "requestStock",
   "manageStock",
   "manageCatalogue",
   "manageJobs",
   "releaseReservation",
+  "reviewStockRequests",
+  "viewAllActivity",
   "manageUsers",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];
 
-const engineer: readonly Capability[] = ["view", "issue", "reserve", "collect"];
+const engineer: readonly Capability[] = ["view", "issue", "reserve", "collect", "requestStock"];
 
+/**
+ * `viewAllActivity` is what separates an Engineer's own record from an
+ * operational one. Without it, every transaction list the server serves is
+ * narrowed to the caller's own actions.
+ */
 const office: readonly Capability[] = [
   ...engineer,
   "manageStock",
   "manageCatalogue",
   "manageJobs",
   "releaseReservation",
+  "reviewStockRequests",
+  "viewAllActivity",
 ];
 
 const admin: readonly Capability[] = [...office, "manageUsers"];

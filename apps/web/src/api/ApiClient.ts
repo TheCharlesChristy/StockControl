@@ -2,6 +2,7 @@ import type {
   CreateItemRequest,
   CreateJobRequest,
   CreateLocationRequest,
+  CreateStockRequestRequest,
   CreateUserRequest,
   DashboardResponse,
   ItemDetailView,
@@ -10,9 +11,15 @@ import type {
   JobListResponse,
   JobStatus,
   LocationListResponse,
+  LocationView,
   StockOperationResponse,
+  StockRequestListResponse,
+  StockRequestStatus,
+  StockRequestView,
   TransactionListResponse,
+  UpdateItemRequest,
   UpdateUserRequest,
+  UserActivityResponse,
   UserListResponse,
   UserView,
 } from "@stockcontrol/contracts";
@@ -103,7 +110,7 @@ export class ApiClient {
   ) {}
 
   private async send<Result>(
-    method: "GET" | "POST" | "PATCH",
+    method: "DELETE" | "GET" | "PATCH" | "POST",
     path: string,
     options: {
       readonly body?: unknown;
@@ -163,12 +170,32 @@ export class ApiClient {
     return item;
   }
 
+  public async updateItem(id: string, body: UpdateItemRequest): Promise<ItemDetailView> {
+    const { item } = await this.send<{ item: ItemDetailView }>("PATCH", `/items/${id}`, { body });
+
+    return item;
+  }
+
+  /** Resolves a scanned reference, barcode or part number to its item. */
+  public async lookupItem(code: string, signal?: AbortSignal): Promise<ItemDetailView> {
+    const { item } = await this.send<{ item: ItemDetailView }>("GET", "/items/lookup", {
+      query: { code },
+      ...(signal === undefined ? {} : { signal }),
+    });
+
+    return item;
+  }
+
   public listLocations(signal?: AbortSignal): Promise<LocationListResponse> {
     return this.send("GET", "/locations", { ...(signal === undefined ? {} : { signal }) });
   }
 
-  public createLocation(body: CreateLocationRequest): Promise<unknown> {
-    return this.send("POST", "/locations", { body });
+  public async createLocation(body: CreateLocationRequest): Promise<LocationView> {
+    const { location } = await this.send<{ location: LocationView }>("POST", "/locations", {
+      body,
+    });
+
+    return location;
   }
 
   public receive(body: {
@@ -206,11 +233,35 @@ export class ApiClient {
     return this.send("POST", "/stock/adjust", { body });
   }
 
-  public listJobs(status?: JobStatus, signal?: AbortSignal): Promise<JobListResponse> {
+  public listJobs(
+    query: {
+      readonly status?: JobStatus | undefined;
+      readonly search?: string | undefined;
+      readonly assignedTo?: string | undefined;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<JobListResponse> {
     return this.send("GET", "/jobs", {
-      ...(status === undefined ? {} : { query: { status } }),
+      query,
       ...(signal === undefined ? {} : { signal }),
     });
+  }
+
+  public async assignJob(jobId: string, userId: string): Promise<JobDetailView> {
+    const { job } = await this.send<{ job: JobDetailView }>("POST", `/jobs/${jobId}/assignments`, {
+      body: { userId },
+    });
+
+    return job;
+  }
+
+  public async unassignJob(jobId: string, userId: string): Promise<JobDetailView> {
+    const { job } = await this.send<{ job: JobDetailView }>(
+      "DELETE",
+      `/jobs/${jobId}/assignments/${userId}`,
+    );
+
+    return job;
   }
 
   public async getJob(id: string, signal?: AbortSignal): Promise<JobDetailView> {
@@ -272,6 +323,63 @@ export class ApiClient {
     });
   }
 
+  public listStockRequests(
+    query: {
+      readonly status?: StockRequestStatus | undefined;
+      readonly mine?: string | undefined;
+      readonly itemId?: string | undefined;
+      readonly jobId?: string | undefined;
+      readonly limit?: number;
+      readonly offset?: number;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<StockRequestListResponse> {
+    return this.send("GET", "/stock-requests", {
+      query,
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public async createStockRequest(body: CreateStockRequestRequest): Promise<StockRequestView> {
+    const { request } = await this.send<{ request: StockRequestView }>("POST", "/stock-requests", {
+      body,
+    });
+
+    return request;
+  }
+
+  public async approveStockRequest(
+    id: string,
+    body: { readonly quantity?: string; readonly decisionNote?: string | null } = {},
+  ): Promise<StockRequestView> {
+    const { request } = await this.send<{ request: StockRequestView }>(
+      "POST",
+      `/stock-requests/${id}/approve`,
+      { body },
+    );
+
+    return request;
+  }
+
+  public async rejectStockRequest(id: string, decisionNote: string): Promise<StockRequestView> {
+    const { request } = await this.send<{ request: StockRequestView }>(
+      "POST",
+      `/stock-requests/${id}/reject`,
+      { body: { decisionNote } },
+    );
+
+    return request;
+  }
+
+  public async cancelStockRequest(id: string): Promise<StockRequestView> {
+    const { request } = await this.send<{ request: StockRequestView }>(
+      "POST",
+      `/stock-requests/${id}/cancel`,
+    );
+
+    return request;
+  }
+
   public listUsers(signal?: AbortSignal): Promise<UserListResponse> {
     return this.send("GET", "/users", { ...(signal === undefined ? {} : { signal }) });
   }
@@ -286,5 +394,15 @@ export class ApiClient {
     const { user } = await this.send<{ user: UserView }>("PATCH", `/users/${id}`, { body });
 
     return user;
+  }
+
+  public async deleteUser(id: string): Promise<void> {
+    await this.send("DELETE", `/users/${id}`);
+  }
+
+  public userActivity(id: string, signal?: AbortSignal): Promise<UserActivityResponse> {
+    return this.send("GET", `/users/${id}/activity`, {
+      ...(signal === undefined ? {} : { signal }),
+    });
   }
 }

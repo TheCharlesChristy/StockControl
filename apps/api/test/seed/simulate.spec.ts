@@ -49,8 +49,45 @@ describe("the demo catalogue", () => {
 });
 
 describe("the demo world", () => {
-  it("seeds one user per role", () => {
-    expect(world.users.map((user) => user.role).sort()).toEqual(["Admin", "Engineer", "Office"]);
+  it("seeds every role, with two Engineers so own-activity views differ", () => {
+    expect(world.users.map((user) => user.role).sort()).toEqual([
+      "Admin",
+      "Engineer",
+      "Engineer",
+      "Office",
+    ]);
+  });
+
+  it("assigns every open job to at least one engineer", () => {
+    const openJobs = world.jobs.filter((job) => job.closedAt === null);
+
+    expect(openJobs.length).toBeGreaterThan(0);
+    expect(
+      openJobs.every((job) =>
+        world.jobAssignments.some((assignment) => assignment.jobId === job.id),
+      ),
+    ).toBe(true);
+  });
+
+  it("seeds stock requests in every state so each screen has something to show", () => {
+    expect(new Set(world.stockRequests.map((request) => request.status))).toEqual(
+      new Set(["Pending", "Approved", "Rejected"]),
+    );
+    expect(
+      world.stockRequests.every(
+        (request) => (request.status === "Pending") === (request.decidedAt === null),
+      ),
+    ).toBe(true);
+  });
+
+  it("splits reservations between both engineers", () => {
+    const engineerIds = world.users
+      .filter((user) => user.role === "Engineer")
+      .map((user) => user.id);
+    const owners = new Set(world.reservations.map((reservation) => reservation.createdByUserId));
+
+    expect(owners.size).toBeGreaterThan(1);
+    expect([...owners].every((owner) => engineerIds.includes(owner))).toBe(true);
   });
 
   it("seeds around twenty locations, one job site per job", () => {

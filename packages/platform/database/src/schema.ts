@@ -106,6 +106,34 @@ export interface ReservationsTable {
   readonly updated_at: Generated<Date>;
 }
 
+export type StockRequestStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
+
+/** Who is working a job. Several people may work the same one. */
+export interface JobAssignmentsTable {
+  readonly job_id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly assigned_by_user_id: ImmutableColumn<string>;
+  readonly assigned_at: GeneratedImmutableColumn<Date>;
+}
+
+/** Demand that has been asked for. It changes no stock level until approved. */
+export interface StockRequestsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly reference: ImmutableColumn<string>;
+  readonly item_id: ImmutableColumn<string>;
+  readonly job_id: ImmutableColumn<string | null>;
+  readonly quantity: string;
+  readonly note: string | null;
+  readonly status: Generated<StockRequestStatus>;
+  readonly requested_by_user_id: ImmutableColumn<string>;
+  readonly decided_by_user_id: string | null;
+  readonly decided_at: Date | null;
+  readonly decision_note: string | null;
+  readonly reservation_id: string | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
 /** Append-only. The runtime role holds select and insert only. */
 export interface TransactionsTable {
   readonly id: ImmutableColumn<string>;
@@ -123,12 +151,14 @@ export interface TransactionsTable {
 
 export interface StockControlDatabase {
   readonly items: ItemsTable;
+  readonly job_assignments: JobAssignmentsTable;
   readonly jobs: JobsTable;
   readonly locations: LocationsTable;
   readonly migration_integrity: MigrationIntegrityTable;
   readonly reservations: ReservationsTable;
   readonly sessions: SessionsTable;
   readonly stock_levels: StockLevelsTable;
+  readonly stock_requests: StockRequestsTable;
   readonly system_metadata: SystemMetadataTable;
   readonly transactions: TransactionsTable;
   readonly users: UsersTable;

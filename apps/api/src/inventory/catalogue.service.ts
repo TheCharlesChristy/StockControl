@@ -12,10 +12,12 @@ import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely } from "kysely";
 
 import {
+  findItemByCode,
   findItemDetail,
   listItems,
   listLocations,
   listTransactions,
+  type ItemDetailOptions,
   type ItemQuery,
   type TransactionQuery,
 } from "../persistence/read-models";
@@ -40,6 +42,16 @@ export interface NewLocation {
   readonly name: string;
 }
 
+/** Only the fields that were supplied are changed. */
+export interface ItemEdit {
+  readonly name?: string | undefined;
+  readonly unit?: string | undefined;
+  readonly barcode?: string | null | undefined;
+  readonly partNumber?: string | null | undefined;
+  readonly lowStockThreshold?: string | null | undefined;
+  readonly isActive?: boolean | undefined;
+}
+
 export class CatalogueService {
   public constructor(private readonly database: Kysely<StockControlDatabase>) {}
 
@@ -59,7 +71,7 @@ export class CatalogueService {
     return listLocations(this.database);
   }
 
-  public async createItem(input: NewItem): Promise<ItemDetailView> {
+  public async createItem(input: NewItem, viewer: ItemDetailOptions): Promise<ItemDetailView> {
     if (input.lowStockThreshold !== null && parseQuantity(input.lowStockThreshold) === null) {
       throw new ApplicationFailureException(
         validationFailed({ lowStockThreshold: ["Enter a quantity or leave it blank."] }),
@@ -109,7 +121,7 @@ export class CatalogueService {
       }
     }
 
-    const item = await findItemDetail(this.database, id);
+    const item = await findItemDetail(this.database, id, viewer);
 
     if (item === undefined) {
       throw new ApplicationFailureException(
@@ -118,6 +130,68 @@ export class CatalogueService {
     }
 
     return item;
+  }
+
+  /**
+   * Editing an item never touches its reference or its history. Archiving is
+   * `isActive: false`: the item stops being usable in stock operations but its
+   * balances and transactions stay exactly where they are.
+   */
+  public async updateItem(
+    itemId: string,
+    edit: ItemEdit,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    if (
+      edit.lowStockThreshold !== undefined &&
+      edit.lowStockThreshold !== null &&
+      parseQuantity(edit.lowStockThreshold) === null
+    ) {
+      throw new ApplicationFailureException(
+        validationFailed({ lowStockThreshold: ["Enter a quantity or leave it blank."] }),
+      );
+    }
+
+    const changes = {
+      ...(edit.name === undefined ? {} : { name: edit.name }),
+      ...(edit.unit === undefined ? {} : { unit: edit.unit }),
+      ...(edit.barcode === undefined ? {} : { barcode: edit.barcode }),
+      ...(edit.partNumber === undefined ? {} : { part_number: edit.partNumber }),
+      ...(edit.lowStockThreshold === undefined
+        ? {}
+        : { low_stock_threshold: edit.lowStockThreshold }),
+      ...(edit.isActive === undefined ? {} : { is_active: edit.isActive }),
+    };
+
+    if (Object.keys(changes).length > 0) {
+      try {
+        await this.database
+          .withSchema(SCHEMA)
+          .updateTable("items")
+          .set({ ...changes, updated_at: new Date() })
+          .where("id", "=", itemId)
+          .execute();
+      } catch (error: unknown) {
+        throw duplicateOrRethrow(error, {
+          items_barcode_key: { barcode: ["That barcode already belongs to another item."] },
+        });
+      }
+    }
+
+    const item = await findItemDetail(this.database, itemId, viewer);
+
+    if (item === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That item was not found." }),
+      );
+    }
+
+    return item;
+  }
+
+  /** Resolves a scanned or typed code to an item id. */
+  public findByCode(code: string): Promise<{ readonly id: string } | undefined> {
+    return findItemByCode(this.database, code);
   }
 
   public async createLocation(input: NewLocation): Promise<LocationView> {

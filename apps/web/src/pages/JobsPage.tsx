@@ -1,4 +1,5 @@
 import AddRounded from "@mui/icons-material/AddRounded";
+import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
   Alert,
   Box,
@@ -8,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  InputAdornment,
   Link,
   Paper,
   Stack,
@@ -22,11 +24,12 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 import type { JobStatus } from "@stockcontrol/contracts";
-import { useCallback, useState, type FormEvent, type ReactElement } from "react";
+import { useCallback, useDeferredValue, useState, type FormEvent, type ReactElement } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
+import { useAuth } from "../auth/AuthContext";
 import { useCapability } from "../auth/useCapability";
 import {
   EmptyState,
@@ -120,13 +123,27 @@ function CreateJobDialog({ onClose }: { readonly onClose: () => void }): ReactEl
 
 export function JobsPage(): ReactElement {
   const api = useApi();
+  const { user } = useAuth();
   const canManageJobs = useCapability("manageJobs");
   const [filter, setFilter] = useState<Filter>("Open");
+  const [search, setSearch] = useState("");
+  /* An Engineer opens this page to find their own work, so start there. */
+  const [mineOnly, setMineOnly] = useState(user?.role === "Engineer");
   const [creating, setCreating] = useState(false);
+  const deferredSearch = useDeferredValue(search);
+  const assignedTo = mineOnly ? user?.id : undefined;
 
   const load = useCallback(
-    (signal: AbortSignal) => api.listJobs(filter === "All" ? undefined : filter, signal),
-    [api, filter],
+    (signal: AbortSignal) =>
+      api.listJobs(
+        {
+          ...(filter === "All" ? {} : { status: filter }),
+          search: deferredSearch,
+          ...(assignedTo === undefined ? {} : { assignedTo }),
+        },
+        signal,
+      ),
+    [api, filter, deferredSearch, assignedTo],
   );
   const jobs = useResource(load);
   const rows = jobs.data?.jobs ?? [];
@@ -150,22 +167,55 @@ export function JobsPage(): ReactElement {
         }
       />
 
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={filter}
-        onChange={(_, next: Filter | null) => {
-          if (next !== null) {
-            setFilter(next);
-          }
-        }}
-        aria-label="Filter jobs by status"
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        spacing={2}
+        alignItems={{ xs: "stretch", md: "center" }}
         sx={{ mb: 2.5 }}
       >
-        <ToggleButton value="Open">Open</ToggleButton>
-        <ToggleButton value="Closed">Closed</ToggleButton>
-        <ToggleButton value="All">All</ToggleButton>
-      </ToggleButtonGroup>
+        <TextField
+          label="Search jobs"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Number, name or customer"
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRounded fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{ flex: 1 }}
+        />
+
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={filter}
+          onChange={(_, next: Filter | null) => {
+            if (next !== null) {
+              setFilter(next);
+            }
+          }}
+          aria-label="Filter jobs by status"
+        >
+          <ToggleButton value="Open">Open</ToggleButton>
+          <ToggleButton value="Closed">Closed</ToggleButton>
+          <ToggleButton value="All">All</ToggleButton>
+        </ToggleButtonGroup>
+
+        <ToggleButton
+          value="mine"
+          size="small"
+          selected={mineOnly}
+          onChange={() => setMineOnly((only) => !only)}
+          aria-label="Show only jobs assigned to me"
+        >
+          Assigned to me
+        </ToggleButton>
+      </Stack>
 
       {jobs.status === "error" && jobs.error !== undefined && (
         <ErrorState error={jobs.error} onRetry={jobs.reload} />
@@ -175,11 +225,21 @@ export function JobsPage(): ReactElement {
 
       {jobs.data !== undefined && rows.length === 0 && (
         <EmptyState
-          title={filter === "Closed" ? "No closed jobs" : "No jobs yet"}
+          title={
+            search.length > 0
+              ? "No jobs matched that search"
+              : mineOnly
+                ? "You are not on any jobs"
+                : filter === "Closed"
+                  ? "No closed jobs"
+                  : "No jobs yet"
+          }
           description={
-            canManageJobs
-              ? "Create a job, then reserve the stock it needs."
-              : "An Office user creates jobs. Ask them to set one up."
+            mineOnly
+              ? "Turn off “Assigned to me” to see every job, or ask an Office user to put you on one."
+              : canManageJobs
+                ? "Create a job, then reserve the stock it needs."
+                : "An Office user creates jobs. Ask them to set one up."
           }
         />
       )}
@@ -193,6 +253,9 @@ export function JobsPage(): ReactElement {
                   <TableCell>Number</TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell>Customer</TableCell>
+                  <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
+                    Assigned to
+                  </TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell align="right">Open reservations</TableCell>
                   <TableCell>Created</TableCell>
@@ -208,6 +271,11 @@ export function JobsPage(): ReactElement {
                     </TableCell>
                     <TableCell>{job.name}</TableCell>
                     <TableCell>{job.customer}</TableCell>
+                    <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
+                      {job.assignees.length === 0
+                        ? "—"
+                        : job.assignees.map((person) => person.displayName).join(", ")}
+                    </TableCell>
                     <TableCell>
                       <Chip
                         label={job.status}

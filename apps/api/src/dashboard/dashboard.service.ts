@@ -1,33 +1,124 @@
-import type { DashboardReservationView, DashboardResponse } from "@stockcontrol/contracts";
+import type {
+  DashboardResponse,
+  EngineerDashboardResponse,
+  EngineerJobView,
+  OfficeDashboardResponse,
+  UserRole,
+} from "@stockcontrol/contracts";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely } from "kysely";
 
-import { listItems, listTransactions } from "../persistence/read-models";
-import { formatQuantity, quantityFromDatabase, subtract } from "../stock/quantity";
+import type { JobsService } from "../jobs/jobs.service";
+import {
+  jobSiteStock,
+  listItems,
+  listOpenReservations,
+  listStockRequests,
+  listTransactions,
+} from "../persistence/read-models";
 
 const SCHEMA = "stockcontrol" as const;
 const LOW_STOCK_LIMIT = 10;
 const RECENT_LIMIT = 10;
+const RESERVATION_LIMIT = 20;
+const REQUEST_LIMIT = 10;
 
+export interface DashboardViewer {
+  readonly id: string;
+  readonly role: UserRole;
+}
+
+/**
+ * The dashboard is the one screen shaped by who is looking. An Engineer is
+ * shown their own work — their jobs, their commitments, their requests — and no
+ * business-wide totals. Office and Admin are shown what needs a decision.
+ */
 export class DashboardService {
-  public constructor(private readonly database: Kysely<StockControlDatabase>) {}
+  public constructor(
+    private readonly database: Kysely<StockControlDatabase>,
+    private readonly jobs: JobsService,
+  ) {}
 
-  public async forUser(userId: string): Promise<DashboardResponse> {
-    const [lowStock, myReservations, recent, counts] = await Promise.all([
-      this.lowStock(),
-      this.reservationsFor(userId),
+  public forUser(viewer: DashboardViewer): Promise<DashboardResponse> {
+    return viewer.role === "Engineer" ? this.forEngineer(viewer) : this.forOffice(viewer);
+  }
+
+  private async forEngineer(viewer: DashboardViewer): Promise<EngineerDashboardResponse> {
+    const [myJobs, myReservations, myRequests] = await Promise.all([
+      this.assignedJobs(viewer.id),
+      listOpenReservations(this.database, {
+        createdByUserId: viewer.id,
+        limit: RESERVATION_LIMIT,
+      }),
+      listStockRequests(this.database, {
+        requestedByUserId: viewer.id,
+        limit: REQUEST_LIMIT,
+        offset: 0,
+      }),
+    ]);
+
+    return { role: "Engineer", myJobs, myReservations, myRequests: myRequests.rows };
+  }
+
+  private async forOffice(viewer: DashboardViewer): Promise<OfficeDashboardResponse> {
+    const [
+      lowStock,
+      upcomingJobs,
+      openReservations,
+      myReservations,
+      pendingRequests,
+      recent,
+      counts,
+    ] = await Promise.all([
+      this.lowStock(viewer.id),
+      this.jobs.list({ status: "Open" }),
+      listOpenReservations(this.database, { limit: RESERVATION_LIMIT }),
+      /*
+       * Queried rather than filtered out of the list above: that one is capped,
+       * so filtering it would quietly hide this person's older commitments.
+       */
+      listOpenReservations(this.database, {
+        createdByUserId: viewer.id,
+        limit: RESERVATION_LIMIT,
+      }),
+      listStockRequests(this.database, {
+        status: "Pending",
+        limit: REQUEST_LIMIT,
+        offset: 0,
+      }),
       listTransactions(this.database, { limit: RECENT_LIMIT, offset: 0 }),
       this.counts(),
     ]);
 
-    return { lowStock, myReservations, recentTransactions: recent.rows, counts };
+    return {
+      role: viewer.role === "Admin" ? "Admin" : "Office",
+      lowStock,
+      upcomingJobs: upcomingJobs.slice(0, RECENT_LIMIT),
+      openReservations,
+      myReservations,
+      pendingRequests: pendingRequests.rows,
+      recentTransactions: recent.rows,
+      counts: { ...counts, pendingRequests: pendingRequests.total },
+    };
+  }
+
+  /** The jobs this person is on, each with whatever is sitting on its site. */
+  private async assignedJobs(userId: string): Promise<readonly EngineerJobView[]> {
+    const jobs = await this.jobs.list({ assignedTo: userId, status: "Open" });
+
+    return Promise.all(
+      jobs.map(async (job) => ({
+        ...job,
+        jobSiteStock: await jobSiteStock(this.database, job.jobSiteLocationId),
+      })),
+    );
   }
 
   /**
    * Only items that carry a threshold can be below it, so the scan is limited
    * to those rather than every item in the catalogue.
    */
-  private async lowStock(): Promise<DashboardResponse["lowStock"]> {
+  private async lowStock(viewerUserId: string): Promise<OfficeDashboardResponse["lowStock"]> {
     const candidates = await this.database
       .withSchema(SCHEMA)
       .selectFrom("items")
@@ -44,63 +135,13 @@ export class DashboardService {
       limit: candidates.length,
       offset: 0,
       belowThresholdOnly: true,
+      viewerUserId,
     });
 
     return rows.slice(0, LOW_STOCK_LIMIT);
   }
 
-  private async reservationsFor(userId: string): Promise<readonly DashboardReservationView[]> {
-    const rows = await this.database
-      .withSchema(SCHEMA)
-      .selectFrom("reservations")
-      .innerJoin("items", "items.id", "reservations.item_id")
-      .innerJoin("jobs", "jobs.id", "reservations.job_id")
-      .innerJoin("users", "users.id", "reservations.created_by_user_id")
-      .select([
-        "reservations.id as id",
-        "reservations.item_id as item_id",
-        "reservations.quantity_reserved as quantity_reserved",
-        "reservations.quantity_collected as quantity_collected",
-        "reservations.status as status",
-        "reservations.created_at as created_at",
-        "items.reference as item_reference",
-        "items.name as item_name",
-        "items.unit as unit",
-        "jobs.id as job_id",
-        "jobs.number as job_number",
-        "jobs.name as job_name",
-        "users.display_name as created_by_name",
-      ])
-      .where("reservations.created_by_user_id", "=", userId)
-      .where("reservations.status", "=", "Open")
-      .orderBy("reservations.created_at", "desc")
-      .limit(RECENT_LIMIT)
-      .execute();
-
-    return rows.map((row) => ({
-      id: row.id,
-      itemId: row.item_id,
-      itemReference: row.item_reference,
-      itemName: row.item_name,
-      unit: row.unit,
-      quantityReserved: row.quantity_reserved,
-      quantityCollected: row.quantity_collected,
-      quantityOutstanding: formatQuantity(
-        subtract(
-          quantityFromDatabase(row.quantity_reserved),
-          quantityFromDatabase(row.quantity_collected),
-        ),
-      ),
-      status: row.status,
-      createdByName: row.created_by_name,
-      createdAt: row.created_at.toISOString(),
-      jobId: row.job_id,
-      jobNumber: row.job_number,
-      jobName: row.job_name,
-    }));
-  }
-
-  private async counts(): Promise<DashboardResponse["counts"]> {
+  private async counts(): Promise<Omit<OfficeDashboardResponse["counts"], "pendingRequests">> {
     const row = await this.database
       .withSchema(SCHEMA)
       .selectFrom("items")

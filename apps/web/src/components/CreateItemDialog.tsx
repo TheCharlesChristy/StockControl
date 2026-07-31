@@ -17,16 +17,23 @@ import { useApi } from "../api/ApiContext";
 interface CreateItemDialogProps {
   readonly onClose: () => void;
   readonly onCreated: (item: ItemDetailView) => void;
+  /** Present when editing. The reference and its history never change. */
+  readonly item?: ItemDetailView | undefined;
 }
 
 /** Mounted only while it is open, so its fields need no resetting. */
-export function CreateItemDialog({ onClose, onCreated }: CreateItemDialogProps): ReactElement {
+export function CreateItemDialog({
+  onClose,
+  onCreated,
+  item,
+}: CreateItemDialogProps): ReactElement {
   const api = useApi();
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("ea");
-  const [barcode, setBarcode] = useState("");
-  const [partNumber, setPartNumber] = useState("");
-  const [threshold, setThreshold] = useState("");
+  const editing = item !== undefined;
+  const [name, setName] = useState(item?.name ?? "");
+  const [unit, setUnit] = useState(item?.unit ?? "ea");
+  const [barcode, setBarcode] = useState(item?.barcode ?? "");
+  const [partNumber, setPartNumber] = useState(item?.partNumber ?? "");
+  const [threshold, setThreshold] = useState(item?.lowStockThreshold ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | undefined>(undefined);
 
@@ -35,14 +42,15 @@ export function CreateItemDialog({ onClose, onCreated }: CreateItemDialogProps):
     setSubmitting(true);
     setError(undefined);
 
-    void api
-      .createItem({
-        name,
-        unit,
-        barcode: barcode.trim().length === 0 ? null : barcode,
-        partNumber: partNumber.trim().length === 0 ? null : partNumber,
-        lowStockThreshold: threshold.trim().length === 0 ? null : threshold,
-      })
+    const fields = {
+      name,
+      unit,
+      barcode: barcode.trim().length === 0 ? null : barcode,
+      partNumber: partNumber.trim().length === 0 ? null : partNumber,
+      lowStockThreshold: threshold.trim().length === 0 ? null : threshold,
+    };
+
+    void (item === undefined ? api.createItem(fields) : api.updateItem(item.id, fields))
       .then(onCreated)
       .catch((caught: unknown) => {
         setError(
@@ -58,7 +66,7 @@ export function CreateItemDialog({ onClose, onCreated }: CreateItemDialogProps):
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New catalogue item</DialogTitle>
+      <DialogTitle>{editing ? `Edit ${item.reference}` : "New catalogue item"}</DialogTitle>
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
@@ -120,7 +128,13 @@ export function CreateItemDialog({ onClose, onCreated }: CreateItemDialogProps):
             Cancel
           </Button>
           <Button type="submit" variant="contained" disabled={submitting}>
-            {submitting ? "Creating…" : "Create item"}
+            {submitting
+              ? editing
+                ? "Saving…"
+                : "Creating…"
+              : editing
+                ? "Save changes"
+                : "Create item"}
           </Button>
         </DialogActions>
       </form>

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { readSessionCookie } from "../../src/auth/auth.guard";
 import {
   attachSession,
+  canViewAllActivity,
   currentUser,
   requireCapability,
   requireSession,
@@ -109,5 +110,47 @@ describe("readSessionCookie", () => {
     } as unknown as FastifyRequest;
 
     expect(readSessionCookie(request)).toBe("session-id");
+  });
+});
+
+/**
+ * This is the gate every transaction list is narrowed by. An Engineer sees
+ * their own record; Office and Admin see the operational one. Getting it wrong
+ * either hides an Office user's log or shows an Engineer everyone else's.
+ */
+describe("who may see other people's activity", () => {
+  const requestAs = (role: AuthenticatedSession["user"]["role"]): FastifyRequest => {
+    const request = emptyRequest();
+
+    attachSession(request, sessionFor(role));
+
+    return request;
+  };
+
+  it("withholds it from an Engineer", () => {
+    expect(canViewAllActivity(requestAs("Engineer"))).toBe(false);
+  });
+
+  it.each(["Office", "Admin"] as const)("grants it to %s", (role) => {
+    expect(canViewAllActivity(requestAs(role))).toBe(true);
+  });
+
+  it("refuses an Engineer the capability outright, with a readable reason", () => {
+    try {
+      requireCapability(requestAs("Engineer"), "viewAllActivity");
+      throw new Error("requireCapability should have thrown.");
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ApplicationFailureException);
+      expect((error as ApplicationFailureException).getStatus()).toBe(403);
+      expect((error as ApplicationFailureException).failure.detail).toContain(
+        "see other people's activity",
+      );
+    }
+  });
+
+  it("refuses an Engineer the review of stock requests but allows raising one", () => {
+    expect(() => requireCapability(requestAs("Engineer"), "requestStock")).not.toThrow();
+    expect(() => requireCapability(requestAs("Engineer"), "reviewStockRequests")).toThrow();
+    expect(() => requireCapability(requestAs("Office"), "reviewStockRequests")).not.toThrow();
   });
 });

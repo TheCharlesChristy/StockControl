@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { InjectOptions } from "fastify";
-import type { ItemDetailView, JobResponse, StockOperationResponse } from "@stockcontrol/contracts";
+import type {
+  ItemDetailView,
+  JobResponse,
+  StockOperationResponse,
+  StockRequestListResponse,
+  StockRequestResponse,
+  TransactionListResponse,
+} from "@stockcontrol/contracts";
 import {
   createMigratorDatabase,
   loadMigrationDatabaseRoles,
@@ -78,7 +85,7 @@ async function createUser(
 
 async function request(
   actor: Actor | null,
-  method: "GET" | "POST" | "PATCH",
+  method: "DELETE" | "GET" | "PATCH" | "POST",
   url: string,
   payload?: unknown,
 ): Promise<{ readonly status: number; readonly body: unknown }> {
@@ -133,7 +140,13 @@ async function seedLocation(code: string): Promise<string> {
 }
 
 async function clearBusinessData(): Promise<void> {
+  /*
+   * Order matters: stock requests and assignments reference items, jobs and
+   * users with `on delete restrict`, so they come out before what they point at.
+   */
   await schema().deleteFrom("transactions").execute();
+  await schema().deleteFrom("stock_requests").execute();
+  await schema().deleteFrom("job_assignments").execute();
   await schema().deleteFrom("reservations").execute();
   await schema().deleteFrom("stock_levels").execute();
   await schema().deleteFrom("items").execute();
@@ -147,12 +160,7 @@ beforeAll(async () => {
   migrator = createMigratorDatabase(configuration);
   await runMigrations(migrator, { runtimeRole });
 
-  await schema().deleteFrom("transactions").execute();
-  await schema().deleteFrom("reservations").execute();
-  await schema().deleteFrom("stock_levels").execute();
-  await schema().deleteFrom("items").execute();
-  await schema().deleteFrom("locations").execute();
-  await schema().deleteFrom("jobs").execute();
+  await clearBusinessData();
   await schema().deleteFrom("sessions").execute();
   await schema().deleteFrom("users").execute();
 
@@ -244,8 +252,19 @@ describe("authorisation is enforced on the server", () => {
     expect(response.status).toBe(403);
   });
 
-  it("refuses an Office user managing users", async () => {
-    expect((await request(office, "GET", "/users")).status).toBe(403);
+  /*
+   * Reading the list of people is a read — Office needs it to filter a log by
+   * who did something. Changing anybody is still Admin's alone.
+   */
+  it("lets an Office user read the team but not change it", async () => {
+    expect((await request(office, "GET", "/users")).status).toBe(200);
+    expect((await request(office, "POST", "/users", {})).status).toBe(403);
+    expect((await request(office, "PATCH", `/users/${engineer.id}`, {})).status).toBe(403);
+    expect((await request(office, "DELETE", `/users/${engineer.id}`)).status).toBe(403);
+  });
+
+  it("refuses an Engineer the team list entirely", async () => {
+    expect((await request(engineer, "GET", "/users")).status).toBe(403);
   });
 
   it("allows an Admin to manage users", async () => {
@@ -649,15 +668,274 @@ async function sessionValueFor(email: string): Promise<string> {
 }
 
 describe("dashboard", () => {
-  it("returns low stock, the user's reservations and recent activity", async () => {
+  /* The payload is shaped by the role, not filtered by the browser. */
+  it("gives an Engineer their own work and no business-wide figures", async () => {
     const response = await request(engineer, "GET", "/dashboard");
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      lowStock: expect.any(Array),
+      role: "Engineer",
+      myJobs: expect.any(Array),
       myReservations: expect.any(Array),
+      myRequests: expect.any(Array),
+    });
+    expect(response.body).not.toHaveProperty("lowStock");
+    expect(response.body).not.toHaveProperty("counts");
+  });
+
+  it.each(["Office", "Admin"] as const)("gives %s what needs deciding", async (role) => {
+    const response = await request(role === "Office" ? office : admin, "GET", "/dashboard");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      role,
+      lowStock: expect.any(Array),
+      upcomingJobs: expect.any(Array),
+      openReservations: expect.any(Array),
+      pendingRequests: expect.any(Array),
       recentTransactions: expect.any(Array),
       counts: expect.any(Object),
     });
+  });
+});
+
+/**
+ * Requirements section 9.2: an Engineer sees their own activity and nobody
+ * else's. The narrowing is the server's, so a hand-built request that asks for
+ * somebody else's log has to come back with the caller's own instead.
+ */
+describe("who can see whose activity", () => {
+  let itemId: string;
+  let storeId: string;
+
+  beforeEach(async () => {
+    itemId = await seedItem("ITM-9100");
+    storeId = await seedLocation("TEST-SCOPE");
+
+    /* One movement by Office, one by the Engineer. */
+    await request(office, "POST", "/stock/receive", {
+      itemId,
+      locationId: storeId,
+      quantity: "50",
+    });
+    await request(engineer, "POST", "/stock/issue", { itemId, locationId: storeId, quantity: "5" });
+  });
+
+  it("shows an Office user both movements", async () => {
+    const response = await request(office, "GET", "/transactions");
+    const actors = new Set(
+      (response.body as TransactionListResponse).rows.map((row) => row.actorUserId),
+    );
+
+    expect(actors).toContain(office.id);
+    expect(actors).toContain(engineer.id);
+  });
+
+  it("shows an Engineer only their own, even when they ask for someone else's", async () => {
+    const response = await request(engineer, "GET", `/transactions?actorUserId=${office.id}`);
+    const rows = (response.body as TransactionListResponse).rows;
+
+    expect(response.status).toBe(200);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.actorUserId === engineer.id)).toBe(true);
+  });
+
+  it("narrows an item's own history the same way", async () => {
+    const officeView = await request(office, "GET", `/items/${itemId}`);
+    const engineerView = await request(engineer, "GET", `/items/${itemId}`);
+
+    const officeActors = new Set(
+      (officeView.body as { item: ItemDetailView }).item.recentTransactions.map(
+        (row) => row.actorUserId,
+      ),
+    );
+    const engineerActors = new Set(
+      (engineerView.body as { item: ItemDetailView }).item.recentTransactions.map(
+        (row) => row.actorUserId,
+      ),
+    );
+
+    expect(officeActors.size).toBe(2);
+    expect([...engineerActors]).toEqual([engineer.id]);
+  });
+});
+
+/** The demand loop the MVP left out: ask, then have somebody decide. */
+describe("stock requests", () => {
+  let itemId: string;
+  let storeId: string;
+  let jobId: string;
+
+  beforeEach(async () => {
+    itemId = await seedItem("ITM-9200");
+    storeId = await seedLocation("TEST-REQ");
+    await request(office, "POST", "/stock/receive", {
+      itemId,
+      locationId: storeId,
+      quantity: "100",
+    });
+
+    const created = await request(office, "POST", "/jobs", {
+      name: "Request job",
+      customer: "Test customer",
+    });
+    jobId = (created.body as JobResponse).job.id;
+  });
+
+  const raise = async (payload: Record<string, unknown>): Promise<StockRequestResponse> => {
+    const response = await request(engineer, "POST", "/stock-requests", payload);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+
+    return response.body as StockRequestResponse;
+  };
+
+  it("approving a request that names a job creates the reservation", async () => {
+    const { request: raised } = await raise({ itemId, jobId, quantity: "10" });
+
+    expect(raised.status).toBe("Pending");
+    expect(raised.reservationId).toBeNull();
+
+    const approved = await request(admin, "POST", `/stock-requests/${raised.id}/approve`, {});
+    const decided = (approved.body as StockRequestResponse).request;
+
+    expect(approved.status).toBe(201);
+    expect(decided.status).toBe("Approved");
+    expect(decided.reservationId).not.toBeNull();
+
+    /* Availability moved, because the reservation is a real one. */
+    const item = await request(office, "GET", `/items/${itemId}`);
+    expect((item.body as { item: ItemDetailView }).item.reserved).toBe("10.000");
+  });
+
+  it("leaves a request pending when the stock is not there to commit", async () => {
+    const { request: raised } = await raise({ itemId, jobId, quantity: "999999" });
+    const approved = await request(admin, "POST", `/stock-requests/${raised.id}/approve`, {});
+
+    expect(approved.status).toBe(422);
+
+    const listed = await request(admin, "GET", "/stock-requests?status=Pending");
+    const rows = (listed.body as StockRequestListResponse).rows;
+
+    expect(rows.some((row) => row.id === raised.id)).toBe(true);
+  });
+
+  it("requires a reason to turn one down", async () => {
+    const { request: raised } = await raise({ itemId, quantity: "5" });
+
+    expect((await request(office, "POST", `/stock-requests/${raised.id}/reject`, {})).status).toBe(
+      422,
+    );
+
+    const rejected = await request(office, "POST", `/stock-requests/${raised.id}/reject`, {
+      decisionNote: "Plenty in the main store.",
+    });
+
+    expect((rejected.body as StockRequestResponse).request.status).toBe("Rejected");
+  });
+
+  it("refuses an Engineer the decision, and shows them only their own", async () => {
+    const { request: raised } = await raise({ itemId, quantity: "5" });
+
+    expect(
+      (await request(engineer, "POST", `/stock-requests/${raised.id}/approve`, {})).status,
+    ).toBe(403);
+
+    const otherPersons = await request(office, "POST", "/stock-requests", {
+      itemId,
+      quantity: "3",
+    });
+    expect(otherPersons.status).toBe(201);
+
+    const listed = await request(engineer, "GET", "/stock-requests");
+    const rows = (listed.body as StockRequestListResponse).rows;
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.requestedById === engineer.id)).toBe(true);
+  });
+
+  it("lets the person who asked withdraw it, and nobody else", async () => {
+    const { request: raised } = await raise({ itemId, quantity: "5" });
+
+    expect((await request(office, "POST", `/stock-requests/${raised.id}/cancel`)).status).toBe(422);
+
+    const cancelled = await request(engineer, "POST", `/stock-requests/${raised.id}/cancel`);
+
+    expect((cancelled.body as StockRequestResponse).request.status).toBe("Cancelled");
+  });
+});
+
+describe("job assignment", () => {
+  let jobId: string;
+
+  beforeEach(async () => {
+    const created = await request(office, "POST", "/jobs", {
+      name: "Assignment job",
+      customer: "Test customer",
+    });
+    jobId = (created.body as JobResponse).job.id;
+  });
+
+  it("puts a job on the assigned engineer's dashboard and nobody else's", async () => {
+    const assigned = await request(office, "POST", `/jobs/${jobId}/assignments`, {
+      userId: engineer.id,
+    });
+
+    expect(assigned.status).toBe(201);
+    expect((assigned.body as JobResponse).job.assignees).toEqual([
+      expect.objectContaining({ userId: engineer.id, role: "Engineer" }),
+    ]);
+
+    const dashboard = await request(engineer, "GET", "/dashboard");
+    const myJobs = (dashboard.body as { myJobs: readonly { id: string }[] }).myJobs;
+
+    expect(myJobs.some((job) => job.id === jobId)).toBe(true);
+  });
+
+  it("is idempotent, and removable", async () => {
+    await request(office, "POST", `/jobs/${jobId}/assignments`, { userId: engineer.id });
+    const again = await request(office, "POST", `/jobs/${jobId}/assignments`, {
+      userId: engineer.id,
+    });
+
+    expect(again.status).toBe(201);
+    expect((again.body as JobResponse).job.assignees).toHaveLength(1);
+
+    const removed = await request(office, "DELETE", `/jobs/${jobId}/assignments/${engineer.id}`);
+
+    expect((removed.body as JobResponse).job.assignees).toEqual([]);
+  });
+
+  it("refuses an Engineer the ability to assign themselves", async () => {
+    const response = await request(engineer, "POST", `/jobs/${jobId}/assignments`, {
+      userId: engineer.id,
+    });
+
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("finding an item by a scanned code", () => {
+  it("resolves a reference, a barcode and a part number alike", async () => {
+    const itemId = await seedItem("ITM-9300");
+
+    await request(office, "PATCH", `/items/${itemId}`, {
+      barcode: "5010000009300",
+      partNumber: "PN-9300",
+    });
+
+    for (const code of ["ITM-9300", "itm-9300", "5010000009300", "PN-9300"]) {
+      const response = await request(engineer, "GET", `/items/lookup?code=${code}`);
+
+      expect(response.status, code).toBe(200);
+      expect((response.body as { item: ItemDetailView }).item.id).toBe(itemId);
+    }
+  });
+
+  it("says so plainly when nothing matches", async () => {
+    const response = await request(engineer, "GET", "/items/lookup?code=NOT-A-CODE");
+
+    expect(response.status).toBe(404);
+    expect(JSON.stringify(response.body)).toContain("No item matches that code");
   });
 });
