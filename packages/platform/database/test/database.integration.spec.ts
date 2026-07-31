@@ -8,7 +8,7 @@ import {
 } from "../src/configuration";
 import { createMigratorDatabase, createRuntimeDatabase } from "../src/connection";
 import { MIGRATION_NAMES } from "../src/migrations/provider";
-import { runMigrations } from "../src/migrations/runner";
+import { RUNTIME_TABLE_PRIVILEGES, runMigrations } from "../src/migrations/runner";
 import { PostgresReadinessCheck } from "../src/readiness";
 import { STOCKCONTROL_SCHEMA, type StockControlDatabase } from "../src/schema";
 
@@ -117,7 +117,14 @@ describe.sequential("PostgreSQL database foundation", () => {
     );
   });
 
-  it("creates the stock tables the demo runs on", async () => {
+  /*
+   * Compared against the privilege registry rather than a third hand-written
+   * list. That registry is typed against the Kysely schema, so this asserts the
+   * migration SQL, the schema types and the runtime grants all describe the
+   * same set of tables — a table created but never granted would be invisible
+   * at runtime, and one granted but never created would fail on first use.
+   */
+  it("creates exactly the tables the runtime privilege registry covers", async () => {
     expect(migratorDatabase).toBeDefined();
 
     const tables = await (
@@ -129,20 +136,7 @@ describe.sequential("PostgreSQL database foundation", () => {
         .filter(({ schema }) => schema === STOCKCONTROL_SCHEMA)
         .map(({ name }) => name)
         .sort(),
-    ).toEqual(
-      [
-        "items",
-        "jobs",
-        "locations",
-        "migration_integrity",
-        "reservations",
-        "sessions",
-        "stock_levels",
-        "system_metadata",
-        "transactions",
-        "users",
-      ].sort(),
-    );
+    ).toEqual(Object.keys(RUNTIME_TABLE_PRIVILEGES).sort());
   });
 
   it("does not permit the runtime role to create or drop schema objects", async () => {
