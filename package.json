@@ -29,7 +29,11 @@
     "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build",
     "services:up": "docker compose up -d --wait",
     "services:down": "docker compose down",
-    "services:logs": "docker compose logs -f"
+    "services:logs": "docker compose logs -f",
+    "dev:manager:start": "node ./scripts/dev-server-manager.mjs start",
+    "dev:manager:stop": "node ./scripts/dev-server-manager.mjs stop",
+    "dev:manager:status": "node ./scripts/dev-server-manager.mjs status",
+    "dev:manager:logs": "node ./scripts/dev-server-manager.mjs logs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
