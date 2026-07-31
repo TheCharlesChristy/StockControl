@@ -10,6 +10,7 @@ import type {
   StockRequestResponse,
   TransactionListResponse,
 } from "@stockcontrol/contracts";
+import { capabilitiesForRole } from "@stockcontrol/contracts";
 import {
   createMigratorDatabase,
   loadMigrationDatabaseRoles,
@@ -219,13 +220,23 @@ describe("authentication", () => {
     expect(response.body).toContain("Those sign-in details were not recognised.");
   });
 
+  /*
+   * The exact role table is pinned exhaustively in the permissions unit test.
+   * What matters here is that the wire answer is the server's own map — and,
+   * separately asserted because it is the property that actually protects
+   * anything, that it withholds what an Engineer must not have.
+   */
   it("returns the session and the role's capabilities", async () => {
     const response = await request(engineer, "GET", "/auth/session");
     const body = response.body as { session: { user: { role: string } }; capabilities: string[] };
 
     expect(response.status).toBe(200);
     expect(body.session.user.role).toBe("Engineer");
-    expect(body.capabilities).toEqual(["view", "issue", "reserve", "collect"]);
+    expect(body.capabilities).toEqual([...capabilitiesForRole("Engineer")]);
+    expect(body.capabilities).toContain("requestStock");
+    expect(body.capabilities).not.toContain("viewAllActivity");
+    expect(body.capabilities).not.toContain("reviewStockRequests");
+    expect(body.capabilities).not.toContain("manageUsers");
   });
 
   it("ends the session on sign-out", async () => {
