@@ -335,7 +335,12 @@ test("a scanned item opens after signing in, on a phone", async ({ page, context
   /* The QR code encodes this page's own address, so that is what a camera opens. */
   await context.clearCookies();
   await page.goto(itemUrl);
-  await expect(page).toHaveURL(/\/sign-in$/);
+  /*
+   * The sign-in URL carries the item along. Arriving from a camera is a full
+   * page load, so router state is gone by this point and the query string is
+   * what brings the visitor back to the record they scanned.
+   */
+  await expect(page).toHaveURL(/\/sign-in\?next=/u);
 
   await page.getByLabel("Work email").fill(ENGINEER.email);
   await page.getByLabel("Password", { exact: true }).fill(ENGINEER.password);
