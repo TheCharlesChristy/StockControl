@@ -336,6 +336,119 @@ function ReleaseDialog({
   );
 }
 
+/**
+ * Who is working this job. Assignment is what puts a job on somebody's Overview
+ * and drives their "assigned to me" filter, so it is managed here rather than
+ * buried in an edit form.
+ */
+function AssigneesPanel({
+  job,
+  canManage,
+  onChanged,
+}: {
+  readonly job: JobDetailView;
+  readonly canManage: boolean;
+  readonly onChanged: () => void;
+}): ReactElement {
+  const api = useApi();
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | undefined>(undefined);
+  const loadUsers = useCallback(
+    (signal: AbortSignal) => (adding ? api.listUsers(signal) : Promise.resolve(undefined)),
+    [api, adding],
+  );
+  const users = useResource(loadUsers);
+  const assignedIds = new Set(job.assignees.map((person) => person.userId));
+  const candidates = (users.data?.users ?? []).filter(
+    (person) => person.isActive && !assignedIds.has(person.id),
+  );
+
+  const change = (action: Promise<unknown>): void => {
+    setBusy(true);
+    setError(undefined);
+    void action
+      .then(() => {
+        setAdding(false);
+        onChanged();
+      })
+      .catch((caught: unknown) => setError(asApiError(caught)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Paper variant="outlined">
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ px: 2.5, py: 2 }}
+      >
+        <Typography variant="h3" component="h2">
+          Who is on this job
+        </Typography>
+        {canManage && job.status === "Open" && (
+          <Button size="small" onClick={() => setAdding((open) => !open)}>
+            {adding ? "Done" : "Assign someone"}
+          </Button>
+        )}
+      </Stack>
+      <Divider />
+      <Box sx={{ px: 2.5, py: 2 }}>
+        {error !== undefined && (
+          <Alert severity="error" role="alert" sx={{ mb: 2 }}>
+            {error.message}
+          </Alert>
+        )}
+
+        {job.assignees.length === 0 ? (
+          <Typography color="text.secondary">
+            Nobody is assigned yet. Assigned people see this job on their Overview.
+          </Typography>
+        ) : (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {job.assignees.map((person) => (
+              <Chip
+                key={person.userId}
+                label={`${person.displayName} · ${person.role}`}
+                variant="outlined"
+                {...(canManage && job.status === "Open"
+                  ? {
+                      onDelete: () => change(api.unassignJob(job.id, person.userId)),
+                      disabled: busy,
+                    }
+                  : {})}
+              />
+            ))}
+          </Stack>
+        )}
+
+        {adding && (
+          <Box sx={{ mt: 2, maxWidth: 360 }}>
+            <TextField
+              select
+              fullWidth
+              label="Add someone"
+              value=""
+              disabled={busy}
+              onChange={(event) => change(api.assignJob(job.id, event.target.value))}
+              helperText={
+                candidates.length === 0 ? "Everyone active is already on this job." : undefined
+              }
+            >
+              {candidates.map((person) => (
+                <MenuItem key={person.id} value={person.id}>
+                  {person.displayName} — {person.role}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+        )}
+      </Box>
+    </Paper>
+  );
+}
+
 export function JobDetailPage(): ReactElement {
   const api = useApi();
   const { jobId = "" } = useParams<{ jobId: string }>();
@@ -433,6 +546,8 @@ export function JobDetailPage(): ReactElement {
               <StatTile label="Open reservations" value={String(openReservations.length)} />
               <StatTile label="Items at site" value={String(data.jobSiteStock.length)} />
             </Stack>
+
+            <AssigneesPanel job={data} canManage={canManageJobs} onChanged={job.reload} />
 
             <Paper variant="outlined">
               <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>

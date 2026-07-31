@@ -349,18 +349,79 @@ test("a scanned item opens after signing in, on a phone", async ({ page, context
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
 });
 
-/* Acceptance item 2. */
-test("role decides which controls are offered", async ({ page }) => {
+/*
+ * Acceptance item 2. An Engineer's Overview is the stock list, so there is no
+ * separate Inventory section for them to reach at all.
+ */
+test("role decides which sections and controls are offered", async ({ page }) => {
   await signIn(page, ENGINEER);
-  await page.goto("/inventory");
+  await page.goto("/dashboard");
   await expect(page.getByRole("table", { name: "Inventory" })).toBeVisible();
 
-  await expect(page.getByRole("button", { name: "New item" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Inventory" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Stock requests" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Team & access" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Jobs" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Transactions" })).toBeVisible();
 
   await page.getByRole("table", { name: "Inventory" }).getByRole("link").first().click();
   await expect(page.getByRole("button", { name: "Issue" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request stock" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
+});
+
+/*
+ * Requirements section 9.2 gives an Engineer their own activity and nobody
+ * else's. The server narrows it, so the assertion is on what actually arrives.
+ */
+test("an Engineer's log holds only their own activity", async ({ page }) => {
+  await signIn(page, ENGINEER);
+  await page.goto("/transactions");
+
+  await expect(page.getByRole("heading", { name: "Your activity" })).toBeVisible();
+  /* No "Who" column, because every row is the same person. */
+  await expect(page.getByRole("combobox", { name: "Who" })).toHaveCount(0);
+
+  const log = page.getByRole("table", { name: "Transaction log" });
+  await expect(log).toBeVisible();
+  await expect(log.getByRole("columnheader", { name: "Who" })).toHaveCount(0);
+});
+
+/* The purchasing loop the MVP left out: ask, then have somebody decide. */
+test("an Engineer requests stock and the Office decides it", async ({ page }) => {
+  await signIn(page, ENGINEER);
+  await page.goto("/dashboard");
+
+  await page.getByRole("table", { name: "Inventory" }).getByRole("link").first().click();
+  await page.getByRole("button", { name: "Request stock" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: /Quantity/ }).fill("7");
+  await dialog.getByRole("textbox", { name: "Note (optional)" }).fill("Needed for Friday.");
+  await dialog.getByRole("button", { name: "Send request" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "Your stock requests" })).toBeVisible();
+  await expect(page.getByText("Needed for Friday.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+
+  await signIn(page, OFFICE);
+  await page.goto("/requests");
+
+  const request = page.locator("li").filter({ hasText: "Needed for Friday." }).first();
+  await expect(request).toBeVisible();
+  await request.getByRole("button", { name: "Reject" }).click();
+
+  const decision = page.getByRole("dialog");
+  await decision
+    .getByRole("textbox", { name: "Why is this being turned down?" })
+    .fill("Plenty in the main store already.");
+  await decision.getByRole("button", { name: "Turn down" }).click();
+
+  await expect(decision).toHaveCount(0);
 });
 
 /* Acceptance item 2: the same URL, two roles, two outcomes. */
@@ -377,16 +438,23 @@ test("the user screen is reachable by an Admin and refused to an Office user", a
   await expect(page.getByRole("table", { name: "Users" })).toBeVisible();
 });
 
-test("signing out ends the session", async ({ page }) => {
+test("signing out ends the session and signing back in starts at the dashboard", async ({
+  page,
+}) => {
   await signIn(page, OFFICE);
-  await page.goto("/dashboard");
-  await expect(page.getByRole("heading", { name: /Good to see you/ })).toBeVisible();
+  await page.goto("/transactions");
+  await expect(page.getByRole("heading", { name: /Every change/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
 
   await page.goto("/inventory");
   await expect(page).toHaveURL(/\/sign-in$/);
+
+  /* Back in at the top, not on whichever page the last session ended on. */
+  await signIn(page, OFFICE);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole("heading", { name: /Good to see you/ })).toBeVisible();
 });
 
 test("the transaction log accounts for activity with its actor", async ({ page }) => {

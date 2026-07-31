@@ -43,6 +43,8 @@ export interface ItemSummaryView {
   readonly inStores: string;
   readonly atJobSites: string;
   readonly reserved: string;
+  /** Of `reserved`, the part the calling user committed themselves. */
+  readonly reservedForYou: string;
   readonly available: string;
   readonly belowThreshold: boolean;
 }
@@ -64,6 +66,7 @@ export interface TransactionView {
   readonly toLocationCode: string | null;
   readonly jobNumber: string | null;
   readonly reason: string | null;
+  readonly actorUserId: string;
   readonly actorName: string;
   readonly occurredAt: string;
 }
@@ -89,6 +92,17 @@ export interface CreateItemRequest {
   readonly barcode?: string | null;
   readonly partNumber?: string | null;
   readonly lowStockThreshold?: string | null;
+}
+
+/** Every field is optional; only what is supplied changes. */
+export interface UpdateItemRequest {
+  readonly name?: string;
+  readonly unit?: string;
+  readonly barcode?: string | null;
+  readonly partNumber?: string | null;
+  readonly lowStockThreshold?: string | null;
+  /** Archiving keeps the item and its history but takes it out of use. */
+  readonly isActive?: boolean;
 }
 
 export interface CreateLocationRequest {
@@ -126,4 +140,6 @@ export interface AdjustStockRequest {
 export interface StockOperationResponse {
   readonly item: ItemDetailView;
   readonly transactionId: string;
+  /** The reservation the operation created, touched, or null when none. */
+  readonly reservationId: string | null;
 }

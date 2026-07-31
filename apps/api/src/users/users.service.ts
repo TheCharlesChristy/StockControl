@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { UserRole, UserView } from "@stockcontrol/contracts";
+import type { UserActivityResponse, UserRole, UserView } from "@stockcontrol/contracts";
 import { resourceUnavailable, userRoles, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
@@ -8,6 +8,11 @@ import { sql, type Kysely } from "kysely";
 
 import { hashPassword } from "../auth/password";
 import type { SessionService } from "../auth/session-service";
+import {
+  listOpenReservations,
+  listStockRequests,
+  listTransactions,
+} from "../persistence/read-models";
 
 const SCHEMA = "stockcontrol" as const;
 const MINIMUM_PASSWORD_CHARACTERS = 10;
@@ -21,10 +26,13 @@ export interface NewUser {
 }
 
 export interface UserChanges {
+  readonly email?: string | undefined;
   readonly displayName?: string | undefined;
   readonly role?: UserRole | undefined;
   readonly isActive?: boolean | undefined;
 }
+
+const ACTIVITY_LIMIT = 20;
 
 export class UsersService {
   public constructor(
@@ -98,10 +106,17 @@ export class UsersService {
     const existing = await this.require(userId);
     const displayName = input.displayName;
     const { role, isActive } = input;
+    const email = input.email?.trim().toLowerCase();
 
     if (role !== undefined && !userRoles.includes(role)) {
       throw new ApplicationFailureException(
         validationFailed({ role: ["Choose Engineer, Office or Admin."] }),
+      );
+    }
+
+    if (email !== undefined && !EMAIL_PATTERN.test(email)) {
+      throw new ApplicationFailureException(
+        validationFailed({ email: ["Enter a valid email address."] }),
       );
     }
 
@@ -123,19 +138,30 @@ export class UsersService {
       );
     }
 
-    await this.database
-      .withSchema(SCHEMA)
-      .updateTable("users")
-      .set({
-        ...(displayName === undefined || displayName.length === 0
-          ? {}
-          : { display_name: displayName }),
-        ...(role === undefined ? {} : { role }),
-        ...(isActive === undefined ? {} : { is_active: isActive }),
-        updated_at: sql`now()`,
-      })
-      .where("id", "=", userId)
-      .execute();
+    try {
+      await this.database
+        .withSchema(SCHEMA)
+        .updateTable("users")
+        .set({
+          ...(email === undefined ? {} : { email }),
+          ...(displayName === undefined || displayName.length === 0
+            ? {}
+            : { display_name: displayName }),
+          ...(role === undefined ? {} : { role }),
+          ...(isActive === undefined ? {} : { is_active: isActive }),
+          updated_at: sql`now()`,
+        })
+        .where("id", "=", userId)
+        .execute();
+    } catch (error: unknown) {
+      if ((error as { readonly code?: string }).code === "23505") {
+        throw new ApplicationFailureException(
+          validationFailed({ email: ["That email address already has an account."] }),
+        );
+      }
+
+      throw error;
+    }
 
     /* Disabling a user must end their active sessions, not just block new ones. */
     if (isActive === false) {
@@ -143,6 +169,114 @@ export class UsersService {
     }
 
     return this.require(userId);
+  }
+
+  /**
+   * Deleting is only possible for an account that never did anything. Every
+   * table recording an action points at users with `on delete restrict`, so a
+   * person with history cannot be erased without erasing the audit trail —
+   * which the product will not do. Those accounts are deactivated instead, and
+   * the message says so rather than showing a foreign-key error.
+   */
+  public async remove(userId: string): Promise<void> {
+    const existing = await this.require(userId);
+
+    if (existing.role === "Admin" && existing.isActive && (await this.activeAdminCount()) <= 1) {
+      throw new ApplicationFailureException(
+        validationFailed({
+          user: ["This is the only active Admin. Promote another Admin first."],
+        }),
+      );
+    }
+
+    if (await this.hasHistory(userId)) {
+      throw new ApplicationFailureException(
+        validationFailed({
+          user: [
+            "This person has recorded stock activity, which cannot be erased. Deactivate the account instead.",
+          ],
+        }),
+      );
+    }
+
+    await this.sessions.revokeAllForUser(userId);
+
+    await this.database
+      .withSchema(SCHEMA)
+      .deleteFrom("job_assignments")
+      .where("user_id", "=", userId)
+      .execute();
+
+    await this.database.withSchema(SCHEMA).deleteFrom("users").where("id", "=", userId).execute();
+  }
+
+  /** What one person has been doing, for the Admin's user detail screen. */
+  public async activity(userId: string): Promise<UserActivityResponse> {
+    const user = await this.require(userId);
+    const [transactions, openReservations, requests, pending] = await Promise.all([
+      listTransactions(this.database, {
+        actorUserId: userId,
+        limit: ACTIVITY_LIMIT,
+        offset: 0,
+      }),
+      listOpenReservations(this.database, {
+        createdByUserId: userId,
+        limit: ACTIVITY_LIMIT,
+      }),
+      listStockRequests(this.database, {
+        requestedByUserId: userId,
+        limit: ACTIVITY_LIMIT,
+        offset: 0,
+      }),
+      listStockRequests(this.database, {
+        requestedByUserId: userId,
+        status: "Pending",
+        limit: 1,
+        offset: 0,
+      }),
+    ]);
+
+    return {
+      user,
+      recentTransactions: transactions.rows,
+      openReservations,
+      stockRequests: requests.rows,
+      counts: {
+        transactions: transactions.total,
+        openReservations: openReservations.length,
+        pendingRequests: pending.total,
+      },
+    };
+  }
+
+  private async hasHistory(userId: string): Promise<boolean> {
+    const row = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("users")
+      .select([
+        sql<string>`(select count(*) from stockcontrol.transactions where actor_user_id = ${userId})`.as(
+          "transactions",
+        ),
+        sql<string>`(select count(*) from stockcontrol.reservations where created_by_user_id = ${userId})`.as(
+          "reservations",
+        ),
+        sql<string>`(select count(*) from stockcontrol.stock_requests
+           where requested_by_user_id = ${userId} or decided_by_user_id = ${userId})`.as(
+          "requests",
+        ),
+        sql<string>`(select count(*) from stockcontrol.job_assignments
+           where assigned_by_user_id = ${userId})`.as("assignments"),
+      ])
+      .where("id", "=", userId)
+      .executeTakeFirst();
+
+    return (
+      Number(row?.transactions ?? 0) +
+        Number(row?.reservations ?? 0) +
+        Number(row?.requests ?? 0) +
+        Number(row?.assignments ?? 0) >
+      0
+    );
   }
 
   private async activeAdminCount(): Promise<number> {

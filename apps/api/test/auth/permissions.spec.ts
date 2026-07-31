@@ -18,10 +18,13 @@ const EXPECTED: Readonly<Record<Capability, readonly UserRole[]>> = {
   issue: ["Engineer", "Office", "Admin"],
   reserve: ["Engineer", "Office", "Admin"],
   collect: ["Engineer", "Office", "Admin"],
+  requestStock: ["Engineer", "Office", "Admin"],
   manageStock: ["Office", "Admin"],
   manageCatalogue: ["Office", "Admin"],
   manageJobs: ["Office", "Admin"],
   releaseReservation: ["Office", "Admin"],
+  reviewStockRequests: ["Office", "Admin"],
+  viewAllActivity: ["Office", "Admin"],
   manageUsers: ["Admin"],
 };
 
@@ -42,9 +45,26 @@ describe("role capabilities", () => {
   it("gives an Engineer the field capabilities and nothing that changes the catalogue", () => {
     const engineer = capabilitiesForRole("Engineer");
 
-    expect(engineer).toEqual(["view", "issue", "reserve", "collect"]);
+    expect(engineer).toEqual(["view", "issue", "reserve", "collect", "requestStock"]);
     expect(engineer).not.toContain("manageStock");
     expect(engineer).not.toContain("manageUsers");
+  });
+
+  /**
+   * This is what keeps an Engineer's transaction lists to their own record. The
+   * server narrows every query on it, so losing it here would quietly widen
+   * what a field user can see.
+   */
+  it("withholds other people's activity from an Engineer", () => {
+    expect(roleHasCapability("Engineer", "viewAllActivity")).toBe(false);
+    expect(roleHasCapability("Office", "viewAllActivity")).toBe(true);
+    expect(roleHasCapability("Admin", "viewAllActivity")).toBe(true);
+  });
+
+  it("lets anyone raise a stock request but only Office and Admin decide it", () => {
+    expect(everyRoleCan("requestStock")).toBe(true);
+    expect(roleHasCapability("Engineer", "reviewStockRequests")).toBe(false);
+    expect(roleHasCapability("Office", "reviewStockRequests")).toBe(true);
   });
 
   it("makes each role a superset of the one below it", () => {

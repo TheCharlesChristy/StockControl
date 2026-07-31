@@ -11,8 +11,10 @@ import { InventoryPage } from "../pages/InventoryPage";
 import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { JobDetailPage } from "../pages/JobDetailPage";
 import { JobsPage } from "../pages/JobsPage";
+import { RequestsPage } from "../pages/RequestsPage";
 import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
+import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
 import { RouteErrorBoundary } from "./ErrorBoundaries";
 import { RouteTransitionManager } from "./RouteTransitionManager";
@@ -59,16 +61,44 @@ export function AppRoutes(): ReactElement {
           <Route element={<AppShell />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
+            {/*
+             * The inventory *list* is an Office and Admin section, but an item's
+             * own page is not: it is where a QR code lands, and every role needs
+             * it. Only routes with a navigation entry are role-guarded.
+             */}
+            <Route
+              path="/inventory"
+              element={
+                <Guarded path="/inventory">
+                  <InventoryPage />
+                </Guarded>
+              }
+            />
             <Route path="/inventory/:itemId" element={<ItemDetailPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+            <Route
+              path="/requests"
+              element={
+                <Guarded path="/requests">
+                  <RequestsPage />
+                </Guarded>
+              }
+            />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route
               path="/team"
               element={
                 <Guarded path="/team">
                   <UsersPage />
+                </Guarded>
+              }
+            />
+            <Route
+              path="/team/:userId"
+              element={
+                <Guarded path="/team">
+                  <UserDetailPage />
                 </Guarded>
               }
             />

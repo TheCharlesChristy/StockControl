@@ -36,6 +36,8 @@ import { InventoryController } from "./inventory/inventory.controller";
 import { StockService } from "./inventory/stock.service";
 import { JobsController } from "./jobs/jobs.controller";
 import { JobsService } from "./jobs/jobs.service";
+import { StockRequestsController } from "./requests/requests.controller";
+import { StockRequestsService } from "./requests/requests.service";
 import { SystemController } from "./system/system.controller";
 import { SYSTEM_TOKENS } from "./system/system.tokens";
 import { UsersController } from "./users/users.controller";
@@ -126,8 +128,14 @@ const providers: Provider[] = [
   },
   {
     provide: API_TOKENS.dashboardService,
-    useFactory: (database: Database) => new DashboardService(database),
-    inject: [SYSTEM_TOKENS.database],
+    useFactory: (database: Database, jobs: JobsService) => new DashboardService(database, jobs),
+    inject: [SYSTEM_TOKENS.database, API_TOKENS.jobsService],
+  },
+  {
+    provide: API_TOKENS.stockRequestsService,
+    useFactory: (database: Database, stock: StockService) =>
+      new StockRequestsService(database, stock),
+    inject: [SYSTEM_TOKENS.database, API_TOKENS.stockService],
   },
   {
     /*
@@ -148,6 +156,7 @@ const providers: Provider[] = [
     DashboardController,
     InventoryController,
     JobsController,
+    StockRequestsController,
     UsersController,
   ],
   providers,

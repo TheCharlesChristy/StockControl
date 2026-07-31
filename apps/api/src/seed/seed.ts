@@ -24,10 +24,12 @@ async function clearExistingData(database: Kysely<StockControlDatabase>): Promis
   const schema = database.withSchema(STOCKCONTROL_SCHEMA);
 
   await schema.deleteFrom("transactions").execute();
+  await schema.deleteFrom("stock_requests").execute();
   await schema.deleteFrom("reservations").execute();
   await schema.deleteFrom("stock_levels").execute();
   await schema.deleteFrom("items").execute();
   await schema.deleteFrom("locations").execute();
+  await schema.deleteFrom("job_assignments").execute();
   await schema.deleteFrom("jobs").execute();
   await schema.deleteFrom("sessions").execute();
   await schema.deleteFrom("users").execute();
@@ -75,10 +77,10 @@ const seed = async (): Promise<void> => {
           number: job.number,
           name: job.name,
           customer: job.customer,
-          status: "Open" as const,
+          status: job.closedAt === null ? ("Open" as const) : ("Closed" as const),
           created_at: job.createdAt,
-          updated_at: job.createdAt,
-          closed_at: null,
+          updated_at: job.closedAt ?? job.createdAt,
+          closed_at: job.closedAt,
         })),
       )
       .execute();
@@ -148,6 +150,43 @@ const seed = async (): Promise<void> => {
         .execute();
     }
 
+    if (world.jobAssignments.length > 0) {
+      await schema
+        .insertInto("job_assignments")
+        .values(
+          world.jobAssignments.map((assignment) => ({
+            job_id: assignment.jobId,
+            user_id: assignment.userId,
+            assigned_by_user_id: assignment.assignedByUserId,
+          })),
+        )
+        .execute();
+    }
+
+    if (world.stockRequests.length > 0) {
+      await schema
+        .insertInto("stock_requests")
+        .values(
+          world.stockRequests.map((request) => ({
+            id: request.id,
+            reference: request.reference,
+            item_id: request.itemId,
+            job_id: request.jobId,
+            quantity: request.quantity,
+            note: request.note,
+            status: request.status,
+            requested_by_user_id: request.requestedByUserId,
+            decided_by_user_id: request.decidedByUserId,
+            decided_at: request.decidedAt,
+            decision_note: request.decisionNote,
+            reservation_id: null,
+            created_at: request.createdAt,
+            updated_at: request.decidedAt ?? request.createdAt,
+          })),
+        )
+        .execute();
+    }
+
     await insertInChunks(world.transactions, 500, (chunk) =>
       schema
         .insertInto("transactions")
@@ -176,7 +215,9 @@ const seed = async (): Promise<void> => {
         locations: world.locations.length,
         items: world.items.length,
         jobs: world.jobs.length,
+        jobAssignments: world.jobAssignments.length,
         reservations: world.reservations.length,
+        stockRequests: world.stockRequests.length,
         stockLevels: world.stockLevels.length,
         transactions: world.transactions.length,
         password: DEMO_PASSWORD,

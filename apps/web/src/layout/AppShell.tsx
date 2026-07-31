@@ -20,9 +20,10 @@ import {
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useState, type ReactElement } from "react";
-import { Link as RouterLink, Outlet, useLocation } from "react-router-dom";
+import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
+import { ScanFab } from "../components/ScanFab";
 import { navigationForUser, navigationItems } from "../navigation";
 
 const drawerWidth = 272;
@@ -41,11 +42,23 @@ export function AppShell(): ReactElement | null {
   const theme = useTheme();
   const desktopNavigation = useMediaQuery(theme.breakpoints.up("md"));
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   if (user === null) {
     return null;
   }
+
+  /*
+   * Signing out clears the remembered location as well as the session, so the
+   * next sign-in starts at the dashboard rather than resuming wherever the last
+   * person happened to stop.
+   */
+  const handleSignOut = (): void => {
+    void signOut().finally(() => {
+      void navigate("/sign-in", { replace: true, state: null });
+    });
+  };
 
   const roleNavigation = navigationForUser(user);
   /*
@@ -89,45 +102,51 @@ export function AppShell(): ReactElement | null {
           const Icon = item.icon;
 
           return (
-            <ListItemButton
-              key={item.path}
-              component={RouterLink}
-              to={item.path}
-              selected={location.pathname === item.path}
-              onClick={() => setMobileNavigationOpen(false)}
-              sx={{
-                mb: 0.5,
-                color: "rgba(255,255,255,0.72)",
-                "& .MuiListItemIcon-root": {
-                  color: "inherit",
-                },
-                "&:hover": {
-                  color: "#FFFFFF",
-                  bgcolor: "rgba(255,255,255,0.08)",
-                },
-                "&.Mui-selected": {
-                  color: "#FFFFFF",
-                  bgcolor: "rgba(99, 210, 192, 0.17)",
-                  boxShadow: "inset 3px 0 0 #72D7C7",
-                  "&:hover": {
-                    bgcolor: "rgba(99, 210, 192, 0.22)",
+            /*
+             * `describeChild` matters: without it MUI makes the tooltip the
+             * link's accessible name, so screen readers would announce the
+             * description instead of the section it leads to.
+             */
+            <Tooltip key={item.path} title={item.description} placement="right" describeChild>
+              <ListItemButton
+                component={RouterLink}
+                to={item.path}
+                selected={location.pathname === item.path}
+                onClick={() => setMobileNavigationOpen(false)}
+                sx={{
+                  mb: 0.5,
+                  color: "rgba(255,255,255,0.72)",
+                  "& .MuiListItemIcon-root": {
+                    color: "inherit",
                   },
-                },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 40 }}>
-                <Icon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={item.label}
-                slotProps={{
-                  primary: {
-                    fontSize: "0.9rem",
-                    fontWeight: 700,
+                  "&:hover": {
+                    color: "#FFFFFF",
+                    bgcolor: "rgba(255,255,255,0.08)",
+                  },
+                  "&.Mui-selected": {
+                    color: "#FFFFFF",
+                    bgcolor: "rgba(99, 210, 192, 0.17)",
+                    boxShadow: "inset 3px 0 0 #72D7C7",
+                    "&:hover": {
+                      bgcolor: "rgba(99, 210, 192, 0.22)",
+                    },
                   },
                 }}
-              />
-            </ListItemButton>
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  <Icon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  slotProps={{
+                    primary: {
+                      fontSize: "0.9rem",
+                      fontWeight: 700,
+                    },
+                  }}
+                />
+              </ListItemButton>
+            </Tooltip>
           );
         })}
       </List>
@@ -167,9 +186,7 @@ export function AppShell(): ReactElement | null {
           <Tooltip title="Sign out">
             <IconButton
               size="small"
-              onClick={() => {
-                void signOut();
-              }}
+              onClick={handleSignOut}
               aria-label="Sign out"
               sx={{ color: "rgba(255,255,255,0.72)" }}
             >
@@ -302,6 +319,8 @@ export function AppShell(): ReactElement | null {
           <Outlet />
         </Box>
       </Box>
+
+      <ScanFab />
     </Box>
   );
 }

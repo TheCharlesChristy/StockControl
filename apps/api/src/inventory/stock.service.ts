@@ -4,7 +4,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
-import { findItemDetail } from "../persistence/read-models";
+import { findItemDetail, type ItemDetailOptions } from "../persistence/read-models";
 import {
   applyEffect,
   loadItemFacts,
@@ -100,8 +100,17 @@ async function requireJob(tx: StockTransaction, jobId: string): Promise<JobFacts
   return job;
 }
 
-export interface ReceiveCommand {
+/**
+ * Every command names who is running it. `scopeActivityToActor` decides whose
+ * transactions come back on the item afterwards: an Engineer is shown their own
+ * record and nobody else's, exactly as on the item screen itself.
+ */
+export interface ActorCommand {
   readonly actorUserId: string;
+  readonly scopeActivityToActor: boolean;
+}
+
+export interface ReceiveCommand extends ActorCommand {
   readonly itemId: string;
   readonly locationId: string;
   readonly quantity: Quantity;
@@ -111,40 +120,43 @@ export interface IssueCommand extends ReceiveCommand {
   readonly jobId: string | null;
 }
 
-export interface TransferCommand {
-  readonly actorUserId: string;
+export interface TransferCommand extends ActorCommand {
   readonly itemId: string;
   readonly fromLocationId: string;
   readonly toLocationId: string;
   readonly quantity: Quantity;
 }
 
-export interface AdjustCommand {
-  readonly actorUserId: string;
+export interface AdjustCommand extends ActorCommand {
   readonly itemId: string;
   readonly locationId: string;
   readonly countedQuantity: Quantity;
   readonly reason: string;
 }
 
-export interface ReserveCommand {
-  readonly actorUserId: string;
+export interface ReserveCommand extends ActorCommand {
   readonly jobId: string;
   readonly itemId: string;
   readonly quantity: Quantity;
 }
 
-export interface CollectCommand {
-  readonly actorUserId: string;
+export interface CollectCommand extends ActorCommand {
   readonly reservationId: string;
   readonly sourceLocationId: string;
   readonly quantity: Quantity;
 }
 
-export interface ReleaseCommand {
-  readonly actorUserId: string;
+export interface ReleaseCommand extends ActorCommand {
   readonly reservationId: string;
   readonly reason: string;
+}
+
+/** How an item should be read back for the person who just acted on it. */
+function viewerFor(command: ActorCommand): ItemDetailOptions {
+  return {
+    viewerUserId: command.actorUserId,
+    scopeActivityToViewer: command.scopeActivityToActor,
+  };
 }
 
 export class StockService {
@@ -157,19 +169,24 @@ export class StockService {
     tx: StockTransaction,
     decision: StockDecision,
     itemId: string,
+    viewer: ItemDetailOptions,
   ): Promise<StockOperationResponse> {
     if (!decision.ok) {
       throw stockFailure(decision.error);
     }
 
     const applied = await applyEffect(tx, decision.effect, this.now());
-    const item = await findItemDetail(tx, itemId);
+    const item = await findItemDetail(tx, itemId, viewer);
 
     if (item === undefined) {
       throw notFound("That item");
     }
 
-    return { item, transactionId: applied.transactionId };
+    return {
+      item,
+      transactionId: applied.transactionId,
+      reservationId: applied.reservationId,
+    };
   }
 
   public async receive(command: ReceiveCommand): Promise<StockOperationResponse> {
@@ -187,6 +204,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -209,6 +227,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -231,6 +250,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -252,6 +272,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -272,6 +293,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -306,6 +328,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -329,6 +352,7 @@ export class StockService {
           actorUserId: command.actorUserId,
         }),
         item.id,
+        viewerFor(command),
       );
     });
   }
@@ -381,8 +405,8 @@ export class StockService {
     });
   }
 
-  public async itemDetail(itemId: string): Promise<ItemDetailView> {
-    const item = await findItemDetail(this.database, itemId);
+  public async itemDetail(itemId: string, viewer: ItemDetailOptions): Promise<ItemDetailView> {
+    const item = await findItemDetail(this.database, itemId, viewer);
 
     if (item === undefined) {
       throw notFound("That item");

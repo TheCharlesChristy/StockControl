@@ -21,6 +21,7 @@ export interface SeedJob {
   readonly number: string;
   readonly name: string;
   readonly customer: string;
+  readonly closed?: boolean;
 }
 
 /** mulberry32 — small, fast, and repeatable. */
@@ -60,6 +61,8 @@ export const seedJobs: readonly SeedJob[] = [
   { number: "J-1001", name: "Retail unit fit-out", customer: "Northgate Retail" },
   { number: "J-1002", name: "Warehouse lighting upgrade", customer: "Bellway Logistics" },
   { number: "J-1003", name: "Office small-power alterations", customer: "Carrick Property" },
+  /* Closed, so the Jobs page has something to show behind its Closed filter. */
+  { number: "J-1004", name: "Reception rewire", customer: "Halden Estates", closed: true },
 ] as const;
 
 interface CatalogueGroup {

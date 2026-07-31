@@ -6,5 +6,6 @@ export * from "./inventory";
 export * from "./jobs";
 export * from "./observability";
 export * from "./permissions";
+export * from "./stock-requests";
 export * from "./system";
 export * from "./users";
