@@ -32,3 +32,5 @@ Thumbs.db
 *.tfstate
 *.tfstate.*
 .terraform/
+
+*.log
