@@ -179,6 +179,34 @@ describe("StockControl application routes", () => {
     ).toBeInTheDocument();
   });
 
+  /*
+   * Arriving from a camera is a full page load, so there is no router history
+   * state to carry the destination — only the URL. This is the case the demo
+   * journey walks, and the one that used to bounce to the dashboard.
+   */
+  it("returns to the record when only the URL remembers it", async () => {
+    renderRoute("/sign-in?next=%2Finventory%2Fitem-1");
+
+    await completeValidSignIn();
+
+    expect(
+      await screen.findByRole("heading", { name: /M6 × 30 mm zinc-plated hex bolt/u }),
+    ).toBeInTheDocument();
+  });
+
+  /*
+   * Signing in flips the auth status while the sign-in page is running its own
+   * redirect. Both sides have to choose the same destination or they race, and
+   * the visitor lands wherever the later navigation happened to point.
+   */
+  it("sends an already-signed-in visitor on /sign-in to the record, not the dashboard", async () => {
+    renderRoute("/sign-in?next=%2Finventory%2Fitem-1", new FakeAuthClient(userForRole("Office")));
+
+    expect(
+      await screen.findByRole("heading", { name: /M6 × 30 mm zinc-plated hex bolt/u }),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     null,
     "https://malicious.example/steal",
