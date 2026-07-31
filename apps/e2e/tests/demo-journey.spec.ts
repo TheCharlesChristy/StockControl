@@ -95,7 +95,7 @@ test("an anonymous visitor is sent to sign in", async ({ page }) => {
   await page.goto("/inventory");
 
   await expect(page).toHaveURL(/\/sign-in$/);
-  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
 test("wrong details are refused without saying which detail was wrong", async ({ page }) => {
