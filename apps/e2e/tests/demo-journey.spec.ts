@@ -621,10 +621,19 @@ test("an admin nests a location by drawing it inside another, with no parent to 
   expect(persisted?.depth).toBe(2);
 
   /*
-   * Re-parenting as the shape is dragged is covered where it can be asserted
-   * frame by frame: `editor-state.test.ts` drags a shape in and back out, and
-   * `MapCanvas.test.tsx` drives the same pointer handling this canvas uses.
+   * Move it out of the bay and it stops being inside anything, with nothing
+   * asked and nothing set. Nudging moves whatever is selected, so this does not
+   * depend on hitting a small shape that sits on top of a larger one.
+   *
+   * Six large steps is 0.12, taking the shape from y 0.12-0.20 to y 0.24-0.32 —
+   * past the bottom of Aisle A at 0.31, and short of Aisle B at 0.35.
    */
+  await canvas.focus();
+  for (let step = 0; step < 6; step += 1) {
+    await page.keyboard.press("Shift+ArrowDown");
+  }
+
+  await expect(inspector.getByTestId("breadcrumb")).toHaveText("E2E nested bay");
 
   /* Leave the seeded map as it was found. */
   const removed = await page.request.delete(`/api/v1/locations/${persisted?.id ?? ""}`);

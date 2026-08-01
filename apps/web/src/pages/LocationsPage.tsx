@@ -80,12 +80,16 @@ export function LocationsPage(): ReactElement {
     ),
   );
 
+  /*
+   * Adopt what the server sends, unless we already hold something newer. A save
+   * leaves the page a revision ahead of the last fetch, and loading that stale
+   * copy over it would throw the selection away the moment you pressed Save.
+   */
   useEffect(() => {
-    if (
-      mapResource.data !== undefined &&
-      (mapResource.data.id !== persistedMapId || mapResource.data.revision !== persistedRevision)
-    )
-      dispatch({ type: "load", map: mapResource.data });
+    const fetched = mapResource.data;
+    if (fetched === undefined) return;
+    if (fetched.id === persistedMapId && fetched.revision <= persistedRevision) return;
+    dispatch({ type: "load", map: fetched });
   }, [mapResource.data, persistedMapId, persistedRevision]);
 
   const draft = editor.draft;
