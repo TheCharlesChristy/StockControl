@@ -1,4 +1,4 @@
-import type { MapGeometry, MapRegionView } from "@stockcontrol/contracts";
+import type { MapGeometry, MapLocationView } from "@stockcontrol/contracts";
 import {
   useCallback,
   useEffect,
@@ -45,14 +45,14 @@ type Gesture =
   | {
       readonly kind: "move";
       readonly pointerId: number;
-      readonly regionId: string;
+      readonly locationId: string;
       readonly start: Point;
       readonly origin: MapGeometry;
     }
   | {
       readonly kind: "resize";
       readonly pointerId: number;
-      readonly regionId: string;
+      readonly locationId: string;
       readonly handle: ResizeHandle;
       readonly origin: RectangleGeometry;
     }
@@ -75,14 +75,14 @@ export interface CanvasInteractionOptions {
   readonly canEdit: boolean;
   readonly mode: EditorMode;
   readonly snapEnabled: boolean;
-  readonly regions: readonly MapRegionView[];
-  readonly selectedRegionId: string | null;
+  readonly locations: readonly MapLocationView[];
+  readonly selectedLocationId: string | null;
   readonly store: LiveGeometryStore;
   readonly viewport: MapViewportController;
   readonly onSelect: (id: string | null) => void;
   readonly onCommitGeometry: (id: string, geometry: MapGeometry) => void;
-  readonly onCreateRegion: (geometry: MapGeometry) => void;
-  readonly onRemoveRegion: (id: string) => void;
+  readonly onCreateLocation: (geometry: MapGeometry) => void;
+  readonly onRemoveLocation: (id: string) => void;
   readonly onProblem: (message: string) => void;
 }
 
@@ -116,7 +116,7 @@ const previewRectangle = (start: Point, end: Point): RectangleGeometry => ({
  * running. Pointer moves are gated through one `requestAnimationFrame` and
  * published to the live-geometry store, which only the shape being dragged
  * subscribes to. The reducer hears about the change exactly once, on release.
- * Hit testing is delegated from the `<svg>` root via data attributes, so region
+ * Hit testing is delegated from the `<svg>` root via data attributes, so a shape
  * shapes carry no handlers and can be memoised on their data alone.
  */
 export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasInteraction {
@@ -131,11 +131,11 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
   const polygonRef = useRef<readonly Point[]>([]);
   const pointersRef = useRef(new Map<number, Point>());
 
-  const regionsById = useMemo(
-    () => new Map(options.regions.map((region) => [region.id, region])),
-    [options.regions],
+  const locationsById = useMemo(
+    () => new Map(options.locations.map((location) => [location.id, location])),
+    [options.locations],
   );
-  const regionsRef = useLatestRef(regionsById);
+  const locationsRef = useLatestRef(locationsById);
 
   const normalizedFrom = useCallback(
     (clientX: number, clientY: number): Point => {
@@ -211,7 +211,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
     }
 
     const point = normalizedFrom(pending.clientX, pending.clientY);
-    /* A click that selects a region must not mark the map dirty. */
+    /* A click that selects a shape must not mark the map dirty. */
     const dragged =
       Math.hypot(
         pending.clientX - gestureStartClientRef.current.x,
@@ -229,7 +229,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
         optionsRef.current.snapEnabled && !pending.altKey ? snapGeometry(moved, SNAP_STEP) : moved;
       liveGeometryRef.current = geometry;
       movedRef.current = true;
-      store.setRegionGeometry(gesture.regionId, geometry);
+      store.setShapeGeometry(gesture.locationId, geometry);
       return;
     }
     if (gesture.kind === "resize") {
@@ -241,7 +241,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       );
       liveGeometryRef.current = geometry;
       movedRef.current = true;
-      store.setRegionGeometry(gesture.regionId, geometry);
+      store.setShapeGeometry(gesture.locationId, geometry);
       return;
     }
     if (gesture.kind === "draw") {
@@ -282,7 +282,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       const gesture = gestureRef.current;
       const geometry = liveGeometryRef.current;
       const end = drawEndRef.current;
-      const { store, onCommitGeometry, onCreateRegion } = optionsRef.current;
+      const { store, onCommitGeometry, onCreateLocation } = optionsRef.current;
       cancelFrame();
       gestureRef.current = { kind: "idle" };
       liveGeometryRef.current = null;
@@ -290,13 +290,13 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
       if ((gesture.kind === "move" || gesture.kind === "resize") && geometry !== null) {
         /* One dispatch for the whole gesture, however many frames it took. */
-        if (commit && movedRef.current) onCommitGeometry(gesture.regionId, geometry);
-        store.clearRegion();
+        if (commit && movedRef.current) onCommitGeometry(gesture.locationId, geometry);
+        store.clearShape();
       }
       if (gesture.kind === "draw") {
         const rectangle = end === null ? null : rectangleFromPoints(gesture.start, end);
         store.setPreview(null);
-        if (commit && rectangle !== null) onCreateRegion(rectangle);
+        if (commit && rectangle !== null) onCreateLocation(rectangle);
       }
       movedRef.current = false;
     },
@@ -305,7 +305,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
   const finishPolygon = useCallback((): void => {
     const points = polygonRef.current;
-    const { onCreateRegion, onProblem, store } = optionsRef.current;
+    const { onCreateLocation, onProblem, store } = optionsRef.current;
     if (points.length < 3) return;
     const problem = polygonProblem(points);
     if (problem !== null) {
@@ -314,7 +314,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
     }
     polygonRef.current = [];
     store.setPreview(null);
-    onCreateRegion({ kind: "Polygon", points });
+    onCreateLocation({ kind: "Polygon", points });
   }, [optionsRef]);
 
   const cancelPolygon = useCallback((): void => {
@@ -324,7 +324,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>): void => {
-      const { canEdit, mode, viewport, onSelect, onCreateRegion } = optionsRef.current;
+      const { canEdit, mode, viewport, onSelect } = optionsRef.current;
       if (event.button !== 0 && event.button !== 1) return;
       const rect = viewport.refreshRect();
       const client = { x: event.clientX, y: event.clientY };
@@ -365,19 +365,6 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
       const point = normalizedFrom(event.clientX, event.clientY);
 
-      if (canEdit && (mode === "entrance" || mode === "exit")) {
-        const size = 0.045;
-        onCreateRegion({
-          kind: "Rectangle",
-          x: clamp(point.x - size / 2),
-          y: clamp(point.y - size / 2),
-          width: Math.min(size, 1 - clamp(point.x - size / 2)),
-          height: Math.min(size, 1 - clamp(point.y - size / 2)),
-        });
-        gestureRef.current = { kind: "idle" };
-        return;
-      }
-
       if (canEdit && mode === "polygon") {
         const next = snapped(point, event.altKey);
         const first = polygonRef.current[0];
@@ -406,38 +393,38 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       const target = event.target as Element;
       const handleElement = target.closest("[data-handle]");
       const handle = handleElement?.getAttribute("data-handle") ?? null;
-      const regionElement = target.closest("[data-region-id], [data-region-group-id]");
-      const regionId =
-        regionElement?.getAttribute("data-region-id") ??
-        regionElement?.getAttribute("data-region-group-id") ??
-        handleElement?.getAttribute("data-handle-region") ??
+      const shapeElement = target.closest("[data-location-id], [data-location-group-id]");
+      const locationId =
+        shapeElement?.getAttribute("data-location-id") ??
+        shapeElement?.getAttribute("data-location-group-id") ??
+        handleElement?.getAttribute("data-handle-location") ??
         null;
 
-      if (regionId === null) {
+      if (locationId === null) {
         onSelect(null);
         return;
       }
-      const region = regionsRef.current.get(regionId);
-      if (region === undefined) return;
-      onSelect(regionId);
-      if (!canEdit || region.status === "Archived") return;
+      const location = locationsRef.current.get(locationId);
+      if (location === undefined) return;
+      onSelect(locationId);
+      if (!canEdit || location.status === "Archived") return;
 
-      if (isResizeHandle(handle) && region.geometry.kind === "Rectangle") {
+      if (isResizeHandle(handle) && location.geometry.kind === "Rectangle") {
         gestureRef.current = {
           kind: "resize",
           pointerId: event.pointerId,
-          regionId,
+          locationId,
           handle,
-          origin: region.geometry,
+          origin: location.geometry,
         };
         return;
       }
       gestureRef.current = {
         kind: "move",
         pointerId: event.pointerId,
-        regionId,
+        locationId,
         start: point,
-        origin: region.geometry,
+        origin: location.geometry,
       };
     },
     [
@@ -446,7 +433,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       normalizedFrom,
       optionsRef,
       publishPolygonPreview,
-      regionsRef,
+      locationsRef,
       snapped,
     ],
   );
@@ -504,7 +491,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
     (event: ReactPointerEvent<SVGSVGElement>): void => {
       /*
        * Without this the old editor left its drag record set when the pointer
-       * went away, and the region resumed moving on the next unrelated event.
+       * went away, and the shape resumed moving on the next unrelated event.
        */
       releasePointer(event, true);
     },
@@ -516,11 +503,11 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       const {
         canEdit,
         mode,
-        regions,
-        selectedRegionId,
+        locations,
+        selectedLocationId,
         onSelect,
         onCommitGeometry,
-        onRemoveRegion,
+        onRemoveLocation,
         viewport,
       } = optionsRef.current;
       if (viewport.handleKey(event)) {
@@ -551,21 +538,21 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
         onSelect(null);
         return;
       }
-      if (event.key === "Enter" && selectedRegionId === null && regions.length > 0) {
+      if (event.key === "Enter" && selectedLocationId === null && locations.length > 0) {
         event.preventDefault();
-        onSelect(regions[0]?.id ?? null);
+        onSelect(locations[0]?.id ?? null);
         return;
       }
 
       const selected =
-        selectedRegionId === null ? undefined : regionsRef.current.get(selectedRegionId);
+        selectedLocationId === null ? undefined : locationsRef.current.get(selectedLocationId);
 
-      /* Tab walks the regions while one is selected, instead of every shape being a tab stop. */
-      if (event.key === "Tab" && selected !== undefined && regions.length > 1) {
+      /* Tab walks the shapes while one is selected, instead of every shape being a tab stop. */
+      if (event.key === "Tab" && selected !== undefined && locations.length > 1) {
         event.preventDefault();
-        const index = regions.findIndex((region) => region.id === selected.id);
-        const next = (index + (event.shiftKey ? -1 : 1) + regions.length) % regions.length;
-        onSelect(regions[next]?.id ?? null);
+        const index = locations.findIndex((location) => location.id === selected.id);
+        const next = (index + (event.shiftKey ? -1 : 1) + locations.length) % locations.length;
+        onSelect(locations[next]?.id ?? null);
         return;
       }
 
@@ -573,7 +560,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
 
       if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
-        onRemoveRegion(selected.id);
+        onRemoveLocation(selected.id);
         return;
       }
 
@@ -584,7 +571,7 @@ export function useCanvasInteraction(options: CanvasInteractionOptions): CanvasI
       event.preventDefault();
       onCommitGeometry(selected.id, moveGeometry(selected.geometry, dx, dy));
     },
-    [cancelPolygon, finishPolygon, optionsRef, publishPolygonPreview, regionsRef],
+    [cancelPolygon, finishPolygon, optionsRef, publishPolygonPreview, locationsRef],
   );
 
   const onKeyUp = useCallback(

@@ -1,8 +1,6 @@
 import FitScreenRounded from "@mui/icons-material/FitScreenRounded";
 import GridOnRounded from "@mui/icons-material/GridOnRounded";
 import LockOutlined from "@mui/icons-material/LockOutlined";
-import LoginRounded from "@mui/icons-material/LoginRounded";
-import LogoutRounded from "@mui/icons-material/LogoutRounded";
 import PanToolRounded from "@mui/icons-material/PanToolRounded";
 import PolylineRounded from "@mui/icons-material/PolylineRounded";
 import NearMeRounded from "@mui/icons-material/NearMeRounded";
@@ -141,27 +139,6 @@ export const MapToolbar = memo(function MapToolbar({
               </ToggleButton>
               <ToggleButton value="polygon" aria-label="Draw polygon" title="Polygon">
                 <PolylineRounded fontSize="small" />
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        )}
-        {canEdit && (
-          <Box sx={toolbarGroupSx}>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={mode === "entrance" || mode === "exit" ? mode : null}
-              onChange={(_, value: EditorMode | null) => {
-                if (value !== null) onModeChange(value);
-              }}
-              aria-label="Building access point tools"
-              sx={toggleGroupSx}
-            >
-              <ToggleButton value="entrance" aria-label="Place entrance" title="Place entrance">
-                <LoginRounded fontSize="small" />
-              </ToggleButton>
-              <ToggleButton value="exit" aria-label="Place exit" title="Place exit">
-                <LogoutRounded fontSize="small" />
               </ToggleButton>
             </ToggleButtonGroup>
           </Box>

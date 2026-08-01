@@ -19,6 +19,11 @@ export interface LocationView {
   readonly kind: LocationKind;
   readonly jobId: string | null;
   readonly isActive: boolean;
+  /**
+   * The shapes this location is drawn inside, ending with itself, so a picker
+   * can read as a hierarchy without one being maintained anywhere.
+   */
+  readonly path: string;
 }
 
 /** A quantity is always a decimal string, so exactness survives transport. */
@@ -109,11 +114,6 @@ export interface UpdateItemRequest {
   readonly lowStockThreshold?: string | null;
   /** Archiving keeps the item and its history but takes it out of use. */
   readonly isActive?: boolean;
-}
-
-export interface CreateLocationRequest {
-  readonly code: string;
-  readonly name: string;
 }
 
 export interface ReceiveStockRequest {

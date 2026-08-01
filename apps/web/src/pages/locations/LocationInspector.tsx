@@ -7,34 +7,19 @@ import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
 import MapRounded from "@mui/icons-material/MapRounded";
 import RemoveCircleOutlineRounded from "@mui/icons-material/RemoveCircleOutlineRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
-import {
-  Box,
-  Button,
-  Chip,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
-import type { HierarchyNodeView, MapRegionView } from "@stockcontrol/contracts";
+import { Box, Button, Chip, IconButton, Stack, TextField, Typography } from "@mui/material";
+import type { MapLocationView } from "@stockcontrol/contracts";
 import { memo, type ReactElement } from "react";
 
 import { panelBorder } from "./constants";
-import type { RegionChanges } from "./editor-state";
+import type { LocationChanges } from "./editor-state";
 import { geometrySummary } from "./geometry";
 
-interface RegionInspectorProps {
-  readonly region: MapRegionView | null;
+interface LocationInspectorProps {
+  readonly location: MapLocationView | null;
   readonly canEdit: boolean;
   readonly dirty: boolean;
-  readonly locationCode: string;
-  readonly nodeOptions: readonly HierarchyNodeView[];
-  readonly parentOptions: readonly MapRegionView[];
-  readonly onPatch: (id: string, changes: RegionChanges) => void;
+  readonly onPatch: (id: string, changes: LocationChanges) => void;
   readonly onReorder: (id: string, direction: "raise" | "lower") => void;
   readonly onRemove: (id: string) => void;
   readonly onClose: () => void;
@@ -51,91 +36,108 @@ function StockStatusIcon({ status }: { readonly status: string }): ReactElement 
   return <RemoveCircleOutlineRounded fontSize="small" />;
 }
 
-export const RegionInspector = memo(function RegionInspector({
-  region,
+export const LocationInspector = memo(function LocationInspector({
+  location,
   canEdit,
   dirty,
-  locationCode,
-  nodeOptions,
-  parentOptions,
   onPatch,
   onReorder,
   onRemove,
   onClose,
   onSave,
-}: RegionInspectorProps): ReactElement {
+}: LocationInspectorProps): ReactElement {
   return (
     <Box sx={{ p: 1.75 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="start">
         <Box>
           <Typography variant="overline" color="text.secondary">
-            Region details
+            Location details
           </Typography>
-          {region !== null && (
+          {location !== null && (
             <>
               <Typography variant="h3" component="h2" sx={{ mt: 0.25 }}>
-                {region.displayName}
+                {location.name}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-                {locationCode}
+                {location.code === "" ? "Code set on save" : location.code}
               </Typography>
             </>
           )}
         </Box>
-        <IconButton size="small" aria-label="Close region details" onClick={onClose}>
+        <IconButton size="small" aria-label="Close location details" onClick={onClose}>
           <CloseRounded fontSize="small" />
         </IconButton>
       </Stack>
-      {region === null ? (
+      {location === null ? (
         <Stack spacing={1.25} sx={{ pt: 7, pb: 5 }}>
           <MapRounded color="primary" sx={{ fontSize: 36 }} />
           <Typography sx={{ fontWeight: 800 }}>Nothing selected</Typography>
           <Typography variant="body2" color="text.secondary">
-            Select a region on the map to view its assigned location, stock status, item quantities
-            and dimensions.
+            Select a shape on the map to see where it sits, what it holds, and its dimensions.
           </Typography>
         </Stack>
       ) : (
         <Stack spacing={1.75} sx={{ mt: 1.5 }}>
+          {/*
+            Read-only on purpose. Where a location sits is decided by where its
+            shape is drawn, so this reflects the map rather than offering a
+            second, contradictory way to set it.
+          */}
+          <Box sx={sectionSx}>
+            <Typography variant="overline" color="text.secondary">
+              Sits inside
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }} data-testid="breadcrumb">
+              {location.path === "" ? location.name : location.path}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {location.derivedParentId === null
+                ? "Not inside anything else. Drag it into another shape to nest it."
+                : "Worked out from the map. Drag the shape to change it."}
+            </Typography>
+          </Box>
           <Box sx={sectionSx}>
             <Typography variant="overline" color="text.secondary">
               Stock status
             </Typography>
             <Chip
-              icon={<StockStatusIcon status={region.stock.status} />}
-              label={region.stock.text}
+              icon={<StockStatusIcon status={location.stock.status} />}
+              label={location.stock.text}
               sx={{
                 mt: 0.75,
                 alignSelf: "start",
-                bgcolor: region.stock.colour,
+                bgcolor: location.stock.colour,
                 color: "#fff",
                 "& .MuiChip-icon": { color: "inherit" },
               }}
             />
             <Stack direction="row" spacing={2.5} sx={{ mt: 1.5 }}>
               <Box>
-                <Typography variant="h4">{region.stock.itemCount}</Typography>
+                <Typography variant="h4">{location.stock.itemCount}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   item types
                 </Typography>
               </Box>
               <Box>
-                <Typography variant="h4">{region.stock.quantity}</Typography>
+                <Typography variant="h4">{location.stock.quantity}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   total units
                 </Typography>
               </Box>
             </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Includes everything drawn inside this shape.
+            </Typography>
           </Box>
           <Box sx={sectionSx}>
             <Typography variant="overline" color="text.secondary">
               Mapped area
             </Typography>
             <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
-              {geometrySummary(region.geometry)}
+              {geometrySummary(location.geometry)}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Drag the region or its corner handles, or nudge it with the arrow keys.
+              Drag the shape or its corner handles, or nudge it with the arrow keys.
             </Typography>
           </Box>
           {canEdit && (
@@ -145,58 +147,21 @@ export const RegionInspector = memo(function RegionInspector({
               </Typography>
               <TextField
                 fullWidth
-                label="Region name"
+                label="Location name"
                 size="small"
-                value={region.displayName}
+                value={location.name}
                 onChange={(event) => {
-                  onPatch(region.id, { displayName: event.target.value });
+                  onPatch(location.id, { name: event.target.value });
                 }}
               />
-              <FormControl fullWidth size="small">
-                <InputLabel id="region-location-label">Location assignment</InputLabel>
-                <Select
-                  labelId="region-location-label"
-                  label="Location assignment"
-                  value={region.hierarchyNodeId}
-                  onChange={(event) => {
-                    onPatch(region.id, { hierarchyNodeId: event.target.value });
-                  }}
-                >
-                  {nodeOptions.map((node) => (
-                    <MenuItem key={node.id} value={node.id}>
-                      {node.name} · {node.code}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth size="small">
-                <InputLabel id="region-parent-label">Visual parent</InputLabel>
-                <Select
-                  labelId="region-parent-label"
-                  label="Visual parent"
-                  value={region.parentRegionId ?? "none"}
-                  onChange={(event) => {
-                    onPatch(region.id, {
-                      parentRegionId: event.target.value === "none" ? null : event.target.value,
-                    });
-                  }}
-                >
-                  <MenuItem value="none">None</MenuItem>
-                  {parentOptions.map((candidate) => (
-                    <MenuItem key={candidate.id} value={candidate.id}>
-                      {candidate.displayName}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
               <TextField
                 fullWidth
                 label="Search aliases"
                 size="small"
-                value={region.searchAliases.join(", ")}
+                value={location.searchAliases.join(", ")}
                 helperText="Separate aliases with commas"
                 onChange={(event) => {
-                  onPatch(region.id, {
+                  onPatch(location.id, {
                     searchAliases: event.target.value
                       .split(",")
                       .map((alias) => alias.trim())
@@ -209,7 +174,7 @@ export const RegionInspector = memo(function RegionInspector({
                   size="small"
                   startIcon={<ArrowUpwardRounded />}
                   onClick={() => {
-                    onReorder(region.id, "raise");
+                    onReorder(location.id, "raise");
                   }}
                   sx={actionSx}
                 >
@@ -219,7 +184,7 @@ export const RegionInspector = memo(function RegionInspector({
                   size="small"
                   startIcon={<ArrowDownwardRounded />}
                   onClick={() => {
-                    onReorder(region.id, "lower");
+                    onReorder(location.id, "lower");
                   }}
                   sx={actionSx}
                 >
@@ -230,13 +195,13 @@ export const RegionInspector = memo(function RegionInspector({
                   color="error"
                   startIcon={<ArchiveRounded />}
                   onClick={() => {
-                    onPatch(region.id, {
-                      status: region.status === "Archived" ? "Active" : "Archived",
+                    onPatch(location.id, {
+                      status: location.status === "Archived" ? "Active" : "Archived",
                     });
                   }}
                   sx={actionSx}
                 >
-                  {region.status === "Archived" ? "Restore" : "Archive"}
+                  {location.status === "Archived" ? "Restore" : "Archive"}
                 </Button>
                 <Button
                   size="small"
@@ -244,7 +209,7 @@ export const RegionInspector = memo(function RegionInspector({
                   variant="outlined"
                   startIcon={<DeleteOutlineRounded />}
                   onClick={() => {
-                    onRemove(region.id);
+                    onRemove(location.id);
                   }}
                   sx={actionSx}
                 >
@@ -261,7 +226,8 @@ export const RegionInspector = memo(function RegionInspector({
                 Save changes
               </Button>
               <Typography variant="caption" color="text.secondary">
-                Arrow keys move the selected region, Shift + Arrow moves farther, Delete removes it.
+                Arrow keys move the selected shape, Shift + Arrow moves farther, Delete removes it.
+                A location that has held stock is archived rather than erased.
               </Typography>
             </Stack>
           )}

@@ -1,13 +1,11 @@
 declare const locationIdBrand: unique symbol;
 declare const mapIdBrand: unique symbol;
-declare const mapRegionIdBrand: unique symbol;
 declare const locationCodeBrand: unique symbol;
 declare const locationNameBrand: unique symbol;
 declare const documentIdBrand: unique symbol;
 
 export type LocationId = string & { readonly [locationIdBrand]: "LocationId" };
 export type MapId = string & { readonly [mapIdBrand]: "MapId" };
-export type MapRegionId = string & { readonly [mapRegionIdBrand]: "MapRegionId" };
 export type LocationCode = string & { readonly [locationCodeBrand]: "LocationCode" };
 export type LocationName = string & { readonly [locationNameBrand]: "LocationName" };
 export type DocumentId = string & { readonly [documentIdBrand]: "DocumentId" };
@@ -45,8 +43,6 @@ const reference = (value: string, description: string): string => {
 export const createLocationId = (value: string): LocationId =>
   uuid(value, "Location ID") as LocationId;
 export const createMapId = (value: string): MapId => uuid(value, "Map ID") as MapId;
-export const createMapRegionId = (value: string): MapRegionId =>
-  uuid(value, "Map region ID") as MapRegionId;
 export const createDocumentId = (value: string): DocumentId =>
   reference(value, "Document ID") as DocumentId;
 

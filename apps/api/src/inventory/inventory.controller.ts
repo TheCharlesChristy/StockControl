@@ -3,7 +3,6 @@ import type {
   ItemDetailView,
   ItemListResponse,
   LocationListResponse,
-  LocationView,
   StockOperationResponse,
   TransactionListResponse,
 } from "@stockcontrol/contracts";
@@ -155,21 +154,10 @@ export class InventoryController {
     return { locations: await this.catalogue.listLocations() };
   }
 
-  @Post("locations")
-  public async createLocation(
-    @Req() request: FastifyRequest,
-    @Body() rawBody: unknown,
-  ): Promise<{ readonly location: LocationView }> {
-    requireCapability(request, "manageCatalogue");
-    const body = bodyOf(rawBody);
-
-    return {
-      location: await this.catalogue.createLocation({
-        code: requireText(body, "code", "a location code").toUpperCase(),
-        name: requireText(body, "name", "a location name"),
-      }),
-    };
-  }
+  /*
+   * There is deliberately no create route here. A location comes into being by
+   * being drawn on a map, through PUT /maps/:mapId, and nowhere else.
+   */
 
   @Post("stock/receive")
   public async receive(

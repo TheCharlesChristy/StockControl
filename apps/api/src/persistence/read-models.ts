@@ -13,6 +13,7 @@ import type {
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
+import { locationPaths } from "../locations/location-paths";
 import { calculateAvailability, type LocationBalance } from "../stock/availability";
 import {
   formatQuantity,
@@ -65,9 +66,6 @@ interface BalanceRow {
   readonly name: string;
   readonly kind: "Store" | "JobSite";
   readonly quantity: string;
-  readonly operational_kind:
-    "Container" | "Storage" | "Quarantine" | "Repair" | "Transit" | "VirtualJobSite";
-  readonly general_fulfilment_enabled: boolean;
   readonly is_active: boolean;
 }
 
@@ -92,8 +90,6 @@ async function balancesFor(
       "locations.code as code",
       "locations.name as name",
       "locations.kind as kind",
-      "locations.operational_kind as operational_kind",
-      "locations.general_fulfilment_enabled as general_fulfilment_enabled",
       "locations.is_active as is_active",
     ])
     .where("stock_levels.item_id", "in", itemIds)
@@ -162,8 +158,6 @@ function summarise(
     locationCode: row.code,
     kind: row.kind,
     quantity: quantityFromDatabase(row.quantity),
-    operationalKind: row.operational_kind,
-    generalFulfilmentEnabled: row.general_fulfilment_enabled,
     isActive: row.is_active,
   }));
   const availability = calculateAvailability({
@@ -351,11 +345,16 @@ export async function listLocations(database: Database): Promise<readonly Locati
   const rows = await database
     .withSchema(SCHEMA)
     .selectFrom("locations")
-    .select(["id", "code", "name", "kind", "job_id", "is_active"])
-    .where("operational_kind", "in", ["Storage", "VirtualJobSite"])
+    .select(["id", "code", "name", "kind", "job_id", "is_active", "derived_parent_id"])
     .orderBy("kind")
     .orderBy("code")
     .execute();
+
+  /*
+   * The breadcrumb comes off the stored derived parent, so a picker reads as a
+   * hierarchy — "Main Store › Aisle 3 › Shelf B" — without one being kept.
+   */
+  const paths = locationPaths(rows);
 
   return rows.map((row) => ({
     id: row.id,
@@ -364,6 +363,7 @@ export async function listLocations(database: Database): Promise<readonly Locati
     kind: row.kind,
     jobId: row.job_id,
     isActive: row.is_active,
+    path: paths.get(row.id)?.path ?? row.name,
   }));
 }
 

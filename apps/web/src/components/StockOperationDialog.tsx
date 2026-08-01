@@ -38,6 +38,26 @@ const submitLabels: Readonly<Record<StockOperation, string>> = {
   adjust: "Save new count",
 };
 
+/** A location option, with where it sits on the map underneath it. */
+function LocationOption({
+  label,
+  path,
+}: {
+  readonly label: string;
+  readonly path: string;
+}): ReactElement {
+  return (
+    <Stack spacing={0} sx={{ minWidth: 0 }}>
+      <Typography variant="body2">{label}</Typography>
+      {path !== "" && (
+        <Typography variant="caption" color="text.secondary" noWrap>
+          {path}
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
 interface StockOperationDialogProps {
   readonly operation: StockOperation;
   readonly item: ItemDetailView;
@@ -72,12 +92,23 @@ export function StockOperationDialog({
   /* Stock can only be received into a store; it can be taken from anywhere holding it. */
   const stores = locations.filter((location) => location.kind === "Store" && location.isActive);
   const holding = item.balances.filter((balance) => Number(balance.quantity) > 0);
+  /*
+   * The breadcrumb comes from where the shape is drawn on the map, so a picker
+   * reads as a hierarchy — "Main Store › Aisle 3 › Shelf B" — without one being
+   * maintained anywhere.
+   */
+  const pathById = new Map(locations.map((location) => [location.id, location.path]));
   const sourceOptions =
     operation === "receive"
-      ? stores.map((store) => ({ id: store.id, label: `${store.code} — ${store.name}` }))
+      ? stores.map((store) => ({
+          id: store.id,
+          label: `${store.code} — ${store.name}`,
+          path: store.path,
+        }))
       : holding.map((balance) => ({
           id: balance.locationId,
           label: `${balance.locationCode} (${formatQuantity(balance.quantity)} ${item.unit})`,
+          path: pathById.get(balance.locationId) ?? "",
         }));
 
   const currentAtLocation = item.balances.find(
@@ -162,7 +193,7 @@ export function StockOperationDialog({
               )}
               {sourceOptions.map((option) => (
                 <MenuItem key={option.id} value={option.id}>
-                  {option.label}
+                  <LocationOption label={option.label} path={option.path} />
                 </MenuItem>
               ))}
             </TextField>
@@ -182,7 +213,7 @@ export function StockOperationDialog({
                   .filter((store) => store.id !== locationId)
                   .map((store) => (
                     <MenuItem key={store.id} value={store.id}>
-                      {store.code} — {store.name}
+                      <LocationOption label={`${store.code} — ${store.name}`} path={store.path} />
                     </MenuItem>
                   ))}
               </TextField>

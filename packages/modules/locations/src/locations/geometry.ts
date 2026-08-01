@@ -63,14 +63,18 @@ export const createRectangleGeometry = (
 const cross = (a: NormalizedPoint, b: NormalizedPoint, c: NormalizedPoint): number =>
   (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 
-const onSegment = (a: NormalizedPoint, p: NormalizedPoint, b: NormalizedPoint): boolean =>
+export const onSegment = (a: NormalizedPoint, p: NormalizedPoint, b: NormalizedPoint): boolean =>
   Math.abs(cross(a, p, b)) <= MIN_AREA &&
   p.x >= Math.min(a.x, b.x) &&
   p.x <= Math.max(a.x, b.x) &&
   p.y >= Math.min(a.y, b.y) &&
   p.y <= Math.max(a.y, b.y);
 
-const orientation = (a: NormalizedPoint, b: NormalizedPoint, c: NormalizedPoint): -1 | 0 | 1 => {
+export const orientation = (
+  a: NormalizedPoint,
+  b: NormalizedPoint,
+  c: NormalizedPoint,
+): -1 | 0 | 1 => {
   const value = cross(a, b, c);
   return Math.abs(value) <= MIN_AREA ? 0 : value > 0 ? 1 : -1;
 };
@@ -96,7 +100,7 @@ const intersects = (
   );
 };
 
-const polygonArea = (points: readonly NormalizedPoint[]): number => {
+export const polygonArea = (points: readonly NormalizedPoint[]): number => {
   let doubled = 0;
   for (let index = 0; index < points.length; index += 1) {
     const current = points[index]!;
@@ -147,3 +151,117 @@ export const copyGeometry = (geometry: MapGeometry): MapGeometry =>
   geometry.kind === "Rectangle"
     ? createRectangleGeometry(geometry.x, geometry.y, geometry.width, geometry.height)
     : createPolygonGeometry(geometry.points);
+
+export interface GeometryBounds {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+/** The corners of a shape, clockwise for a rectangle and as drawn for a polygon. */
+export const verticesOf = (geometry: MapGeometry): readonly NormalizedPoint[] =>
+  geometry.kind === "Polygon"
+    ? geometry.points
+    : [
+        { x: geometry.x, y: geometry.y },
+        { x: geometry.x + geometry.width, y: geometry.y },
+        { x: geometry.x + geometry.width, y: geometry.y + geometry.height },
+        { x: geometry.x, y: geometry.y + geometry.height },
+      ];
+
+export const areaOf = (geometry: MapGeometry): number =>
+  geometry.kind === "Rectangle" ? geometry.width * geometry.height : polygonArea(geometry.points);
+
+export const boundsOf = (geometry: MapGeometry): GeometryBounds => {
+  if (geometry.kind === "Rectangle") {
+    return {
+      minX: geometry.x,
+      minY: geometry.y,
+      maxX: geometry.x + geometry.width,
+      maxY: geometry.y + geometry.height,
+    };
+  }
+  const xs = geometry.points.map((point) => point.x);
+  const ys = geometry.points.map((point) => point.y);
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
+};
+
+/**
+ * Ray casting, with a point on the boundary counted as inside. Sharing an edge
+ * with the shape around you is the normal way people draw a shelf against the
+ * wall of an aisle, so it has to read as "inside".
+ */
+export const pointInPolygon = (
+  point: NormalizedPoint,
+  polygon: readonly NormalizedPoint[],
+): boolean => {
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index]!;
+    const next = polygon[(index + 1) % polygon.length]!;
+    if (onSegment(current, point, next)) return true;
+  }
+  let inside = false;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index]!;
+    const previous = polygon[(index + polygon.length - 1) % polygon.length]!;
+    if (
+      current.y > point.y !== previous.y > point.y &&
+      point.x <
+        ((previous.x - current.x) * (point.y - current.y)) / (previous.y - current.y) + current.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+/** True when two segments cross at an interior point, ignoring touches and overlaps. */
+const properlyCrosses = (
+  a: NormalizedPoint,
+  b: NormalizedPoint,
+  c: NormalizedPoint,
+  d: NormalizedPoint,
+): boolean => {
+  const abC = orientation(a, b, c);
+  const abD = orientation(a, b, d);
+  const cdA = orientation(c, d, a);
+  const cdB = orientation(c, d, b);
+  return abC !== 0 && abD !== 0 && cdA !== 0 && cdB !== 0 && abC !== abD && cdA !== cdB;
+};
+
+/**
+ * Whether `inner` lies wholly within `outer`. Every corner of the inner shape
+ * must be inside the outer one, and no pair of edges may cross, which together
+ * settle containment for the simple polygons this editor can produce.
+ */
+export const geometryContains = (outer: MapGeometry, inner: MapGeometry): boolean => {
+  const outerBounds = boundsOf(outer);
+  const innerBounds = boundsOf(inner);
+  if (
+    innerBounds.minX < outerBounds.minX - MIN_AREA ||
+    innerBounds.minY < outerBounds.minY - MIN_AREA ||
+    innerBounds.maxX > outerBounds.maxX + MIN_AREA ||
+    innerBounds.maxY > outerBounds.maxY + MIN_AREA
+  ) {
+    return false;
+  }
+  const outerPoints = verticesOf(outer);
+  const innerPoints = verticesOf(inner);
+  if (!innerPoints.every((point) => pointInPolygon(point, outerPoints))) return false;
+  for (let inner1 = 0; inner1 < innerPoints.length; inner1 += 1) {
+    const innerA = innerPoints[inner1]!;
+    const innerB = innerPoints[(inner1 + 1) % innerPoints.length]!;
+    for (let outer1 = 0; outer1 < outerPoints.length; outer1 += 1) {
+      const outerA = outerPoints[outer1]!;
+      const outerB = outerPoints[(outer1 + 1) % outerPoints.length]!;
+      if (properlyCrosses(innerA, innerB, outerA, outerB)) return false;
+    }
+  }
+  return true;
+};

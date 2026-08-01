@@ -7,7 +7,7 @@ import type { Point, RectangleGeometry } from "./geometry";
  *
  * This is the reason the editor stays smooth. Pointer moves publish here rather
  * than dispatching to the reducer, and only the one shape that is moving
- * subscribes to a non-null value — every other region reads a stable `null`, so
+ * subscribes to a non-null value — every other shape reads a stable `null`, so
  * React bails out of re-rendering it. The committed geometry reaches the reducer
  * once, when the gesture ends.
  */
@@ -23,17 +23,17 @@ export type DrawPreview =
 
 export interface LiveGeometryStore {
   readonly subscribe: (listener: () => void) => () => void;
-  readonly getRegionGeometry: (regionId: string) => MapGeometry | null;
+  readonly getShapeGeometry: (locationId: string) => MapGeometry | null;
   readonly getPreview: () => DrawPreview | null;
-  readonly setRegionGeometry: (regionId: string, geometry: MapGeometry) => void;
+  readonly setShapeGeometry: (locationId: string, geometry: MapGeometry) => void;
   readonly setPreview: (preview: DrawPreview | null) => void;
-  readonly clearRegion: () => void;
+  readonly clearShape: () => void;
   readonly clear: () => void;
 }
 
 export function createLiveGeometryStore(): LiveGeometryStore {
   const listeners = new Set<() => void>();
-  let activeRegionId: string | null = null;
+  let activeShapeId: string | null = null;
   let activeGeometry: MapGeometry | null = null;
   let preview: DrawPreview | null = null;
 
@@ -48,10 +48,10 @@ export function createLiveGeometryStore(): LiveGeometryStore {
         listeners.delete(listener);
       };
     },
-    getRegionGeometry: (regionId) => (regionId === activeRegionId ? activeGeometry : null),
+    getShapeGeometry: (locationId) => (locationId === activeShapeId ? activeGeometry : null),
     getPreview: () => preview,
-    setRegionGeometry: (regionId, geometry) => {
-      activeRegionId = regionId;
+    setShapeGeometry: (locationId, geometry) => {
+      activeShapeId = locationId;
       activeGeometry = geometry;
       emit();
     },
@@ -59,15 +59,15 @@ export function createLiveGeometryStore(): LiveGeometryStore {
       preview = next;
       emit();
     },
-    clearRegion: () => {
-      if (activeRegionId === null && activeGeometry === null) return;
-      activeRegionId = null;
+    clearShape: () => {
+      if (activeShapeId === null && activeGeometry === null) return;
+      activeShapeId = null;
       activeGeometry = null;
       emit();
     },
     clear: () => {
-      if (activeRegionId === null && activeGeometry === null && preview === null) return;
-      activeRegionId = null;
+      if (activeShapeId === null && activeGeometry === null && preview === null) return;
+      activeShapeId = null;
       activeGeometry = null;
       preview = null;
       emit();

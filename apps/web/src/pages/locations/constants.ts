@@ -4,7 +4,7 @@ import type { SxProps, Theme } from "@mui/material";
  * Style objects and palette values hoisted out of render.
  *
  * MUI's `sx` prop is serialised by Emotion every time it receives a fresh
- * object, which is why the old page paid for the whole hierarchy tree's styles
+ * object, which is why the old page paid for the whole location list's styles
  * on every pointer move. Module constants are serialised once.
  */
 
@@ -18,7 +18,7 @@ export const shapeStroke = "#FFFFFF";
 /*
  * Only the four states the server can actually produce. It emits Available,
  * LowStock, OutOfStock and Archived and nothing else, so a fifth swatch here
- * described a colour no region ever wears — and "Full" sitting beside
+ * described a colour no shape ever wears — and "Full" sitting beside
  * "Available" implied a distinction between them that does not exist.
  */
 export const statusLegend = [

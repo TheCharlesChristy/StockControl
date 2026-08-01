@@ -546,3 +546,87 @@ test("the API is database-ready with a caller correlation identifier", async ({ 
     ],
   });
 });
+
+const ADMIN = { email: "admin.owner@example.com", password: "demo-password" };
+
+test("an admin nests a location by drawing it inside another, with no parent to pick", async ({
+  page,
+}) => {
+  /* Signing in, drawing, saving and reading back is more than the default allows. */
+  test.setTimeout(90_000);
+  await signIn(page, ADMIN);
+  await page.goto("/locations");
+
+  /* Maps are listed by code, so name the one this test knows the layout of. */
+  await page.getByRole("combobox", { name: "Map" }).click();
+  await page.getByRole("option", { name: /Main Store/u }).click();
+
+  const canvas = page.getByRole("application", { name: /Main Store map/u });
+  await expect(canvas).toBeVisible();
+
+  /* The whole point: nothing on this screen offers a parent to choose. */
+  await expect(page.getByLabel("Visual parent")).toHaveCount(0);
+  await expect(page.getByLabel("Location assignment")).toHaveCount(0);
+
+  /*
+   * Bay A1 is seeded at 0.07,0.08 → 0.19,0.28, inside Aisle A. A rectangle drawn
+   * within the bay should read three levels deep, none of it ever stated.
+   */
+  const box = await canvas.boundingBox();
+  if (box === null) throw new Error("map canvas has no box");
+  const side = Math.min(box.width, box.height) - 16;
+  const left = box.x + (box.width - side) / 2;
+  const top = box.y + (box.height - side) / 2;
+  const at = (x: number, y: number): { x: number; y: number } => ({
+    x: left + x * side,
+    y: top + y * side,
+  });
+
+  await page.getByRole("button", { name: "Draw rectangle" }).click();
+  const from = at(0.1, 0.12);
+  const to = at(0.16, 0.2);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+
+  const inspector = page.getByRole("complementary", { name: "Location details" });
+  await inspector.getByLabel("Location name").fill("E2E nested bay");
+  await expect(inspector.getByTestId("breadcrumb")).toHaveText(
+    "Aisle A › Main store, aisle A, bay 1 › E2E nested bay",
+  );
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Map saved")).toBeVisible();
+
+  /*
+   * What the server actually stored, not what the draft believed. The parent was
+   * never sent — it was worked out from the geometry inside the save.
+   */
+  const maps = (await (await page.request.get("/api/v1/maps")).json()) as readonly {
+    readonly id: string;
+    readonly code: string;
+  }[];
+  const mainMapId = maps.find((map) => map.code === "MAP-MAIN")?.id ?? "";
+  const stored = (await (await page.request.get(`/api/v1/maps/${mainMapId}`)).json()) as {
+    readonly locations: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly path: string;
+      readonly depth: number;
+    }[];
+  };
+  const persisted = stored.locations.find((location) => location.name === "E2E nested bay");
+  expect(persisted?.path).toBe("Aisle A › Main store, aisle A, bay 1 › E2E nested bay");
+  expect(persisted?.depth).toBe(2);
+
+  /*
+   * Re-parenting as the shape is dragged is covered where it can be asserted
+   * frame by frame: `editor-state.test.ts` drags a shape in and back out, and
+   * `MapCanvas.test.tsx` drives the same pointer handling this canvas uses.
+   */
+
+  /* Leave the seeded map as it was found. */
+  const removed = await page.request.delete(`/api/v1/locations/${persisted?.id ?? ""}`);
+  expect(removed.ok()).toBe(true);
+});

@@ -1,7 +1,7 @@
 import AddRounded from "@mui/icons-material/AddRounded";
 import MapRounded from "@mui/icons-material/MapRounded";
 import { Box, Button, Stack, Typography } from "@mui/material";
-import type { MapGeometry, MapSnapshot } from "@stockcontrol/contracts";
+import type { MapGeometry, MapView } from "@stockcontrol/contracts";
 import { useCallback, useRef, useState, type ReactElement, type RefObject } from "react";
 
 import { emptyCanvasSx, floatingPanel } from "./constants";
@@ -13,20 +13,20 @@ import { MapToolbar } from "./MapToolbar";
 import { useMapViewport } from "./use-map-viewport";
 
 interface MapWorkspaceProps {
-  readonly map: MapSnapshot | null;
+  readonly map: MapView | null;
   readonly canEdit: boolean;
   readonly dirty: boolean;
   readonly mode: EditorMode;
   readonly snapEnabled: boolean;
-  readonly selectedRegionId: string | null;
+  readonly selectedLocationId: string | null;
   readonly canCreateMap: boolean;
   readonly svgRef: RefObject<SVGSVGElement | null>;
   readonly onModeChange: (mode: EditorMode) => void;
   readonly onToggleSnap: () => void;
   readonly onSelect: (id: string | null) => void;
   readonly onCommitGeometry: (id: string, geometry: MapGeometry) => void;
-  readonly onCreateRegion: (geometry: MapGeometry) => void;
-  readonly onRemoveRegion: (id: string) => void;
+  readonly onCreateLocation: (geometry: MapGeometry) => void;
+  readonly onRemoveLocation: (id: string) => void;
   readonly onSave: () => void;
   readonly onRevert: () => void;
   readonly onUploadFile: (file: File) => void;
@@ -46,15 +46,15 @@ export function MapWorkspace({
   dirty,
   mode,
   snapEnabled,
-  selectedRegionId,
+  selectedLocationId,
   canCreateMap,
   svgRef,
   onModeChange,
   onToggleSnap,
   onSelect,
   onCommitGeometry,
-  onCreateRegion,
-  onRemoveRegion,
+  onCreateLocation,
+  onRemoveLocation,
   onSave,
   onRevert,
   onUploadFile,
@@ -78,7 +78,7 @@ export function MapWorkspace({
   return (
     <Box
       component="section"
-      aria-label="Building map"
+      aria-label="Location map"
       sx={{
         display: "grid",
         gridTemplateRows: "auto minmax(0, 1fr)",
@@ -145,10 +145,11 @@ export function MapWorkspace({
                 <MapRounded />
               </Box>
               <Typography variant="h3" component="h2">
-                No storage map yet
+                No map yet
               </Typography>
               <Typography color="text.secondary" sx={{ maxWidth: 420 }}>
-                Create a blank map and draw storage regions for this building.
+                Create a blank canvas, then draw a shape for every place stock sits. Anything drawn
+                inside another shape belongs to it.
               </Typography>
               <Button startIcon={<AddRounded />} variant="contained" onClick={onCreateMap}>
                 Create blank map
@@ -170,14 +171,14 @@ export function MapWorkspace({
             canEdit={canEdit}
             mode={mode}
             snapEnabled={snapEnabled}
-            selectedRegionId={selectedRegionId}
+            selectedLocationId={selectedLocationId}
             store={store}
             viewport={viewport}
             svgRef={svgRef}
             onSelect={onSelect}
             onCommitGeometry={onCommitGeometry}
-            onCreateRegion={onCreateRegion}
-            onRemoveRegion={onRemoveRegion}
+            onCreateLocation={onCreateLocation}
+            onRemoveLocation={onRemoveLocation}
             onProblem={onProblem}
           />
           {mode === "polygon" && (

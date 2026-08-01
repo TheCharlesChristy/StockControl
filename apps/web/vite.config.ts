@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@stockcontrol/contracts": path.resolve(workspaceRoot, "packages/contracts/src/index.ts"),
+        "@stockcontrol/module-locations": path.resolve(
+          workspaceRoot,
+          "packages/modules/locations/src/index.ts",
+        ),
       },
     },
     server: {

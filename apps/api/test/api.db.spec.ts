@@ -133,10 +133,8 @@ async function seedLocation(code: string): Promise<string> {
   const id = randomUUID();
 
   /*
-   * Mirrors what POST /locations writes. The hierarchy columns are not optional
-   * in practice: `general_fulfilment_enabled` defaults to false, and a store
-   * that is not fulfilment-enabled is excluded from availability, so a fixture
-   * that omits them holds stock nothing can see.
+   * A store that has not been drawn on a map yet. It holds stock and counts
+   * towards availability all the same — placement only decides how it nests.
    */
   await schema()
     .insertInto("locations")
@@ -147,9 +145,9 @@ async function seedLocation(code: string): Promise<string> {
       kind: "Store",
       job_id: null,
       is_active: true,
-      node_kind: "CustomSection",
-      operational_kind: "Storage",
-      general_fulfilment_enabled: true,
+      map_id: null,
+      geometry: null,
+      derived_parent_id: null,
     })
     .execute();
 
@@ -167,7 +165,9 @@ async function clearBusinessData(): Promise<void> {
   await schema().deleteFrom("reservations").execute();
   await schema().deleteFrom("stock_levels").execute();
   await schema().deleteFrom("items").execute();
+  await schema().deleteFrom("map_edit_events").execute();
   await schema().deleteFrom("locations").execute();
+  await schema().deleteFrom("maps").execute();
   await schema().deleteFrom("jobs").execute();
 }
 
@@ -271,7 +271,7 @@ describe("authorisation is enforced on the server", () => {
     ["POST", "/stock/transfer"],
     ["POST", "/stock/adjust"],
     ["POST", "/items"],
-    ["POST", "/locations"],
+    ["POST", "/maps"],
     ["POST", "/jobs"],
   ] as const)("refuses an Engineer %s %s", async (method, url) => {
     const response = await request(engineer, method, url, {});
