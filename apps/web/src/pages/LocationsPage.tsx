@@ -4,9 +4,7 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   FormControl,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -422,26 +420,28 @@ export function LocationsPage(): ReactElement {
           alignItems={{ md: "center" }}
           spacing={1.5}
         >
+          {/*
+           * The building said once. This header used to name it four times over
+           * — breadcrumb, heading, a "Building" chip, its code, and again inside
+           * the selector — which is a lot of furniture for one fact. The
+           * breadcrumb marks the section, the heading names the building, the
+           * caption carries its code, and the selector is how you change it.
+           */}
           <Box sx={{ minWidth: 0 }}>
             <Typography
               variant="overline"
               color="text.secondary"
               sx={{ display: "block", letterSpacing: "0.08em" }}
             >
-              Locations / {selectedBuilding?.name ?? "Building"}
+              Locations
             </Typography>
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-              <Typography
-                variant="h1"
-                component="h1"
-                sx={{ fontSize: { xs: "1.6rem", sm: "2rem" }, lineHeight: 1.15 }}
-              >
-                {selectedBuilding?.name ?? "Locations"}
-              </Typography>
-              {selectedBuilding !== undefined && (
-                <Chip label="Building" size="small" variant="outlined" />
-              )}
-            </Stack>
+            <Typography
+              variant="h1"
+              component="h1"
+              sx={{ fontSize: { xs: "1.6rem", sm: "2rem" }, lineHeight: 1.15 }}
+            >
+              {selectedBuilding?.name ?? "Locations"}
+            </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
               {selectedBuilding?.code ?? "Select a building to open its map"}
             </Typography>
@@ -631,33 +631,36 @@ export function LocationsPage(): ReactElement {
               bgcolor: "#FBFCFE",
             }}
           >
+            {/*
+             * One control, reading the normal way round. This was an icon
+             * button above a second button with its text turned on its side —
+             * two ways to do the same thing, and the label unreadable without
+             * tilting your head. Someone who has just clicked a region needs to
+             * see at a glance where its details went.
+             */}
             <Tooltip title="Open region details" placement="left">
-              <IconButton
+              <Button
+                variant="text"
                 size="small"
                 aria-label="Open region details"
                 onClick={() => {
                   setInspectorOpen(true);
                 }}
+                sx={{
+                  minWidth: 0,
+                  flexDirection: "column",
+                  gap: 0.25,
+                  px: 0.5,
+                  py: 1,
+                  fontSize: "0.7rem",
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                }}
               >
                 <MapRounded fontSize="small" />
-              </IconButton>
+                Details
+              </Button>
             </Tooltip>
-            <Button
-              variant="text"
-              size="small"
-              aria-label="Open region details"
-              onClick={() => {
-                setInspectorOpen(true);
-              }}
-              sx={{
-                writingMode: "vertical-rl",
-                transform: "rotate(180deg)",
-                fontSize: "0.75rem",
-                fontWeight: 800,
-              }}
-            >
-              Details
-            </Button>
           </Box>
         )}
       </Box>

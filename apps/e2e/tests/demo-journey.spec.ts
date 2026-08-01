@@ -162,8 +162,8 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
   });
 
   await expect(stat(page, "On hand")).toHaveText("40 each");
-  await expect(stat(page, "In stores")).toHaveText("40");
-  await expect(stat(page, "Available")).toHaveText("40");
+  await expect(stat(page, "In stores")).toHaveText("40 each");
+  await expect(stat(page, "Available")).toHaveText("40 each");
 
   /* Reserve 15 against a job: availability drops, on hand does not move. */
   await page.goto("/jobs");
@@ -187,8 +187,8 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
 
   await page.goto(itemUrl);
   await expect(stat(page, "On hand")).toHaveText("40 each");
-  await expect(stat(page, "Reserved")).toHaveText("15");
-  await expect(stat(page, "Available")).toHaveText("25");
+  await expect(stat(page, "Reserved")).toHaveText("15 each");
+  await expect(stat(page, "Available")).toHaveText("25 each");
 
   /* Collect 6 of the 15: the remaining 9 stays reserved. */
   await page.goto(jobUrl);
@@ -201,9 +201,9 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
   await expect(collectDialog).toBeHidden();
 
   /* Reserved, collected, outstanding — and still open on the remainder. */
-  await expect(reservationRow.locator("td").nth(1)).toHaveText("15");
-  await expect(reservationRow.locator("td").nth(2)).toHaveText("6");
-  await expect(reservationRow.locator("td").nth(3)).toHaveText("9");
+  await expect(reservationRow.locator("td").nth(1)).toHaveText("15 each");
+  await expect(reservationRow.locator("td").nth(2)).toHaveText("6 each");
+  await expect(reservationRow.locator("td").nth(3)).toHaveText("9 each");
   await expect(reservationRow).toContainText("Open");
   await expect(
     page.getByRole("table", { name: "Stock at the job site" }).filter({ hasText: reference }),
@@ -216,10 +216,10 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
    */
   await page.goto(itemUrl);
   await expect(stat(page, "On hand")).toHaveText("40 each");
-  await expect(stat(page, "In stores")).toHaveText("34");
-  await expect(stat(page, "At job sites")).toHaveText("6");
-  await expect(stat(page, "Reserved")).toHaveText("9");
-  await expect(stat(page, "Available")).toHaveText("25");
+  await expect(stat(page, "In stores")).toHaveText("34 each");
+  await expect(stat(page, "At job sites")).toHaveText("6 each");
+  await expect(stat(page, "Reserved")).toHaveText("9 each");
+  await expect(stat(page, "Available")).toHaveText("25 each");
 
   /* Every one of those changes is in the log, against the person who made it. */
   const actor = await signedInName(page);
@@ -262,9 +262,9 @@ test("transferring keeps the total, and an adjustment records its reason", async
     page.getByRole("table", { name: "Stock by location" }).locator("tbody tr"),
   ).toHaveCount(2);
 
-  await runOperation(page, { open: "Adjust", submit: "Post adjustment" }, async (dialog) => {
+  await runOperation(page, { open: "Adjust", submit: "Save new count" }, async (dialog) => {
     await chooseOption(page, dialog, "Location");
-    await dialog.getByLabel("Counted quantity").fill("25");
+    await dialog.getByLabel("Total counted").fill("25");
     await dialog.getByLabel("Reason").fill("Cycle count during the demo");
   });
 
@@ -307,11 +307,11 @@ test("an over-issue is refused with what is actually on the shelf", async ({ pag
     await dialog.getByLabel("Quantity").fill("12");
   });
 
-  await page.getByRole("button", { name: "Issue", exact: true }).click();
+  await page.getByRole("button", { name: "Take out", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await chooseOption(page, dialog, "Location");
   await dialog.getByLabel("Quantity").fill("40");
-  await dialog.getByRole("button", { name: "Issue", exact: true }).click();
+  await dialog.getByRole("button", { name: "Take out", exact: true }).click();
 
   await expect(dialog.getByRole("alert")).toContainText("Cannot issue 40");
   await expect(dialog.getByRole("alert")).toContainText("12");
@@ -350,7 +350,7 @@ test("a scanned item opens after signing in, on a phone", async ({ page, context
   await expect(page.getByRole("img", { name: /QR code linking to/ })).toBeVisible();
 
   /* An Engineer who arrives by camera still only gets an Engineer's controls. */
-  await expect(page.getByRole("button", { name: "Issue", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take out", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
 });
 
@@ -370,7 +370,7 @@ test("role decides which sections and controls are offered", async ({ page }) =>
   await expect(page.getByRole("link", { name: "Transactions" })).toBeVisible();
 
   await page.getByRole("table", { name: "Inventory" }).getByRole("link").first().click();
-  await expect(page.getByRole("button", { name: "Issue" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take out" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Request stock" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
 });
@@ -394,6 +394,13 @@ test("an Engineer's log holds only their own activity", async ({ page }) => {
 
 /* The purchasing loop the MVP left out: ask, then have somebody decide. */
 test("an Engineer requests stock and the Office decides it", async ({ page }) => {
+  /*
+   * Unique per run, like the item names above. A request is never cleaned up,
+   * so a fixed note accumulates one matching element per run and per retry
+   * until the lookup below dies on strict mode.
+   */
+  const note = `Needed for Friday. ${Date.now()}`;
+
   await signIn(page, ENGINEER);
   await page.goto("/dashboard");
 
@@ -402,13 +409,13 @@ test("an Engineer requests stock and the Office decides it", async ({ page }) =>
 
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: /Quantity/ }).fill("7");
-  await dialog.getByRole("textbox", { name: "Note (optional)" }).fill("Needed for Friday.");
+  await dialog.getByRole("textbox", { name: "Note (optional)" }).fill(note);
   await dialog.getByRole("button", { name: "Send request" }).click();
 
   await expect(dialog).toHaveCount(0);
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Your stock requests" })).toBeVisible();
-  await expect(page.getByText("Needed for Friday.")).toBeVisible();
+  await expect(page.getByText(note)).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
@@ -416,9 +423,9 @@ test("an Engineer requests stock and the Office decides it", async ({ page }) =>
   await signIn(page, OFFICE);
   await page.goto("/requests");
 
-  const request = page.locator("li").filter({ hasText: "Needed for Friday." }).first();
+  const request = page.locator("li").filter({ hasText: note }).first();
   await expect(request).toBeVisible();
-  await request.getByRole("button", { name: "Reject" }).click();
+  await request.getByRole("button", { name: "Turn down" }).click();
 
   const decision = page.getByRole("dialog");
   await decision
@@ -469,14 +476,14 @@ test("the transaction log accounts for activity with its actor", async ({ page }
   const log = page.getByRole("table", { name: "Transaction log" });
   await expect(log).toBeVisible();
   await expect(log.locator("tbody tr").first()).toContainText(
-    /Receive|Issue|Transfer|Collect|Adjust/,
+    /Receive|Take out|Transfer|Collect|Adjust/,
   );
 
   /* The filter takes the reference people read off a label, not an internal id. */
   await page.getByLabel("Item", { exact: true }).fill("ITM-0001");
   await expect(log.locator("tbody tr").first()).toBeVisible();
   await expect(log.locator("tbody tr").first()).toContainText(
-    /Receive|Issue|Transfer|Collect|Adjust/,
+    /Receive|Take out|Transfer|Collect|Adjust/,
   );
 });
 

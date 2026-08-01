@@ -1,5 +1,6 @@
 import FitScreenRounded from "@mui/icons-material/FitScreenRounded";
 import GridOnRounded from "@mui/icons-material/GridOnRounded";
+import LockOutlined from "@mui/icons-material/LockOutlined";
 import LoginRounded from "@mui/icons-material/LoginRounded";
 import LogoutRounded from "@mui/icons-material/LogoutRounded";
 import PanToolRounded from "@mui/icons-material/PanToolRounded";
@@ -98,7 +99,26 @@ export const MapToolbar = memo(function MapToolbar({
               </ToggleButton>
             </ToggleButtonGroup>
           ) : (
-            <Chip size="small" label="View only" variant="outlined" />
+            /*
+             * A statement, not a control. As an outlined chip it wore the same
+             * pill shape as the toggle buttons beside it, and for a role that
+             * cannot edit it is the only thing left in this group — which made
+             * it look like the button you press to start editing. A lock and
+             * plain text cannot be mistaken for something to click.
+             */
+            <Tooltip title="Only an Admin can change this map">
+              <Stack
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{ px: 0.75, color: "text.secondary" }}
+              >
+                <LockOutlined sx={{ fontSize: 16 }} />
+                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                  View only
+                </Typography>
+              </Stack>
+            </Tooltip>
           )}
         </Box>
         {canEdit && (

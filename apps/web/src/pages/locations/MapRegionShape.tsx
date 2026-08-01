@@ -17,27 +17,51 @@ const TWO_LINE_MIN_HEIGHT = 9;
  * on every frame of a drag.
  */
 const CHARACTER_WIDTH_RATIO = 0.55;
+/**
+ * How much of the available slice a line may fill. The rest is breathing room:
+ * text that ends exactly on the edge reads as though it has been cut off by it,
+ * and the character-width estimate above is an estimate, so the margin also
+ * absorbs the cases where it runs a little narrow.
+ */
+const FILL_RATIO = 0.86;
+
+interface LabelSpace {
+  readonly width: number;
+  readonly height: number;
+  readonly centreX: number;
+}
 
 /**
- * How much room a label really has, and how tall the shape is.
+ * Where a label fits, and how much room it has there.
  *
- * For a polygon the answer is the width of the shape *at the line the label
- * sits on*, not the width of its bounding box: a trapezoid that tapers towards
- * the bottom is far narrower where the text lands than at its widest point, and
- * measuring the box let the label run out over the edge.
+ * For a polygon the answer comes from the slice of the shape *on the line the
+ * label sits on*, not from its bounding box: a trapezoid that tapers towards
+ * the bottom is far narrower where the text lands than at its widest point.
+ *
+ * Both the width and the centre have to come from that slice. Measuring the
+ * width there but still centring on the polygon's centroid puts text that fits
+ * in the wrong place, and it hangs over one edge anyway — the centroid of a
+ * tapering shape is not the middle of any particular line across it.
  */
-function labelSpace(
-  geometry: MapRegionView["geometry"],
-  labelY: number,
-): { readonly width: number; readonly height: number } {
+function labelSpace(geometry: MapRegionView["geometry"], labelY: number): LabelSpace {
   if (geometry.kind === "Rectangle") {
-    return { width: geometry.width, height: geometry.height };
+    return {
+      width: geometry.width,
+      height: geometry.height,
+      centreX: geometry.x + geometry.width / 2,
+    };
   }
 
+  const xs = geometry.points.map((point) => point.x);
   const ys = geometry.points.map((point) => point.y);
   const height = Math.max(...ys) - Math.min(...ys);
+  const fallback = {
+    width: Math.max(...xs) - Math.min(...xs),
+    height,
+    centreX: (Math.max(...xs) + Math.min(...xs)) / 2,
+  };
 
-  /* Where each edge crosses the label's line, giving the span available there. */
+  /* Where each edge crosses the label's line, giving the slice available there. */
   const crossings: number[] = [];
   for (let index = 0; index < geometry.points.length; index += 1) {
     const start = geometry.points[index];
@@ -49,17 +73,29 @@ function labelSpace(
     crossings.push(start.x + ((labelY - start.y) / (end.y - start.y)) * (end.x - start.x));
   }
 
-  if (crossings.length < 2) {
-    const xs = geometry.points.map((point) => point.x);
-    return { width: Math.max(...xs) - Math.min(...xs), height };
-  }
+  if (crossings.length < 2) return fallback;
 
-  return { width: Math.max(...crossings) - Math.min(...crossings), height };
+  const left = Math.min(...crossings);
+  const right = Math.max(...crossings);
+
+  return { width: right - left, height, centreX: (left + right) / 2 };
+}
+
+/** The part of two slices that both share, so text placed there sits in both. */
+function overlap(a: LabelSpace, b: LabelSpace): LabelSpace {
+  const left = Math.max(a.centreX - a.width / 2, b.centreX - b.width / 2);
+  const right = Math.min(a.centreX + a.width / 2, b.centreX + b.width / 2);
+
+  return {
+    width: Math.max(0, right - left),
+    height: a.height,
+    centreX: (left + right) / 2,
+  };
 }
 
 /** Cuts `text` to what fits `width`, ending in an ellipsis when it had to. */
 function truncateToWidth(text: string, width: number, fontSize: number): string {
-  const fits = Math.floor((width * 0.92) / (fontSize * CHARACTER_WIDTH_RATIO));
+  const fits = Math.floor((width * FILL_RATIO) / (fontSize * CHARACTER_WIDTH_RATIO));
 
   if (fits <= 1) return "";
   return text.length <= fits ? text : `${text.slice(0, fits - 1).trimEnd()}…`;
@@ -119,16 +155,29 @@ export const MapRegionShape = memo(function MapRegionShape({
    * a second line at all. The full text stays in the group's aria-label, and
    * the inspector shows it in full, so nothing is actually lost.
    */
-  const space = labelSpace(geometry, normalizedCenter.y);
+  const twoLines =
+    labelSpace(geometry, normalizedCenter.y).height * MAP_UNITS >= TWO_LINE_MIN_HEIGHT;
+  /*
+   * Measured on both baselines and narrowed to where they agree. The two lines
+   * share an x, so the room they have is the room the *lower* one has — on a
+   * shape that tapers, the summary sits four units further down and the walls
+   * have closed in by then. Taking the overlap keeps both inside.
+   */
+  const nameY = normalizedCenter.y - (twoLines ? 1.5 / MAP_UNITS : 0);
+  const summaryY = nameY + 4 / MAP_UNITS;
+  const space = twoLines
+    ? overlap(labelSpace(geometry, nameY), labelSpace(geometry, summaryY))
+    : labelSpace(geometry, nameY);
+
+  const labelX = space.centreX * MAP_UNITS;
   const nameLine = truncateToWidth(
     `${region.displayName}${locationCode === undefined ? "" : ` · ${locationCode}`}`,
     space.width * MAP_UNITS,
     NAME_FONT_SIZE,
   );
-  const summaryLine =
-    space.height * MAP_UNITS < TWO_LINE_MIN_HEIGHT
-      ? undefined
-      : truncateToWidth(`${itemSummary}${moreItems}`, space.width * MAP_UNITS, SUMMARY_FONT_SIZE);
+  const summaryLine = !twoLines
+    ? undefined
+    : truncateToWidth(`${itemSummary}${moreItems}`, space.width * MAP_UNITS, SUMMARY_FONT_SIZE);
   const shapeProps = {
     "data-region-id": region.id,
     fill: region.stock.colour,
@@ -160,8 +209,8 @@ export const MapRegionShape = memo(function MapRegionShape({
       )}
       {nameLine.length > 0 && (
         <text
-          x={normalizedCenter.x * MAP_UNITS}
-          y={normalizedCenter.y * MAP_UNITS - (summaryLine === undefined ? 0 : 1.5)}
+          x={labelX}
+          y={nameY * MAP_UNITS}
           textAnchor="middle"
           dominantBaseline="middle"
           pointerEvents="none"
@@ -169,14 +218,9 @@ export const MapRegionShape = memo(function MapRegionShape({
           fontSize={NAME_FONT_SIZE}
           fontWeight="700"
         >
-          <tspan x={normalizedCenter.x * MAP_UNITS}>{nameLine}</tspan>
+          <tspan x={labelX}>{nameLine}</tspan>
           {summaryLine !== undefined && summaryLine.length > 0 && (
-            <tspan
-              x={normalizedCenter.x * MAP_UNITS}
-              dy="4"
-              fontSize={SUMMARY_FONT_SIZE}
-              fontWeight="500"
-            >
+            <tspan x={labelX} dy="4" fontSize={SUMMARY_FONT_SIZE} fontWeight="500">
               {summaryLine}
             </tspan>
           )}
