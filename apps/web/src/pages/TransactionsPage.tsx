@@ -34,19 +34,10 @@ import {
   formatQuantity,
   LoadingRows,
   PageHeader,
+  transactionKindLabels,
 } from "../components/DataStates";
 
 const PAGE_SIZE = 50;
-
-const transactionKindLabels: Readonly<Record<TransactionKind, string>> = {
-  Receive: "Receive",
-  Issue: "Take out",
-  Transfer: "Transfer",
-  Adjust: "Adjust",
-  Reserve: "Reserve",
-  Collect: "Collect",
-  Release: "Release",
-};
 
 /** Converts the human-facing UK date into an unambiguous UTC timestamp. */
 function parseUkDate(value: string, endOfDay = false): string | undefined {
@@ -203,8 +194,8 @@ export function TransactionsPage(): ReactElement {
         title={seesEveryone ? "Every change, and who made it" : "Your activity"}
         description={
           seesEveryone
-            ? "An append-only record. Mistakes are corrected with a new adjustment, never by editing history."
-            : "Everything you have received, taken out, collected or reserved. An append-only record — nothing here can be edited."
+            ? "Nothing here can be edited or deleted. A mistake is put right with a new adjustment, so the original stays visible alongside the correction."
+            : "Everything you have received, taken out, collected or reserved. Nothing here can be edited or deleted."
         }
         actions={
           <Button variant="outlined" startIcon={<FileDownloadRounded />} onClick={handleExport}>
@@ -215,10 +206,10 @@ export function TransactionsPage(): ReactElement {
 
       <Paper variant="outlined" sx={{ mb: 2.5, p: { xs: 1.5, sm: 2 } }}>
         <Typography variant="subtitle2" sx={{ mb: 1.25, fontWeight: 800 }}>
-          Filter the When column
+          Narrow the list
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Search by the item reference, colloquial name, barcode, or part number. Dates use
+          Search by the item code, name, barcode, or part number. Dates use
           <strong> dd/mm/yyyy</strong>.
         </Typography>
         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>

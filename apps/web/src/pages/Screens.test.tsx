@@ -123,7 +123,9 @@ describe("dashboard", () => {
 
     const table = await screen.findByRole("table", { name: "Inventory" });
 
-    expect(within(table).getByRole("columnheader", { name: "For you" })).toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", { name: "Reserved for you" }),
+    ).toBeInTheDocument();
     const row = within(table).getByText("M6 × 30 mm zinc-plated hex bolt").closest("tr");
     expect(within(row as HTMLElement).getByText("30")).toBeInTheDocument();
   });
@@ -177,10 +179,17 @@ describe("item detail", () => {
 
     await screen.findByRole("heading", { name: testItemDetail.name });
 
-    expect(screen.getByText("420 ea")).toBeInTheDocument();
-    expect(screen.getByText("400")).toBeInTheDocument();
-    expect(screen.getByText("20")).toBeInTheDocument();
-    expect(screen.getByText("350")).toBeInTheDocument();
+    /*
+     * Read per tile rather than across the page: every tile now carries the
+     * unit, so a bare "400 ea" also matches the location holding that much.
+     */
+    const figure = (label: string): string =>
+      within(screen.getByRole("group", { name: label })).getByRole("paragraph").textContent;
+
+    expect(figure("On hand")).toBe("420 ea");
+    expect(figure("In stores")).toBe("400 ea");
+    expect(figure("At job sites")).toBe("20 ea");
+    expect(figure("Available")).toBe("350 ea");
   });
 
   it("renders a QR code labelled with the item reference", async () => {
@@ -246,7 +255,7 @@ describe("item detail", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/Reason/u)).toBeRequired();
-    expect(within(dialog).getByLabelText(/Counted quantity/u)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Total counted/u)).toBeInTheDocument();
   });
 });
 
@@ -260,9 +269,9 @@ describe("job detail", () => {
     const table = await screen.findByRole("table", { name: "Reservations" });
     const row = within(table).getByText("ITM-0001").closest("tr") as HTMLElement;
 
-    expect(within(row).getByText("50")).toBeInTheDocument();
-    expect(within(row).getByText("20")).toBeInTheDocument();
-    expect(within(row).getByText("30")).toBeInTheDocument();
+    expect(within(row).getByText("50 ea")).toBeInTheDocument();
+    expect(within(row).getByText("20 ea")).toBeInTheDocument();
+    expect(within(row).getByText("30 ea")).toBeInTheDocument();
   });
 
   it("warns that closing leaves job-site stock where it is", async () => {
@@ -358,7 +367,7 @@ describe("stock requests", () => {
     expect(screen.getByText(/Sam Field/u)).toBeInTheDocument();
     expect(screen.getByText(/Running short on site/u)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Reject" }));
+    await user.click(screen.getByRole("button", { name: "Turn down" }));
 
     const dialog = await screen.findByRole("dialog");
     /* A refusal has to say why, so the person who asked is not left guessing. */

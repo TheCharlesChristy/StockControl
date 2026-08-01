@@ -129,6 +129,7 @@ const HierarchyTreeItem = memo(function HierarchyTreeItem({
           secondary={node.code}
           sx={textSx}
           slotProps={treeItemSlotProps}
+          title={`${node.name} · ${node.code}`}
         />
       </TreeRow>
     </TreeItem>

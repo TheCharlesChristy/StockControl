@@ -34,7 +34,7 @@ const STATUS_COLOURS: Readonly<Record<StockRequestStatus, StatusColour>> = {
 
 interface StockRequestListProps {
   readonly requests: readonly StockRequestView[];
-  /** Whether to offer Approve and Reject. The server checks this again. */
+  /** Whether to offer Approve and Turn down. The server checks this again. */
   readonly canReview: boolean;
   readonly onChanged?: () => void;
 }
@@ -168,7 +168,7 @@ export function StockRequestList({
                         Approve
                       </Button>
                       <Button size="small" onClick={() => open(request, "reject")}>
-                        Reject
+                        Turn down
                       </Button>
                     </>
                   )}
@@ -229,7 +229,7 @@ export function StockRequestList({
               />
             )}
 
-            {error !== null && (
+            {error !== null && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"}>
                 {error.message}
               </Alert>

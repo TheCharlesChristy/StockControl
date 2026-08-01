@@ -8,7 +8,9 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
+  Divider,
   InputAdornment,
   Link,
   MenuItem,
@@ -24,7 +26,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { userRoles, type UserRole } from "@stockcontrol/contracts";
+import { userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
 import { useCallback, useState, type FormEvent, type ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -82,7 +84,7 @@ function CreateUserDialog({
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -152,6 +154,11 @@ function CreateUserDialog({
   );
 }
 
+/** A change to somebody's access, held until it has been confirmed. */
+type PendingChange =
+  | { readonly kind: "role"; readonly user: UserView; readonly role: UserRole }
+  | { readonly kind: "active"; readonly user: UserView; readonly isActive: boolean };
+
 export function UsersPage(): ReactElement {
   const api = useApi();
   const { user: signedInUser } = useAuth();
@@ -159,6 +166,7 @@ export function UsersPage(): ReactElement {
   const [search, setSearch] = useState("");
   const [actionError, setActionError] = useState<ApiError | undefined>(undefined);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingChange | null>(null);
 
   const load = useCallback((signal: AbortSignal) => api.listUsers(signal), [api]);
   const users = useResource(load);
@@ -183,10 +191,40 @@ export function UsersPage(): ReactElement {
 
     void api
       .updateUser(id, changes)
-      .then(() => users.reload())
+      .then(() => {
+        setPending(null);
+        return users.reload();
+      })
       .catch((caught: unknown) => setActionError(asApiError(caught)))
       .finally(() => setBusyId(null));
   };
+
+  /*
+   * Both of these controls change what somebody can do the instant they move,
+   * and disabling an account also ends whatever that person is in the middle
+   * of. Ask first, and say plainly what will happen — an accidental brush of a
+   * dropdown should not be able to demote a colleague.
+   */
+  const confirmation =
+    pending === null
+      ? null
+      : pending.kind === "role"
+        ? {
+            title: `Change ${pending.user.displayName} to ${pending.role}?`,
+            body: `They currently sign in as ${pending.user.role}. The new role applies to their next request — anything already open in their browser follows it immediately.`,
+            action: "Change role",
+            run: () => update(pending.user.id, { role: pending.role }),
+          }
+        : {
+            title: pending.isActive
+              ? `Turn ${pending.user.displayName}'s access back on?`
+              : `Disable ${pending.user.displayName}?`,
+            body: pending.isActive
+              ? "They will be able to sign in again straight away."
+              : "They are signed out immediately and cannot sign back in. Their history stays in the log.",
+            action: pending.isActive ? "Enable" : "Disable",
+            run: () => update(pending.user.id, { isActive: pending.isActive }),
+          };
 
   return (
     <Box>
@@ -244,6 +282,15 @@ export function UsersPage(): ReactElement {
 
       {rows.length > 0 && (
         <Paper variant="outlined">
+          {/*
+           * Above the table, not below it: this explains what the controls in
+           * the rows do, and an explanation read after the fact is no use.
+           */}
+          <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
+            Open a name to edit their details or review what they have done. Disabling someone ends
+            their active sessions immediately. You cannot change your own role or disable yourself.
+          </Typography>
+          <Divider />
           <TableContainer>
             <Table aria-label="Users">
               <TableHead>
@@ -281,7 +328,11 @@ export function UsersPage(): ReactElement {
                           size="small"
                           value={row.role}
                           onChange={(event) =>
-                            update(row.id, { role: event.target.value as UserRole })
+                            setPending({
+                              kind: "role",
+                              user: row,
+                              role: event.target.value as UserRole,
+                            })
                           }
                           disabled={isSelf || busyId === row.id}
                           aria-label={`Role for ${row.displayName}`}
@@ -300,7 +351,13 @@ export function UsersPage(): ReactElement {
                       <TableCell align="right">
                         <Switch
                           checked={row.isActive}
-                          onChange={(event) => update(row.id, { isActive: event.target.checked })}
+                          onChange={(event) =>
+                            setPending({
+                              kind: "active",
+                              user: row,
+                              isActive: event.target.checked,
+                            })
+                          }
                           disabled={isSelf || busyId === row.id}
                           slotProps={{ input: { "aria-label": `Active: ${row.displayName}` } }}
                         />
@@ -311,11 +368,24 @@ export function UsersPage(): ReactElement {
               </TableBody>
             </Table>
           </TableContainer>
-          <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
-            Open a name to edit their details or review what they have done. Disabling someone ends
-            their active sessions immediately. You cannot change your own role or disable yourself.
-          </Typography>
         </Paper>
+      )}
+
+      {confirmation !== null && (
+        <Dialog open onClose={() => setPending(null)} fullWidth maxWidth="xs">
+          <DialogTitle>{confirmation.title}</DialogTitle>
+          <DialogContent>
+            <DialogContentText>{confirmation.body}</DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPending(null)} disabled={busyId !== null}>
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={confirmation.run} disabled={busyId !== null}>
+              {confirmation.action}
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
 
       {creating && <CreateUserDialog onClose={() => setCreating(false)} onDone={users.reload} />}

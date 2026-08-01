@@ -730,6 +730,7 @@ export async function jobSiteStock(
       "locations.kind as kind",
       "items.reference as item_reference",
       "items.name as item_name",
+      "items.unit as item_unit",
     ])
     .where("stock_levels.location_id", "=", locationId)
     .where("stock_levels.quantity", ">", "0")
@@ -742,5 +743,6 @@ export async function jobSiteStock(
     locationName: `${row.item_reference} — ${row.item_name}`,
     kind: row.kind,
     quantity: row.quantity,
+    unit: row.item_unit,
   }));
 }

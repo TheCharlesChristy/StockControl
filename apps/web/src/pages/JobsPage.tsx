@@ -79,7 +79,7 @@ function CreateJobDialog({ onClose }: { readonly onClose: () => void }): ReactEl
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>

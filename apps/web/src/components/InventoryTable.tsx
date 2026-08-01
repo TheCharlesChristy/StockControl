@@ -204,7 +204,7 @@ export function InventoryTable({
       "stockcontrol-inventory.csv",
       toCsv(
         [
-          "Item ID",
+          "Item code",
           "Name",
           "Unit",
           "On hand",
@@ -291,7 +291,7 @@ export function InventoryTable({
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox" />
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Item ID</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Item code</TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell align="right" sx={{ display: { xs: "none", sm: "table-cell" } }}>
                     On hand
@@ -301,7 +301,7 @@ export function InventoryTable({
                   </TableCell>
                   {showReservedForYou && (
                     <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                      For you
+                      Reserved for you
                     </TableCell>
                   )}
                   <TableCell align="right">Available</TableCell>

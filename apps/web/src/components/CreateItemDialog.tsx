@@ -70,7 +70,7 @@ export function CreateItemDialog({
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            {error !== undefined && (
+            {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
               </Alert>
@@ -110,7 +110,7 @@ export function CreateItemDialog({
               helperText="Optional, and searchable"
             />
             <TextField
-              label="Low-stock threshold"
+              label="Low-stock minimum"
               value={threshold}
               onChange={(event) => setThreshold(event.target.value)}
               disabled={submitting}

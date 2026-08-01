@@ -4,9 +4,7 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   FormControl,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -32,7 +30,7 @@ import type {
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
-import { useAuth } from "../auth/AuthContext";
+import { useCapability } from "../auth/useCapability";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { mapBorder } from "./locations/constants";
 import {
@@ -57,8 +55,12 @@ const SEARCH_DEBOUNCE_MS = 250;
  */
 export function LocationsPage(): ReactElement {
   const api = useApi();
-  const { user } = useAuth();
-  const canEdit = user?.role === "Admin";
+  /*
+   * Editing the hierarchy and the map is one capability, resolved through the
+   * shared role map rather than a role name, so a change to ROLE_CAPABILITIES
+   * carries this screen with it. The server checks the same capability again.
+   */
+  const canEdit = useCapability("manageLocations");
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [editor, dispatch] = useReducer(editorReducer, initialEditor);
   const [query, setQuery] = useState("");
@@ -418,26 +420,28 @@ export function LocationsPage(): ReactElement {
           alignItems={{ md: "center" }}
           spacing={1.5}
         >
+          {/*
+           * The building said once. This header used to name it four times over
+           * — breadcrumb, heading, a "Building" chip, its code, and again inside
+           * the selector — which is a lot of furniture for one fact. The
+           * breadcrumb marks the section, the heading names the building, the
+           * caption carries its code, and the selector is how you change it.
+           */}
           <Box sx={{ minWidth: 0 }}>
             <Typography
               variant="overline"
               color="text.secondary"
               sx={{ display: "block", letterSpacing: "0.08em" }}
             >
-              Locations / {selectedBuilding?.name ?? "Building"}
+              Locations
             </Typography>
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-              <Typography
-                variant="h1"
-                component="h1"
-                sx={{ fontSize: { xs: "1.6rem", sm: "2rem" }, lineHeight: 1.15 }}
-              >
-                {selectedBuilding?.name ?? "Locations"}
-              </Typography>
-              {selectedBuilding !== undefined && (
-                <Chip label="Building" size="small" variant="outlined" />
-              )}
-            </Stack>
+            <Typography
+              variant="h1"
+              component="h1"
+              sx={{ fontSize: { xs: "1.6rem", sm: "2rem" }, lineHeight: 1.15 }}
+            >
+              {selectedBuilding?.name ?? "Locations"}
+            </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
               {selectedBuilding?.code ?? "Select a building to open its map"}
             </Typography>
@@ -460,24 +464,39 @@ export function LocationsPage(): ReactElement {
                 ))}
               </Select>
             </FormControl>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddRounded />}
-              onClick={() => document.getElementById("new-location-code")?.focus()}
-              disabled={!canEdit || hierarchyRoot === null}
-            >
-              Add building
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<MapRounded />}
-              onClick={() => svgRef.current?.focus()}
-              disabled={draft === null}
-            >
-              Edit map
-            </Button>
+            {/*
+             * Both of these only exist for a role that can actually change
+             * something. A role that cannot gets no button at all rather than a
+             * greyed stub or — worse — a live one that quietly does nothing:
+             * the navigation already hides whole sections by role, and this is
+             * the same idea one level down.
+             */}
+            {canEdit && (
+              <>
+                <Tooltip title="Jumps to the new-location form below the hierarchy">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddRounded />}
+                      onClick={() => document.getElementById("new-location-code")?.focus()}
+                      disabled={hierarchyRoot === null}
+                    >
+                      Add building
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<MapRounded />}
+                  onClick={() => svgRef.current?.focus()}
+                  disabled={draft === null}
+                >
+                  Edit map
+                </Button>
+              </>
+            )}
           </Stack>
         </Stack>
         {(conflict || saveMessage !== null) && (
@@ -612,33 +631,36 @@ export function LocationsPage(): ReactElement {
               bgcolor: "#FBFCFE",
             }}
           >
+            {/*
+             * One control, reading the normal way round. This was an icon
+             * button above a second button with its text turned on its side —
+             * two ways to do the same thing, and the label unreadable without
+             * tilting your head. Someone who has just clicked a region needs to
+             * see at a glance where its details went.
+             */}
             <Tooltip title="Open region details" placement="left">
-              <IconButton
+              <Button
+                variant="text"
                 size="small"
                 aria-label="Open region details"
                 onClick={() => {
                   setInspectorOpen(true);
                 }}
+                sx={{
+                  minWidth: 0,
+                  flexDirection: "column",
+                  gap: 0.25,
+                  px: 0.5,
+                  py: 1,
+                  fontSize: "0.7rem",
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                }}
               >
                 <MapRounded fontSize="small" />
-              </IconButton>
+                Details
+              </Button>
             </Tooltip>
-            <Button
-              variant="text"
-              size="small"
-              aria-label="Open region details"
-              onClick={() => {
-                setInspectorOpen(true);
-              }}
-              sx={{
-                writingMode: "vertical-rl",
-                transform: "rotate(180deg)",
-                fontSize: "0.75rem",
-                fontWeight: 800,
-              }}
-            >
-              Details
-            </Button>
           </Box>
         )}
       </Box>

@@ -92,7 +92,7 @@ function DetailsForm({
       <Divider />
       <Box component="form" onSubmit={handleSave} sx={{ px: 2.5, py: 2.5 }} noValidate>
         <Stack spacing={2.5} sx={{ maxWidth: 480 }}>
-          {error !== undefined && (
+          {error !== undefined && !error.hasFieldErrors && (
             <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
               {error.message}
             </Alert>

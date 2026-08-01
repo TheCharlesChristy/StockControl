@@ -5,6 +5,11 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
   Paper,
   Stack,
@@ -31,6 +36,7 @@ import {
   LoadingRows,
   PageHeader,
   StatTile,
+  transactionKindLabels,
 } from "../components/DataStates";
 import { ItemQrCode } from "../components/ItemQrCode";
 import { isValidEan13, ItemBarcode } from "../components/ItemBarcode";
@@ -50,6 +56,7 @@ export function ItemDetailPage(): ReactElement {
   const [requesting, setRequesting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   const loadItem = useCallback((signal: AbortSignal) => api.getItem(itemId, signal), [api, itemId]);
   const loadLocations = useCallback((signal: AbortSignal) => api.listLocations(signal), [api]);
@@ -74,7 +81,10 @@ export function ItemDetailPage(): ReactElement {
     setArchiving(true);
     void api
       .updateItem(data.id, { isActive: !data.isActive })
-      .then(() => item.reload())
+      .then(() => {
+        setConfirmingArchive(false);
+        return item.reload();
+      })
       .finally(() => setArchiving(false));
   };
 
@@ -151,7 +161,13 @@ export function ItemDetailPage(): ReactElement {
                     <Button variant="text" onClick={() => setEditing(true)}>
                       Edit
                     </Button>
-                    <Button variant="text" onClick={toggleArchived} disabled={archiving}>
+                    <Button
+                      variant="text"
+                      onClick={() =>
+                        data.isActive ? setConfirmingArchive(true) : toggleArchived()
+                      }
+                      disabled={archiving}
+                    >
                       {data.isActive ? "Archive" : "Restore"}
                     </Button>
                   </>
@@ -168,19 +184,41 @@ export function ItemDetailPage(): ReactElement {
           )}
 
           <Stack spacing={3}>
+            {/*
+             * Five figures that only make sense in relation to each other, so
+             * each says what it counts. Every one carries the unit: a row where
+             * the first tile reads "677 ea" and the rest read "677" invites you
+             * to read them as different things.
+             */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <StatTile label="On hand" value={`${formatQuantity(data.onHand)} ${data.unit}`} />
-              <StatTile label="In stores" value={formatQuantity(data.inStores)} />
-              <StatTile label="At job sites" value={formatQuantity(data.atJobSites)} />
-              <StatTile label="Reserved" value={formatQuantity(data.reserved)} />
+              <StatTile
+                label="On hand"
+                value={`${formatQuantity(data.onHand)} ${data.unit}`}
+                caption="Everything, everywhere"
+              />
+              <StatTile
+                label="In stores"
+                value={`${formatQuantity(data.inStores)} ${data.unit}`}
+                caption="Back at the stores"
+              />
+              <StatTile
+                label="At job sites"
+                value={`${formatQuantity(data.atJobSites)} ${data.unit}`}
+                caption="Already collected to site"
+              />
+              <StatTile
+                label="Reserved"
+                value={`${formatQuantity(data.reserved)} ${data.unit}`}
+                caption="Committed to a job, not yet moved"
+              />
               <StatTile
                 label="Available"
-                value={formatQuantity(data.available)}
+                value={`${formatQuantity(data.available)} ${data.unit}`}
                 tone={data.belowThreshold ? "warning" : "primary"}
                 caption={
                   data.lowStockThreshold === null
-                    ? undefined
-                    : `Threshold ${formatQuantity(data.lowStockThreshold)}`
+                    ? "Free to take from stores"
+                    : `Free to take · minimum ${formatQuantity(data.lowStockThreshold)}`
                 }
               />
             </Stack>
@@ -203,7 +241,7 @@ export function ItemDetailPage(): ReactElement {
                       <TableHead>
                         <TableRow>
                           <TableCell>Location</TableCell>
-                          <TableCell>Kind</TableCell>
+                          <TableCell>Type</TableCell>
                           <TableCell align="right">Quantity</TableCell>
                         </TableRow>
                       </TableHead>
@@ -346,7 +384,11 @@ export function ItemDetailPage(): ReactElement {
                             {formatDateTime(transaction.occurredAt)}
                           </TableCell>
                           <TableCell>
-                            <Chip label={transaction.kind} size="small" variant="outlined" />
+                            <Chip
+                              label={transactionKindLabels[transaction.kind]}
+                              size="small"
+                              variant="outlined"
+                            />
                           </TableCell>
                           <TableCell align="right">
                             {formatQuantity(transaction.quantity)}
@@ -395,6 +437,35 @@ export function ItemDetailPage(): ReactElement {
               }}
             />
           )}
+
+          {/*
+           * Archiving is undone by the Restore button next to it, so this is a
+           * short question rather than a warning — but it sits one pixel from
+           * Edit, and it stops the item being used, so it should not fire on a
+           * misclick.
+           */}
+          <Dialog
+            open={confirmingArchive}
+            onClose={() => setConfirmingArchive(false)}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>Archive {data.reference}?</DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                It cannot be received, taken out or reserved while archived, and it drops out of the
+                catalogue search. Its history is kept, and Restore brings it back.
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmingArchive(false)} disabled={archiving}>
+                Cancel
+              </Button>
+              <Button variant="contained" onClick={toggleArchived} disabled={archiving}>
+                {archiving ? "Archiving…" : "Archive"}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Box>

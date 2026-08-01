@@ -306,6 +306,12 @@ export function AppShell(): ReactElement | null {
             mx: "auto",
             px: { xs: 2, sm: 3, lg: 4 },
             py: isLocationWorkspace ? { xs: 1.5, md: 2 } : { xs: 2.5, md: 4 },
+            /*
+             * The scan button floats over the bottom-right corner. Without this
+             * it lands on the last row of a long table — the one you scrolled
+             * all the way down to read.
+             */
+            pb: isLocationWorkspace ? { xs: 1.5, md: 2 } : { xs: 12, md: 12 },
             height: isLocationWorkspace ? "100%" : undefined,
             display: isLocationWorkspace ? "flex" : undefined,
             flexDirection: isLocationWorkspace ? "column" : undefined,

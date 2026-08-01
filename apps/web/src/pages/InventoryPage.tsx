@@ -24,7 +24,7 @@ export function InventoryPage(): ReactElement {
       <PageHeader
         eyebrow="Inventory"
         title="What you have, and where"
-        description="Search by item ID, name, barcode or part number. Expand a row to see the per-location breakdown."
+        description="Search by item code, name, barcode or part number. Expand a row to see the per-location breakdown. Available is what is free to take: it counts stores only, never stock already dropped at a job site."
         actions={
           <Stack direction="row" spacing={1.5}>
             <Button
