@@ -1,17 +1,15 @@
 import type {
   EngineerDashboardResponse,
-  HierarchyNodeView,
-  HierarchyTreeResponse,
   ItemDetailView,
   ItemListResponse,
   ItemSummaryView,
   JobDetailView,
   JobListResponse,
   LocationListResponse,
-  MapRegionInput,
-  MapRegionView,
-  MapSnapshot,
+  MapLocationInput,
+  MapLocationView,
   MapSummaryView,
+  MapView,
   OfficeDashboardResponse,
   SaveMapRequest,
   StockRequestListResponse,
@@ -185,6 +183,7 @@ const locations: LocationListResponse = {
       kind: "Store",
       jobId: null,
       isActive: true,
+      path: "Aisle A › Main store, aisle A, bay 1",
     },
   ],
 };
@@ -217,63 +216,13 @@ const users: UserListResponse = {
 /*
  * Locations and building maps. Region identities are canonical UUIDs because
  * that is what the server's value objects accept, and the editor now generates
- * ids for new regions client-side.
+ * ids for new locations client-side.
  */
-export const testBranchId = "11111111-1111-4111-8111-111111111111";
-export const testBuildingId = "22222222-2222-4222-8222-222222222222";
+export const testMapId = "55555555-5555-4555-8555-555555555555";
 export const testAreaId = "33333333-3333-4333-8333-333333333333";
 export const testAisleId = "44444444-4444-4444-8444-444444444444";
-export const testMapId = "55555555-5555-4555-8555-555555555555";
-export const testRectangleRegionId = "66666666-6666-4666-8666-666666666666";
-export const testPolygonRegionId = "77777777-7777-4777-8777-777777777777";
 
-const hierarchyNode = (
-  overrides: Partial<HierarchyNodeView> & Pick<HierarchyNodeView, "id" | "code" | "name">,
-): HierarchyNodeView => ({
-  nodeKind: "Area",
-  operationalKind: "Storage",
-  parentId: testBuildingId,
-  branchId: testBranchId,
-  buildingId: testBuildingId,
-  status: "Active",
-  generalFulfilmentEnabled: true,
-  children: [],
-  ...overrides,
-});
-
-export const testArea = hierarchyNode({ id: testAreaId, code: "MAIN-A", name: "Aisle A" });
-export const testAisle = hierarchyNode({
-  id: testAisleId,
-  code: "MAIN-B",
-  name: "Aisle B",
-  nodeKind: "Aisle",
-});
-export const testBuilding = hierarchyNode({
-  id: testBuildingId,
-  code: "MAIN",
-  name: "Main warehouse",
-  nodeKind: "Building",
-  parentId: testBranchId,
-  children: [testArea, testAisle],
-});
-export const testBranch = hierarchyNode({
-  id: testBranchId,
-  code: "BR",
-  name: "Northgate branch",
-  nodeKind: "Branch",
-  operationalKind: "Container",
-  parentId: null,
-  buildingId: null,
-  children: [testBuilding],
-});
-
-export const testHierarchyTree: HierarchyTreeResponse = {
-  root: testBranch,
-  buildings: [testBuilding],
-  capabilities: ["manageLocations"],
-};
-
-const availableStock: MapRegionView["stock"] = {
+const availableStock: MapLocationView["stock"] = {
   status: "Available",
   colour: "#2E7D32",
   text: "Available",
@@ -283,23 +232,25 @@ const availableStock: MapRegionView["stock"] = {
   items: [{ name: testItem.name, quantity: "120" }],
 };
 
-export const testRectangleRegion: MapRegionView = {
-  id: testRectangleRegionId,
-  displayName: "Aisle A bays",
-  hierarchyNodeId: testAreaId,
-  parentRegionId: null,
+/** A rectangle with the polygon below drawn beside it, not inside it. */
+export const testRectangleLocation: MapLocationView = {
+  id: testAreaId,
+  code: "MAIN-A",
+  name: "Aisle A",
   geometry: { kind: "Rectangle", x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
   zOrder: 1,
   searchAliases: ["bay row"],
   status: "Active",
+  derivedParentId: null,
+  depth: 0,
+  path: "Aisle A",
   stock: availableStock,
 };
 
-export const testPolygonRegion: MapRegionView = {
-  id: testPolygonRegionId,
-  displayName: "Aisle B corner",
-  hierarchyNodeId: testAisleId,
-  parentRegionId: null,
+export const testPolygonLocation: MapLocationView = {
+  id: testAisleId,
+  code: "MAIN-B",
+  name: "Aisle B",
   geometry: {
     kind: "Polygon",
     points: [
@@ -311,46 +262,49 @@ export const testPolygonRegion: MapRegionView = {
   zOrder: 2,
   searchAliases: [],
   status: "Active",
+  derivedParentId: null,
+  depth: 0,
+  path: "Aisle B",
   stock: { ...availableStock, status: "LowStock", colour: "#ED6C02", text: "Low stock" },
 };
 
-export const testMapSnapshot: MapSnapshot = {
+export const testMap: MapView = {
   id: testMapId,
-  buildingId: testBuildingId,
-  building: testBuilding,
+  code: "MAIN",
+  name: "Main warehouse",
   status: "Active",
   revision: 3,
   background: { kind: "Blank" },
-  hierarchy: [testBuilding],
-  regions: [testRectangleRegion, testPolygonRegion],
+  locations: [testRectangleLocation, testPolygonLocation],
   capabilities: ["manageLocations"],
 };
 
 export const testMapSummary: MapSummaryView = {
   id: testMapId,
-  buildingId: testBuildingId,
-  buildingCode: "MAIN",
-  buildingName: "Main warehouse",
+  code: "MAIN",
+  name: "Main warehouse",
   status: "Active",
   revision: 3,
   background: { kind: "Blank" },
-  regionCount: 2,
+  locationCount: 2,
 };
 
-/** Turns a save payload back into a snapshot, the way the API would. */
-function savedSnapshot(regions: readonly MapRegionInput[], revision: number): MapSnapshot {
+/** Turns a save payload back into a map view, the way the API would. */
+function savedMap(locations: readonly MapLocationInput[], revision: number): MapView {
   return {
-    ...testMapSnapshot,
+    ...testMap,
     revision: revision + 1,
-    regions: regions.map((region, index) => ({
-      id: region.id ?? `server-${String(index)}`,
-      displayName: region.displayName,
-      hierarchyNodeId: region.hierarchyNodeId,
-      parentRegionId: region.parentRegionId ?? null,
-      geometry: region.geometry,
-      zOrder: region.zOrder,
-      searchAliases: region.searchAliases ?? [],
-      status: region.status ?? "Active",
+    locations: locations.map((location, index) => ({
+      id: location.id ?? `server-${String(index)}`,
+      code: location.code ?? `SERVER-${String(index)}`,
+      name: location.name,
+      geometry: location.geometry,
+      zOrder: location.zOrder,
+      searchAliases: location.searchAliases ?? [],
+      status: location.status ?? "Active",
+      derivedParentId: null,
+      depth: 0,
+      path: location.name,
       stock: availableStock,
     })),
   };
@@ -389,38 +343,36 @@ export function createFakeApiClient(
       }
     }
 
-    if (path === "/locations/tree") {
-      return Promise.resolve(jsonResponse(testHierarchyTree));
-    }
     if (path === "/locations/search") {
       const query = url.includes("query=") ? decodeURIComponent(url.split("query=")[1] ?? "") : "";
-      const matches = [testArea, testAisle].filter((node) =>
-        `${node.name} ${node.code}`.toLowerCase().includes(query.toLowerCase()),
+      const matches = [testRectangleLocation, testPolygonLocation].filter((location) =>
+        `${location.name} ${location.code}`.toLowerCase().includes(query.toLowerCase()),
       );
       return Promise.resolve(
         jsonResponse(
           query.length === 0
             ? []
-            : matches.map((node) => ({
-                location: node,
-                regionId: node.id === testAreaId ? testRectangleRegionId : testPolygonRegionId,
+            : matches.map((location) => ({
+                id: location.id,
+                code: location.code,
+                name: location.name,
+                path: location.path,
+                status: location.status,
                 mapId: testMapId,
                 matchedOn: "name",
               })),
         ),
       );
     }
-    if (path === "/maps") {
+    if (path === "/maps" && method === "GET") {
       return Promise.resolve(jsonResponse([testMapSummary]));
     }
     if (path === `/maps/${testMapId}` && method === "PUT") {
       const request = body as SaveMapRequest;
-      return Promise.resolve(
-        jsonResponse(savedSnapshot(request.regions, request.expectedRevision)),
-      );
+      return Promise.resolve(jsonResponse(savedMap(request.locations, request.expectedRevision)));
     }
-    if (path.startsWith("/maps/")) {
-      return Promise.resolve(jsonResponse(testMapSnapshot));
+    if (path.startsWith("/maps")) {
+      return Promise.resolve(jsonResponse(testMap));
     }
     if (path === "/dashboard") {
       return Promise.resolve(jsonResponse(officeDashboard));

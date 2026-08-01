@@ -1,4 +1,8 @@
-import type { AuthenticatedSession, MapRegionInput, SaveMapRequest } from "@stockcontrol/contracts";
+import type {
+  AuthenticatedSession,
+  MapLocationInput,
+  SaveMapRequest,
+} from "@stockcontrol/contracts";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -8,9 +12,9 @@ import { StockControlProviders } from "../../app/App";
 import type { AuthClient, SignInCredentials } from "../../auth/auth-types";
 import {
   createFakeApiClient,
+  testAisleId,
+  testAreaId,
   testMapId,
-  testPolygonRegionId,
-  testRectangleRegionId,
   type RecordedRequest,
 } from "../../test/fake-api";
 import { mockCanvasLayout, runFramesSynchronously } from "../../test/layout";
@@ -83,15 +87,15 @@ async function renderMap(): Promise<Harness> {
   return { requests, canvas: canvas as unknown as SVGSVGElement };
 }
 
-const saved = (requests: readonly RecordedRequest[]): readonly MapRegionInput[] => {
+const saved = (requests: readonly RecordedRequest[]): readonly MapLocationInput[] => {
   const put = requests.filter(
     (request) => request.method === "PUT" && request.path === `/maps/${testMapId}`,
   );
-  return (put.at(-1)?.body as SaveMapRequest | undefined)?.regions ?? [];
+  return (put.at(-1)?.body as SaveMapRequest | undefined)?.locations ?? [];
 };
 
 const shapeFor = (id: string): SVGGraphicsElement => {
-  const element = document.querySelector(`[data-region-id="${id}"]`);
+  const element = document.querySelector(`[data-location-id="${id}"]`);
   if (element === null) throw new Error(`No shape rendered for ${id}`);
   return element as SVGGraphicsElement;
 };
@@ -164,19 +168,19 @@ describe("pointer coordinates", () => {
   });
 });
 
-describe("dragging a region", () => {
+describe("dragging a shape", () => {
   it("moves the shape live and commits once when the pointer is released", async () => {
     const { requests, canvas } = await renderMap();
 
-    const before = shapeFor(testRectangleRegionId).getAttribute("x");
+    const before = shapeFor(testAreaId).getAttribute("x");
     drag(
       canvas,
       at(0.2, 0.15),
       [at(0.3, 0.25), at(0.4, 0.35)],
       { altKey: true },
-      shapeFor(testRectangleRegionId),
+      shapeFor(testAreaId),
     );
-    const after = shapeFor(testRectangleRegionId).getAttribute("x");
+    const after = shapeFor(testAreaId).getAttribute("x");
 
     expect(Number(after)).toBeGreaterThan(Number(before));
 
@@ -184,7 +188,7 @@ describe("dragging a region", () => {
     await waitFor(() => {
       expect(saved(requests)).toHaveLength(2);
     });
-    const moved = saved(requests).find((region) => region.id === testRectangleRegionId)?.geometry;
+    const moved = saved(requests).find((location) => location.id === testAreaId)?.geometry;
     if (moved?.kind !== "Rectangle") throw new Error("expected a rectangle");
     expect(moved.x).toBeCloseTo(0.3, 2);
     expect(moved.y).toBeCloseTo(0.3, 2);
@@ -193,11 +197,11 @@ describe("dragging a region", () => {
   it("stops following the pointer after the gesture is cancelled", async () => {
     /*
      * The old editor kept its drag record in a ref that nothing cleared when the
-     * pointer went away, so the region resumed moving on the next stray event.
+     * pointer went away, so the shape resumed moving on the next stray event.
      */
     const { canvas } = await renderMap();
 
-    fireEvent.pointerDown(shapeFor(testRectangleRegionId), {
+    fireEvent.pointerDown(shapeFor(testAreaId), {
       pointerId: 1,
       button: 0,
       buttons: 1,
@@ -205,10 +209,10 @@ describe("dragging a region", () => {
     });
     fireEvent.pointerMove(canvas, { pointerId: 1, buttons: 1, ...at(0.3, 0.25) });
     fireEvent.pointerCancel(canvas, { pointerId: 1 });
-    const settled = shapeFor(testRectangleRegionId).getAttribute("x");
+    const settled = shapeFor(testAreaId).getAttribute("x");
     fireEvent.pointerMove(canvas, { pointerId: 1, buttons: 0, ...at(0.8, 0.8) });
 
-    expect(shapeFor(testRectangleRegionId).getAttribute("x")).toBe(settled);
+    expect(shapeFor(testAreaId).getAttribute("x")).toBe(settled);
   });
 });
 
@@ -261,35 +265,35 @@ function readTranslate(transform: string): readonly [number, number] {
   return [Number(match?.[1] ?? "0"), Number(match?.[2] ?? "0")];
 }
 
-describe("region ordering and removal", () => {
-  it("paints regions in z-order so Raise and Lower are visible", async () => {
+describe("shape ordering and removal", () => {
+  it("paints shapes in z-order so Raise and Lower are visible", async () => {
     await renderMap();
 
     const order = (): readonly (string | null)[] =>
-      [...document.querySelectorAll("[data-region-id]")].map((node) =>
-        node.getAttribute("data-region-id"),
+      [...document.querySelectorAll("[data-location-id]")].map((node) =>
+        node.getAttribute("data-location-id"),
       );
-    expect(order()).toEqual([testRectangleRegionId, testPolygonRegionId]);
+    expect(order()).toEqual([testAreaId, testAisleId]);
 
-    await userEvent.click(screen.getByRole("button", { name: /Aisle A bays/u }));
+    await userEvent.click(screen.getByRole("button", { name: /^Aisle A, MAIN-A,/u }));
     await userEvent.click(await screen.findByRole("button", { name: "Raise" }));
 
-    expect(order()).toEqual([testPolygonRegionId, testRectangleRegionId]);
+    expect(order()).toEqual([testAisleId, testAreaId]);
   });
 
-  it("removes the selected region with the Delete key", async () => {
+  it("removes the selected shape with the Delete key", async () => {
     const { requests, canvas } = await renderMap();
 
-    await userEvent.click(screen.getByRole("button", { name: /Aisle A bays/u }));
+    await userEvent.click(screen.getByRole("button", { name: /^Aisle A, MAIN-A,/u }));
     fireEvent.keyDown(canvas, { key: "Delete" });
 
-    expect(document.querySelector(`[data-region-id="${testRectangleRegionId}"]`)).toBeNull();
+    expect(document.querySelector(`[data-location-id="${testAreaId}"]`)).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(saved(requests)).toHaveLength(1);
     });
-    expect(saved(requests)[0]?.id).toBe(testPolygonRegionId);
+    expect(saved(requests)[0]?.id).toBe(testAisleId);
   });
 });
 

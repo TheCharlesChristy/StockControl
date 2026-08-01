@@ -1,9 +1,35 @@
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
-import type { FloorPlanDocumentRow, LocationRow, MapRow, RegionRow } from "./locations.types";
+import type { FloorPlanDocumentRow, LocationRow, LocationUsage, MapRow } from "./locations.types";
 
 const SCHEMA = "stockcontrol" as const;
+
+const LOCATION_COLUMNS = [
+  "id",
+  "code",
+  "name",
+  "kind",
+  "job_id",
+  "is_active",
+  "map_id",
+  "geometry",
+  "z_order",
+  "search_aliases",
+  "derived_parent_id",
+  "archived_at",
+] as const;
+
+const MAP_COLUMNS = [
+  "id",
+  "code",
+  "name",
+  "background_kind",
+  "background_asset_id",
+  "background_metadata",
+  "status",
+  "revision",
+] as const;
 
 export class LocationsRepository {
   public constructor(private readonly database: Kysely<StockControlDatabase>) {}
@@ -12,84 +38,81 @@ export class LocationsRepository {
     return this.database
       .withSchema(SCHEMA)
       .selectFrom("locations")
-      .select([
-        "id",
-        "code",
-        "name",
-        "kind",
-        "job_id",
-        "is_active",
-        "node_kind",
-        "operational_kind",
-        "parent_id",
-        "building_id",
-        "general_fulfilment_enabled",
-        "archived_at",
-      ])
+      .select(LOCATION_COLUMNS)
       .orderBy("code")
       .execute();
   }
 
-  public listMaps(): Promise<readonly MapRow[]> {
+  public listMapLocations(mapId: string): Promise<readonly LocationRow[]> {
     return this.database
       .withSchema(SCHEMA)
-      .selectFrom("building_maps")
-      .select([
-        "id",
-        "building_location_id",
-        "background_kind",
-        "background_asset_id",
-        "background_metadata",
-        "status",
-        "revision",
-      ])
-      .orderBy("building_location_id")
-      .execute();
-  }
-
-  public findMap(mapId: string): Promise<MapRow | undefined> {
-    return this.database
-      .withSchema(SCHEMA)
-      .selectFrom("building_maps")
-      .select([
-        "id",
-        "building_location_id",
-        "background_kind",
-        "background_asset_id",
-        "background_metadata",
-        "status",
-        "revision",
-      ])
-      .where("id", "=", mapId)
-      .executeTakeFirst();
-  }
-
-  public listRegions(mapId: string): Promise<readonly RegionRow[]> {
-    return this.database
-      .withSchema(SCHEMA)
-      .selectFrom("map_regions")
-      .select([
-        "id",
-        "map_id",
-        "hierarchy_location_id",
-        "parent_region_id",
-        "display_name",
-        "geometry",
-        "z_order",
-        "search_aliases",
-        "status",
-      ])
+      .selectFrom("locations")
+      .select(LOCATION_COLUMNS)
       .where("map_id", "=", mapId)
       .orderBy("z_order")
       .orderBy("id")
       .execute();
   }
 
+  public listMaps(): Promise<readonly MapRow[]> {
+    return this.database
+      .withSchema(SCHEMA)
+      .selectFrom("maps")
+      .select(MAP_COLUMNS)
+      .orderBy("code")
+      .execute();
+  }
+
+  public findMap(mapId: string): Promise<MapRow | undefined> {
+    return this.database
+      .withSchema(SCHEMA)
+      .selectFrom("maps")
+      .select(MAP_COLUMNS)
+      .where("id", "=", mapId)
+      .executeTakeFirst();
+  }
+
+  /**
+   * What the ledger still knows about each location, which decides whether
+   * erasing its shape archives it or deletes it outright.
+   */
+  public async usage(ids: readonly string[]): Promise<ReadonlyMap<string, LocationUsage>> {
+    const usage = new Map<string, LocationUsage>(
+      ids.map((id) => [id, { occupied: false, historicallyReferenced: false }]),
+    );
+    if (ids.length === 0) return usage;
+    const occupied = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_levels")
+      .select("location_id")
+      .where("location_id", "in", ids)
+      .where("quantity", ">", "0")
+      .execute();
+    const referenced = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("transactions")
+      .select(["from_location_id", "to_location_id"])
+      .where((eb) => eb.or([eb("from_location_id", "in", ids), eb("to_location_id", "in", ids)]))
+      .execute();
+    for (const row of occupied) {
+      const existing = usage.get(row.location_id);
+      if (existing !== undefined) usage.set(row.location_id, { ...existing, occupied: true });
+    }
+    for (const row of referenced) {
+      for (const id of [row.from_location_id, row.to_location_id]) {
+        if (id === null) continue;
+        const existing = usage.get(id);
+        if (existing !== undefined) usage.set(id, { ...existing, historicallyReferenced: true });
+      }
+    }
+    return usage;
+  }
+
   public findLinkedFloorPlan(documentId: string): Promise<FloorPlanDocumentRow | undefined> {
     return this.database
       .withSchema(SCHEMA)
       .selectFrom("floor_plan_documents")
-      .innerJoin("building_maps", "building_maps.background_asset_id", "floor_plan_documents.id")
+      .innerJoin("maps", "maps.background_asset_id", "floor_plan_documents.id")
       .select([
         "floor_plan_documents.id as id",
         "floor_plan_documents.object_key as object_key",

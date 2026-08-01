@@ -1,4 +1,4 @@
-import type { MapRegionView } from "@stockcontrol/contracts";
+import type { MapLocationView } from "@stockcontrol/contracts";
 import { memo, useSyncExternalStore, type ReactElement } from "react";
 
 import { formatQuantity } from "../../components/DataStates";
@@ -13,7 +13,7 @@ const TWO_LINE_MIN_HEIGHT = 9;
 /**
  * Rough advance width of one character as a fraction of the font size. The
  * label is a plain sans-serif, so this is close enough to keep text inside its
- * shape without measuring — and measuring would mean a layout read per region
+ * shape without measuring — and measuring would mean a layout read per shape
  * on every frame of a drag.
  */
 const CHARACTER_WIDTH_RATIO = 0.55;
@@ -43,7 +43,7 @@ interface LabelSpace {
  * in the wrong place, and it hangs over one edge anyway — the centroid of a
  * tapering shape is not the middle of any particular line across it.
  */
-function labelSpace(geometry: MapRegionView["geometry"], labelY: number): LabelSpace {
+function labelSpace(geometry: MapLocationView["geometry"], labelY: number): LabelSpace {
   if (geometry.kind === "Rectangle") {
     return {
       width: geometry.width,
@@ -101,31 +101,30 @@ function truncateToWidth(text: string, width: number, fontSize: number): string 
   return text.length <= fits ? text : `${text.slice(0, fits - 1).trimEnd()}…`;
 }
 
-interface MapRegionShapeProps {
-  readonly region: MapRegionView;
-  readonly locationCode: string | undefined;
+interface MapLocationShapeProps {
+  readonly location: MapLocationView;
   readonly selected: boolean;
   readonly editable: boolean;
   readonly store: LiveGeometryStore;
 }
 
 /**
- * One region on the map.
+ * One location on the map. The shape is the location — there is no separate
+ * region record behind it.
  *
  * Props are pure data — no handlers, no zoom — so this bails out of every
  * render except its own. While a drag is running it reads the moving geometry
  * from the live store; every other shape reads a stable `null` there and React
  * skips it entirely, which is what keeps a drag at one component render a frame.
  */
-export const MapRegionShape = memo(function MapRegionShape({
-  region,
-  locationCode,
+export const MapLocationShape = memo(function MapLocationShape({
+  location,
   selected,
   editable,
   store,
-}: MapRegionShapeProps): ReactElement {
-  const live = useSyncExternalStore(store.subscribe, () => store.getRegionGeometry(region.id));
-  const geometry = live ?? region.geometry;
+}: MapLocationShapeProps): ReactElement {
+  const live = useSyncExternalStore(store.subscribe, () => store.getShapeGeometry(location.id));
+  const geometry = live ?? location.geometry;
   const center =
     geometry.kind === "Rectangle"
       ? { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 }
@@ -138,14 +137,14 @@ export const MapRegionShape = memo(function MapRegionShape({
       ? { x: center.x / geometry.points.length, y: center.y / geometry.points.length }
       : center;
   const itemSummary =
-    region.stock.items.length === 0
+    location.stock.items.length === 0
       ? "Empty"
-      : region.stock.items
+      : location.stock.items
           .slice(0, 2)
           .map((item) => `${item.name} (${formatQuantity(item.quantity)})`)
           .join(", ");
   const moreItems =
-    region.stock.items.length > 2 ? ` +${String(region.stock.items.length - 2)}` : "";
+    location.stock.items.length > 2 ? ` +${String(location.stock.items.length - 2)}` : "";
 
   /*
    * SVG text does not wrap and does not clip, so a name longer than its shape
@@ -171,7 +170,7 @@ export const MapRegionShape = memo(function MapRegionShape({
 
   const labelX = space.centreX * MAP_UNITS;
   const nameLine = truncateToWidth(
-    `${region.displayName}${locationCode === undefined ? "" : ` · ${locationCode}`}`,
+    `${location.name}${location.code === "" ? "" : ` · ${location.code}`}`,
     space.width * MAP_UNITS,
     NAME_FONT_SIZE,
   );
@@ -179,9 +178,9 @@ export const MapRegionShape = memo(function MapRegionShape({
     ? undefined
     : truncateToWidth(`${itemSummary}${moreItems}`, space.width * MAP_UNITS, SUMMARY_FONT_SIZE);
   const shapeProps = {
-    "data-region-id": region.id,
-    fill: region.stock.colour,
-    fillOpacity: region.status === "Archived" ? 0.42 : 0.82,
+    "data-location-id": location.id,
+    fill: location.stock.colour,
+    fillOpacity: location.status === "Archived" ? 0.42 : 0.82,
     stroke: selected ? selectionStroke : shapeStroke,
     strokeWidth: selected ? 2 : 1,
     vectorEffect: "non-scaling-stroke" as const,
@@ -190,10 +189,10 @@ export const MapRegionShape = memo(function MapRegionShape({
 
   return (
     <g
-      id={`map-region-${region.id}`}
-      data-region-group-id={region.id}
+      id={`map-location-${location.id}`}
+      data-location-group-id={location.id}
       role="button"
-      aria-label={`${region.displayName}${locationCode === undefined ? "" : `, ${locationCode}`}, ${region.stock.text}, ${itemSummary}`}
+      aria-label={`${location.name}${location.code === "" ? "" : `, ${location.code}`}, ${location.stock.text}, ${itemSummary}`}
       style={{ cursor: editable ? "move" : "pointer" }}
     >
       {geometry.kind === "Rectangle" ? (

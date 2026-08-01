@@ -1,62 +1,5 @@
-export const hierarchyNodeKinds = [
-  "Branch",
-  "Building",
-  "Area",
-  "Aisle",
-  "Shelf",
-  "Bin",
-  "CustomSection",
-] as const;
-export type HierarchyNodeKind = (typeof hierarchyNodeKinds)[number];
-export const locationOperationalKinds = [
-  "Container",
-  "Storage",
-  "Quarantine",
-  "Repair",
-  "Transit",
-  "VirtualJobSite",
-] as const;
-export type LocationOperationalKind = (typeof locationOperationalKinds)[number];
 export type LocationStatus = "Active" | "Archived";
-
-export interface HierarchyNodeView {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-  readonly nodeKind: HierarchyNodeKind;
-  readonly operationalKind: LocationOperationalKind;
-  readonly parentId: string | null;
-  readonly branchId: string;
-  readonly buildingId: string | null;
-  readonly status: LocationStatus;
-  readonly generalFulfilmentEnabled: boolean;
-  readonly children: readonly HierarchyNodeView[];
-}
-
-export interface HierarchyTreeResponse {
-  readonly root: HierarchyNodeView;
-  readonly buildings: readonly HierarchyNodeView[];
-  readonly capabilities: readonly string[];
-}
-
-export interface CreateHierarchyNodeRequest {
-  readonly code: string;
-  readonly name: string;
-  readonly nodeKind: Exclude<HierarchyNodeKind, "Branch">;
-  readonly operationalKind: Exclude<LocationOperationalKind, "VirtualJobSite">;
-  readonly parentId: string;
-  readonly generalFulfilmentEnabled?: boolean;
-}
-
-export interface RenameLocationRequest {
-  readonly name: string;
-}
-export interface MoveLocationRequest {
-  readonly parentId: string;
-}
-export interface ArchiveLocationRequest {
-  readonly reason?: string;
-}
+export type MapStatus = "Active" | "Archived";
 
 export interface MapGeometryRectangle {
   readonly kind: "Rectangle";
@@ -81,10 +24,13 @@ export interface FloorPlanMetadata {
   readonly pixelHeight?: number;
 }
 
-export type MapRegionStatus = "Active" | "Archived";
-export type MapStatus = "Active" | "Archived";
 export type MapStockStatus =
   "Available" | "LowStock" | "OutOfStock" | "Attention" | "Quarantined" | "Archived";
+
+export interface MapStockItem {
+  readonly name: string;
+  readonly quantity: string;
+}
 
 export interface MapStatusSummary {
   readonly status: MapStockStatus;
@@ -96,76 +42,84 @@ export interface MapStatusSummary {
   readonly items: readonly MapStockItem[];
 }
 
-export interface MapStockItem {
-  readonly name: string;
-  readonly quantity: string;
-}
-
-export interface MapRegionView {
+/**
+ * A location as the map holds it. `derivedParentId`, `depth` and `path` are
+ * computed from the geometry by the server and are never sent back up: nesting
+ * is changed by moving the shape, not by editing a field.
+ */
+export interface MapLocationView {
   readonly id: string;
-  readonly displayName: string;
-  readonly hierarchyNodeId: string;
-  readonly parentRegionId: string | null;
+  readonly code: string;
+  readonly name: string;
   readonly geometry: MapGeometry;
   readonly zOrder: number;
   readonly searchAliases: readonly string[];
-  readonly status: MapRegionStatus;
+  readonly status: LocationStatus;
+  readonly derivedParentId: string | null;
+  readonly depth: number;
+  readonly path: string;
   readonly stock: MapStatusSummary;
 }
 
 export interface MapSummaryView {
   readonly id: string;
-  readonly buildingId: string;
-  readonly buildingCode: string;
-  readonly buildingName: string;
+  readonly code: string;
+  readonly name: string;
   readonly status: MapStatus;
   readonly revision: number;
   readonly background: FloorPlanMetadata;
-  readonly regionCount: number;
+  readonly locationCount: number;
 }
 
-export interface MapSnapshot {
+export interface MapView {
   readonly id: string;
-  readonly buildingId: string;
-  readonly building: HierarchyNodeView;
+  readonly code: string;
+  readonly name: string;
   readonly status: MapStatus;
   readonly revision: number;
   readonly background: FloorPlanMetadata;
-  readonly hierarchy: readonly HierarchyNodeView[];
-  readonly regions: readonly MapRegionView[];
+  readonly locations: readonly MapLocationView[];
   readonly capabilities: readonly string[];
 }
 
-export interface MapRegionInput {
+/** A location on its way to the server. No id means it was just drawn. */
+export interface MapLocationInput {
   readonly id?: string;
-  readonly displayName: string;
-  readonly hierarchyNodeId: string;
-  readonly parentRegionId?: string | null;
+  readonly code?: string;
+  readonly name: string;
   readonly geometry: MapGeometry;
   readonly zOrder: number;
   readonly searchAliases?: readonly string[];
-  readonly status?: MapRegionStatus;
+  readonly status?: LocationStatus;
 }
 
 export interface SaveMapRequest {
   readonly expectedRevision: number;
   readonly background?: FloorPlanMetadata;
-  readonly regions: readonly MapRegionInput[];
+  readonly locations: readonly MapLocationInput[];
+}
+
+export interface CreateMapRequest {
+  readonly code: string;
+  readonly name: string;
 }
 
 export interface UploadFloorPlanRequest {
   readonly expectedRevision: number;
-  readonly regions: readonly MapRegionInput[];
+  readonly locations: readonly MapLocationInput[];
   readonly originalFileName: string;
   readonly mediaType: "image/png" | "image/jpeg";
   readonly contentBase64: string;
 }
 
 export interface LocationSearchResult {
-  readonly location: HierarchyNodeView;
-  readonly regionId: string | null;
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly path: string;
+  readonly status: LocationStatus;
   readonly mapId: string | null;
-  readonly matchedOn: "code" | "name" | "region" | "alias";
+  readonly matchedOn: "code" | "name" | "alias";
 }
 
 export interface OptimisticConcurrencyConflict {

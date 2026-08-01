@@ -1,18 +1,12 @@
 export type LocationDomainErrorCode =
   | "ArchivedEntity"
   | "CodeAlreadyUsed"
-  | "CrossBranchParent"
-  | "CrossBuildingParent"
-  | "Cycle"
   | "DuplicateEntity"
+  | "InvalidBackground"
   | "InvalidGeometry"
-  | "InvalidHierarchy"
-  | "InvalidMapLink"
   | "InvalidOperation"
-  | "InvalidParent"
   | "MissingEntity"
   | "NoChange"
-  | "Orphan"
   | "PermissionDenied";
 
 export class LocationDomainError extends Error {

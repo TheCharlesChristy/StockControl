@@ -194,38 +194,6 @@ export class CatalogueService {
     return findItemByCode(this.database, code);
   }
 
-  public async createLocation(input: NewLocation): Promise<LocationView> {
-    const { code, name } = input;
-    const id = randomUUID();
-
-    try {
-      await this.database
-        .withSchema(SCHEMA)
-        .insertInto("locations")
-        .values({
-          id,
-          code,
-          name,
-          kind: "Store",
-          job_id: null,
-          is_active: true,
-          node_kind: "CustomSection",
-          operational_kind: "Storage",
-          parent_id: "00000000-0000-4000-8000-000000000002",
-          building_id: "00000000-0000-4000-8000-000000000002",
-          general_fulfilment_enabled: true,
-          archived_at: null,
-        })
-        .execute();
-    } catch (error: unknown) {
-      throw duplicateOrRethrow(error, {
-        locations_code_key: { code: ["That location code is already in use."] },
-      });
-    }
-
-    return { id, code, name, kind: "Store", jobId: null, isActive: true };
-  }
-
   /** ITM-0001, ITM-0002, … continuing from the highest existing reference. */
   private async nextItemReference(): Promise<string> {
     const row = await this.database

@@ -4,7 +4,8 @@
     "target": "ES2022",
     "baseUrl": ".",
     "paths": {
-      "@stockcontrol/contracts": ["../../packages/contracts/src/index.ts"]
+      "@stockcontrol/contracts": ["../../packages/contracts/src/index.ts"],
+      "@stockcontrol/module-locations": ["../../packages/modules/locations/src/index.ts"]
     },
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

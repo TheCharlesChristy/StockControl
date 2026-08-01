@@ -1,7 +1,7 @@
 import type {
   CreateItemRequest,
   CreateJobRequest,
-  CreateLocationRequest,
+  CreateMapRequest,
   CreateStockRequestRequest,
   CreateUserRequest,
   DashboardResponse,
@@ -11,7 +11,6 @@ import type {
   JobListResponse,
   JobStatus,
   LocationListResponse,
-  LocationView,
   StockOperationResponse,
   StockRequestListResponse,
   StockRequestStatus,
@@ -22,14 +21,11 @@ import type {
   UserActivityResponse,
   UserListResponse,
   UserView,
-  HierarchyTreeResponse,
-  HierarchyNodeView,
   LocationSearchResult,
-  MapSnapshot,
   MapSummaryView,
+  MapView,
   SaveMapRequest,
   UploadFloorPlanRequest,
-  CreateHierarchyNodeRequest,
 } from "@stockcontrol/contracts";
 
 /**
@@ -210,32 +206,8 @@ export class ApiClient {
     return this.send("GET", "/locations", { ...(signal === undefined ? {} : { signal }) });
   }
 
-  public async createLocation(body: CreateLocationRequest): Promise<LocationView> {
-    const { location } = await this.send<{ location: LocationView }>("POST", "/locations", {
-      body,
-    });
-
-    return location;
-  }
-
-  public getLocationTree(signal?: AbortSignal): Promise<HierarchyTreeResponse> {
-    return this.send("GET", "/locations/tree", { ...(signal === undefined ? {} : { signal }) });
-  }
-
-  public createHierarchyNode(body: CreateHierarchyNodeRequest): Promise<HierarchyNodeView> {
-    return this.send("POST", "/locations/hierarchy", { body });
-  }
-
-  public renameLocation(id: string, name: string): Promise<HierarchyNodeView> {
-    return this.send("PATCH", `/locations/${id}`, { body: { name } });
-  }
-
-  public moveLocation(id: string, parentId: string): Promise<HierarchyNodeView> {
-    return this.send("POST", `/locations/${id}/move`, { body: { parentId } });
-  }
-
-  public archiveLocation(id: string): Promise<HierarchyNodeView> {
-    return this.send("POST", `/locations/${id}/archive`);
+  public async archiveLocation(id: string): Promise<void> {
+    await this.send("POST", `/locations/${id}/archive`);
   }
 
   public async deleteLocation(id: string): Promise<void> {
@@ -256,19 +228,19 @@ export class ApiClient {
     return this.send("GET", "/maps", { ...(signal === undefined ? {} : { signal }) });
   }
 
-  public getMap(buildingId: string, signal?: AbortSignal): Promise<MapSnapshot> {
-    return this.send("GET", `/maps/${buildingId}`, { ...(signal === undefined ? {} : { signal }) });
+  public getMap(mapId: string, signal?: AbortSignal): Promise<MapView> {
+    return this.send("GET", `/maps/${mapId}`, { ...(signal === undefined ? {} : { signal }) });
   }
 
-  public createMap(buildingId: string): Promise<MapSnapshot> {
-    return this.send("POST", `/maps/${buildingId}`, { body: { kind: "Blank" } });
+  public createMap(body: CreateMapRequest): Promise<MapView> {
+    return this.send("POST", "/maps", { body });
   }
 
-  public saveMap(mapId: string, body: SaveMapRequest): Promise<MapSnapshot> {
+  public saveMap(mapId: string, body: SaveMapRequest): Promise<MapView> {
     return this.send("PUT", `/maps/${mapId}`, { body });
   }
 
-  public uploadFloorPlan(mapId: string, body: UploadFloorPlanRequest): Promise<MapSnapshot> {
+  public uploadFloorPlan(mapId: string, body: UploadFloorPlanRequest): Promise<MapView> {
     return this.send("POST", `/maps/${mapId}/background`, { body });
   }
 

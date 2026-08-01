@@ -88,8 +88,15 @@ export default tseslint.config(
           default: "disallow",
           policies: [
             {
+              /*
+               * The browser may reach a framework-free module as well as the
+               * contracts. Containment decides the location hierarchy, so the
+               * canvas has to answer "what is this shape inside?" with exactly
+               * the rule the server will apply on save — one implementation,
+               * not a copy that can drift.
+               */
               from: { element: { type: "web" } },
-              allow: { to: { element: { type: "contracts" } } },
+              allow: { to: { element: { types: { anyOf: ["contracts", "module"] } } } },
             },
             {
               from: { element: { type: "host" } },

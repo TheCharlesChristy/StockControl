@@ -181,11 +181,12 @@ export class JobsService {
             kind: "JobSite",
             job_id: jobId,
             is_active: true,
-            node_kind: "JobSite",
-            operational_kind: "VirtualJobSite",
-            parent_id: null,
-            building_id: null,
-            general_fulfilment_enabled: false,
+            /* A job site is somewhere stock sits, not somewhere you draw. */
+            map_id: null,
+            geometry: null,
+            z_order: 0,
+            search_aliases: JSON.stringify([]),
+            derived_parent_id: null,
             archived_at: null,
           })
           .execute();

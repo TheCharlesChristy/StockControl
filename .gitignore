@@ -36,3 +36,6 @@ Thumbs.db
 *.log
 *.pid
 *.pid.lock
+
+# TypeScript incremental build state
+*.tsbuildinfo

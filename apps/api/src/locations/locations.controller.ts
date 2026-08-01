@@ -5,7 +5,6 @@ import {
   Get,
   Inject,
   Param,
-  Patch,
   Post,
   Put,
   Query,
@@ -21,17 +20,19 @@ import { requireCapability } from "../auth/request-context";
 import { bodyOf, requireText } from "../inventory/request-parsing";
 import type { LocationsService } from "./locations.service";
 
+const locationsOf = (body: Readonly<Record<string, unknown>>): never =>
+  (Array.isArray(body.locations) ? body.locations : []) as never;
+
+const revisionOf = (body: Readonly<Record<string, unknown>>): number =>
+  typeof body.expectedRevision === "number" && Number.isInteger(body.expectedRevision)
+    ? body.expectedRevision
+    : -1;
+
 @Controller()
 export class LocationsController {
   public constructor(
     @Inject(API_TOKENS.locationsService) private readonly locations: LocationsService,
   ) {}
-
-  @Get("locations/tree")
-  public tree(@Req() request: FastifyRequest): ReturnType<LocationsService["tree"]> {
-    requireCapability(request, "view");
-    return this.locations.tree();
-  }
 
   @Get("locations/search")
   public search(
@@ -48,13 +49,13 @@ export class LocationsController {
     return this.locations.maps();
   }
 
-  @Get("maps/:buildingId")
+  @Get("maps/:mapId")
   public map(
     @Req() request: FastifyRequest,
-    @Param("buildingId") buildingId: string,
-  ): ReturnType<LocationsService["mapForBuilding"]> {
+    @Param("mapId") mapId: string,
+  ): ReturnType<LocationsService["map"]> {
     requireCapability(request, "view");
-    return this.locations.mapForBuilding(buildingId);
+    return this.locations.map(mapId);
   }
 
   @Get("floor-plans/:documentId")
@@ -72,87 +73,18 @@ export class LocationsController {
       .send(asset.bytes);
   }
 
-  @Post("locations/hierarchy")
-  public createHierarchy(
-    @Req() request: FastifyRequest,
-    @Body() rawBody: unknown,
-  ): ReturnType<LocationsService["createHierarchy"]> {
-    requireCapability(request, "manageLocations");
-    const body = bodyOf(rawBody);
-    return this.locations.createHierarchy({
-      code: requireText(body, "code", "a location code"),
-      name: requireText(body, "name", "a location name"),
-      nodeKind: requireText(body, "nodeKind", "a node kind") as never,
-      operationalKind: requireText(body, "operationalKind", "an operational kind") as never,
-      parentId: requireText(body, "parentId", "a parent location"),
-    });
-  }
-
-  @Patch("locations/:locationId")
-  public rename(
-    @Req() request: FastifyRequest,
-    @Param("locationId") locationId: string,
-    @Body() rawBody: unknown,
-  ): ReturnType<LocationsService["rename"]> {
-    requireCapability(request, "manageLocations");
-    return this.locations.rename(
-      locationId,
-      requireText(bodyOf(rawBody), "name", "a location name"),
-    );
-  }
-
-  @Post("locations/:locationId/move")
-  public move(
-    @Req() request: FastifyRequest,
-    @Param("locationId") locationId: string,
-    @Body() rawBody: unknown,
-  ): ReturnType<LocationsService["move"]> {
-    requireCapability(request, "manageLocations");
-    return this.locations.move(
-      locationId,
-      requireText(bodyOf(rawBody), "parentId", "a parent location"),
-    );
-  }
-
-  @Post("locations/:locationId/archive")
-  public archive(
-    @Req() request: FastifyRequest,
-    @Param("locationId") locationId: string,
-  ): ReturnType<LocationsService["archive"]> {
-    requireCapability(request, "manageLocations");
-    return this.locations.archive(locationId);
-  }
-
-  @Delete("locations/:locationId")
-  public async remove(
-    @Req() request: FastifyRequest,
-    @Param("locationId") locationId: string,
-  ): Promise<{ readonly deleted: true }> {
-    requireCapability(request, "manageLocations");
-    await this.locations.remove(locationId);
-    return { deleted: true };
-  }
-
-  @Post("maps/:buildingId")
+  @Post("maps")
   public createMap(
     @Req() request: FastifyRequest,
-    @Param("buildingId") buildingId: string,
     @Body() rawBody: unknown,
   ): ReturnType<LocationsService["createMap"]> {
     const user = requireCapability(request, "manageLocations");
     const body = bodyOf(rawBody);
     return this.locations.createMap(
-      buildingId,
       {
-        kind: body.kind === "FloorPlan" ? "FloorPlan" : "Blank",
-        ...(typeof body.documentId === "string" ? { documentId: body.documentId } : {}),
-        ...(typeof body.originalFileName === "string"
-          ? { originalFileName: body.originalFileName }
-          : {}),
-        ...(body.mediaType === "image/png" || body.mediaType === "image/jpeg"
-          ? { mediaType: body.mediaType }
-          : {}),
-      } as never,
+        code: requireText(body, "code", "a map code"),
+        name: requireText(body, "name", "a map name"),
+      },
       user.id,
     );
   }
@@ -165,12 +97,11 @@ export class LocationsController {
   ): ReturnType<LocationsService["saveMap"]> {
     const user = requireCapability(request, "manageLocations");
     const body = bodyOf(rawBody);
-    const regions = Array.isArray(body.regions) ? (body.regions as never) : [];
-    const revision =
-      typeof body.expectedRevision === "number" && Number.isInteger(body.expectedRevision)
-        ? body.expectedRevision
-        : -1;
-    return this.locations.saveMap(mapId, { expectedRevision: revision, regions }, user.id);
+    return this.locations.saveMap(
+      mapId,
+      { expectedRevision: revisionOf(body), locations: locationsOf(body) },
+      user.id,
+    );
   }
 
   @Post("maps/:mapId/background")
@@ -190,11 +121,8 @@ export class LocationsController {
         validationFailed({ mediaType: ["Use image/png or image/jpeg."] }),
       );
     const upload: UploadFloorPlanRequest = {
-      expectedRevision:
-        typeof body.expectedRevision === "number" && Number.isInteger(body.expectedRevision)
-          ? body.expectedRevision
-          : -1,
-      regions: Array.isArray(body.regions) ? (body.regions as never) : [],
+      expectedRevision: revisionOf(body),
+      locations: locationsOf(body),
       originalFileName: requireText(body, "originalFileName", "a floor-plan filename"),
       mediaType,
       contentBase64: requireText(body, "contentBase64", "floor-plan bytes"),
@@ -209,5 +137,25 @@ export class LocationsController {
   ): ReturnType<LocationsService["archiveMap"]> {
     const user = requireCapability(request, "manageLocations");
     return this.locations.archiveMap(mapId, user.id);
+  }
+
+  @Post("locations/:locationId/archive")
+  public async archive(
+    @Req() request: FastifyRequest,
+    @Param("locationId") locationId: string,
+  ): Promise<{ readonly archived: true }> {
+    requireCapability(request, "manageLocations");
+    await this.locations.archive(locationId);
+    return { archived: true };
+  }
+
+  @Delete("locations/:locationId")
+  public async remove(
+    @Req() request: FastifyRequest,
+    @Param("locationId") locationId: string,
+  ): Promise<{ readonly deleted: true }> {
+    requireCapability(request, "manageLocations");
+    await this.locations.remove(locationId);
+    return { deleted: true };
   }
 }

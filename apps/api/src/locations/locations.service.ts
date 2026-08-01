@@ -1,38 +1,37 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type {
-  CreateHierarchyNodeRequest,
+  CreateMapRequest,
   FloorPlanMetadata,
-  HierarchyNodeView,
-  HierarchyTreeResponse,
   LocationSearchResult,
   MapGeometry,
-  MapRegionInput,
-  MapSnapshot,
+  MapLocationInput,
+  MapLocationView,
   MapStatusSummary,
   MapSummaryView,
+  MapView,
   SaveMapRequest,
   UploadFloorPlanRequest,
 } from "@stockcontrol/contracts";
 import { optimisticConflict, resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import {
-  BuildingMap,
   createLocationCode,
   createLocationId,
   createLocationName,
   createMapId,
-  createMapRegionId,
-  LocationDirectory,
+  deriveContainment,
+  descendantIds,
   LocationDomainError,
-  type BuildingMapSnapshot,
-  type HierarchyLocationNode,
-  type MapRegion,
+  LocationMap,
+  retirementOutcome,
+  type LocationMapSnapshot,
 } from "@stockcontrol/module-locations";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { JsonObject, StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
-import type { FloorPlanDocumentRow, LocationRow, MapRow, RegionRow } from "./locations.types";
+import { locationPaths } from "./location-paths";
+import type { FloorPlanDocumentRow, LocationRow, MapRow } from "./locations.types";
 import { S3PrivateFloorPlanStorage, type FloorPlanObjectStorage } from "./floor-plan-storage";
 import { LocationsRepository } from "./locations.repository";
 
@@ -127,73 +126,11 @@ const decodeFloorPlan = (input: UploadFloorPlanRequest, maxBytes: number): Decod
   const dimensions = input.mediaType === "image/png" ? pngDimensions(bytes) : jpegDimensions(bytes);
   return { bytes, ...dimensions };
 };
+
 const asRecord = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : {};
-
-const toDirectory = (rows: readonly LocationRow[]): LocationDirectory => {
-  const hierarchy = rows
-    .filter((row) => row.kind === "Store" && row.node_kind !== "JobSite")
-    .map((row) => ({
-      id: createLocationId(row.id),
-      code: createLocationCode(row.code),
-      name: createLocationName(row.name),
-      nodeKind: row.node_kind === "JobSite" ? "CustomSection" : row.node_kind,
-      operationalKind:
-        row.operational_kind === "VirtualJobSite" ? "Container" : row.operational_kind,
-      ...(row.parent_id === null ? {} : { parentId: createLocationId(row.parent_id) }),
-      branchId: createLocationId(
-        rows.find((candidate) => candidate.node_kind === "Branch")?.id ?? row.id,
-      ),
-      ...(row.building_id === null ? {} : { buildingId: createLocationId(row.building_id) }),
-      status: row.is_active ? ("Active" as const) : ("Archived" as const),
-      generalFulfilmentEnabled: row.general_fulfilment_enabled,
-    }));
-  const branch = hierarchy.find((row) => row.nodeKind === "Branch");
-  if (branch === undefined)
-    throw new ApplicationFailureException(
-      resourceUnavailable({ detail: "The location hierarchy is not configured." }),
-    );
-  return LocationDirectory.rehydrate({
-    hierarchyNodes: hierarchy,
-    vans: [],
-    virtualJobSites: [],
-    usedCodes: rows.map((row) => createLocationCode(row.code)),
-  });
-};
-
-const nodeView = (
-  node: HierarchyLocationNode,
-  children: readonly HierarchyNodeView[] = [],
-): HierarchyNodeView => ({
-  id: node.id,
-  code: node.code,
-  name: node.name,
-  nodeKind: node.nodeKind,
-  operationalKind: node.operationalKind,
-  parentId: node.parentId ?? null,
-  branchId: node.branchId,
-  buildingId: node.buildingId ?? null,
-  status: node.status,
-  generalFulfilmentEnabled: node.generalFulfilmentEnabled,
-  children,
-});
-
-const treeFor = (nodes: readonly HierarchyLocationNode[], rootId: string): HierarchyNodeView => {
-  const node = nodes.find((candidate) => candidate.id === rootId);
-  if (node === undefined)
-    throw new ApplicationFailureException(
-      resourceUnavailable({ detail: "The location hierarchy is incomplete." }),
-    );
-  return nodeView(
-    node,
-    nodes
-      .filter((candidate) => candidate.parentId === node.id)
-      .sort((a, b) => a.code.localeCompare(b.code))
-      .map((child) => treeFor(nodes, child.id)),
-  );
-};
 
 const backgroundFor = (row: MapRow | undefined): FloorPlanMetadata => {
   if (row === undefined || row.background_kind === "Blank") return { kind: "Blank" };
@@ -248,7 +185,27 @@ const geometryFor = (value: unknown): MapGeometry => {
   );
 };
 
-const inputGeometry = (input: MapRegionInput): MapGeometry => input.geometry;
+const aliasesFor = (value: unknown): readonly string[] =>
+  Array.isArray(value) ? value.filter((alias): alias is string => typeof alias === "string") : [];
+
+/**
+ * A code for a shape the user just drew and only gave a name. They can still
+ * override it, but nobody should have to invent one to put a box on a map.
+ */
+const generateCode = (name: string, taken: ReadonlySet<string>): string => {
+  const base =
+    name
+      .toUpperCase()
+      .replaceAll(/[^A-Z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .slice(0, 28) || "LOC";
+  if (!taken.has(base)) return base;
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base}-${String(suffix)}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `LOC-${randomUUID().slice(0, 8).toUpperCase()}`;
+};
 
 const domainFailure = (error: unknown): ApplicationFailureException => {
   if (error instanceof ApplicationFailureException) return error;
@@ -269,9 +226,22 @@ const postgresErrorCode = (error: unknown): string | undefined => {
   return postgresErrorCode((error as { readonly cause?: unknown }).cause);
 };
 
+/** One location as the save is about to write it. */
+interface ResolvedLocation {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly geometry: MapGeometry;
+  readonly zOrder: number;
+  readonly searchAliases: readonly string[];
+  readonly status: "Active" | "Archived";
+  readonly isNew: boolean;
+}
+
 export class LocationsService {
   private readonly repository: LocationsRepository;
   private readonly maxFloorPlanBytes: number;
+
   public constructor(
     private readonly database: Kysely<StockControlDatabase>,
     private readonly floorPlanStorage: FloorPlanObjectStorage = new S3PrivateFloorPlanStorage(),
@@ -282,24 +252,6 @@ export class LocationsService {
       Number.isSafeInteger(configuredLimit) && configuredLimit > 0 ? configuredLimit : 10_485_760;
   }
 
-  public async tree(): Promise<HierarchyTreeResponse> {
-    const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    const nodes = directory.listHierarchyNodes();
-    const root = nodes.find((node) => node.nodeKind === "Branch");
-    if (root === undefined)
-      throw new ApplicationFailureException(
-        resourceUnavailable({ detail: "The location hierarchy is not configured." }),
-      );
-    return {
-      root: treeFor(nodes, root.id),
-      buildings: nodes
-        .filter((node) => node.nodeKind === "Building")
-        .map((node) => treeFor(nodes, node.id)),
-      capabilities: ["view", "search"],
-    };
-  }
-
   public async search(query: string): Promise<readonly LocationSearchResult[]> {
     const needle = query.trim().toLocaleLowerCase("en-GB");
     if (needle.length < 1 || needle.length > 100)
@@ -307,40 +259,28 @@ export class LocationsService {
         validationFailed({ query: ["Enter 1-100 search characters."] }),
       );
     const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    const maps = await this.repository.listMaps();
-    const regions = (
-      await Promise.all(
-        maps.map(async (map) => [map, await this.repository.listRegions(map.id)] as const),
-      )
-    ).flatMap(([map, mapRegions]) => mapRegions.map((region) => ({ map, region })));
+    const paths = locationPaths(rows);
     return rows
-      .filter((row) => row.kind === "Store" && row.node_kind !== "JobSite")
+      .filter((row) => row.kind === "Store")
       .flatMap((row) => {
-        const region = regions.find(
-          (candidate) =>
-            candidate.region.hierarchy_location_id === row.id &&
-            candidate.region.status === "Active",
-        );
         const matchedOn = row.code.toLocaleLowerCase("en-GB").includes(needle)
           ? ("code" as const)
           : row.name.toLocaleLowerCase("en-GB").includes(needle)
             ? ("name" as const)
-            : region?.region.display_name.toLocaleLowerCase("en-GB").includes(needle)
-              ? ("region" as const)
-              : (region?.region.search_aliases as unknown[] | undefined)?.some(
-                    (alias) =>
-                      typeof alias === "string" &&
-                      alias.toLocaleLowerCase("en-GB").includes(needle),
-                  )
-                ? ("alias" as const)
-                : undefined;
+            : aliasesFor(row.search_aliases).some((alias) =>
+                  alias.toLocaleLowerCase("en-GB").includes(needle),
+                )
+              ? ("alias" as const)
+              : undefined;
         if (matchedOn === undefined) return [];
         return [
           {
-            location: nodeView(directory.getHierarchyNode(createLocationId(row.id))!),
-            regionId: region?.region.id ?? null,
-            mapId: region?.map.id ?? null,
+            id: row.id,
+            code: row.code,
+            name: row.name,
+            path: paths.get(row.id)?.path ?? row.name,
+            status: row.is_active ? ("Active" as const) : ("Archived" as const),
+            mapId: row.map_id,
             matchedOn,
           },
         ];
@@ -350,171 +290,47 @@ export class LocationsService {
   public async maps(): Promise<readonly MapSummaryView[]> {
     const rows = await this.repository.listLocations();
     const maps = await this.repository.listMaps();
-    return (
-      await Promise.all(
-        maps.map(async (map) => {
-          const building = rows.find((row) => row.id === map.building_location_id);
-          if (building === undefined) return undefined;
-          const regions = await this.repository.listRegions(map.id);
-          return {
-            id: map.id,
-            buildingId: building.id,
-            buildingCode: building.code,
-            buildingName: building.name,
-            status: map.status,
-            revision: map.revision,
-            background: backgroundFor(map),
-            regionCount: regions.length,
-          };
-        }),
-      )
-    ).filter((map): map is MapSummaryView => map !== undefined);
+    return maps.map((map) => ({
+      id: map.id,
+      code: map.code,
+      name: map.name,
+      status: map.status,
+      revision: map.revision,
+      background: backgroundFor(map),
+      locationCount: rows.filter((row) => row.map_id === map.id).length,
+    }));
   }
 
-  public async mapForBuilding(buildingId: string): Promise<MapSnapshot> {
-    const rows = await this.repository.listLocations();
-    const building = rows.find((row) => row.id === buildingId && row.node_kind === "Building");
-    if (building === undefined)
-      throw new ApplicationFailureException(
-        resourceUnavailable({ detail: "That Building was not found." }),
-      );
-    const map = (await this.repository.listMaps()).find(
-      (candidate) => candidate.building_location_id === buildingId,
-    );
+  public async map(mapId: string): Promise<MapView> {
+    const map = await this.repository.findMap(mapId);
     if (map === undefined)
       throw new ApplicationFailureException(
-        resourceUnavailable({ detail: "That Building does not have a map yet." }),
+        resourceUnavailable({ detail: "That map was not found." }),
       );
-    return this.snapshot(map, rows, await this.repository.listRegions(map.id));
+    return this.view(map, await this.repository.listMapLocations(mapId));
   }
 
-  public async createHierarchy(input: CreateHierarchyNodeRequest): Promise<HierarchyNodeView> {
-    const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
+  public async createMap(input: CreateMapRequest, actorUserId: string): Promise<MapView> {
+    const mapId = createMapId(randomUUID());
     try {
-      const node = directory.addHierarchyNode({
-        id: createLocationId(randomUUID()),
-        code: createLocationCode(input.code),
-        name: createLocationName(input.name),
-        nodeKind: input.nodeKind,
-        operationalKind: input.operationalKind,
-        parentId: createLocationId(input.parentId),
-        ...(input.generalFulfilmentEnabled === undefined
-          ? {}
-          : { generalFulfilmentEnabled: input.generalFulfilmentEnabled }),
+      LocationMap.create(mapId, createLocationCode(input.code), createLocationName(input.name), {
+        kind: "Blank",
       });
-      await this.database
-        .withSchema(SCHEMA)
-        .insertInto("locations")
-        .values({
-          id: node.id,
-          code: node.code,
-          name: node.name,
-          kind: "Store",
-          job_id: null,
-          is_active: true,
-          node_kind: node.nodeKind,
-          operational_kind: node.operationalKind,
-          parent_id: node.parentId ?? null,
-          building_id: node.buildingId ?? null,
-          general_fulfilment_enabled: node.generalFulfilmentEnabled,
-          archived_at: null,
-        })
-        .execute();
-      return nodeView(node);
     } catch (error) {
       throw domainFailure(error);
     }
-  }
-
-  public async rename(locationId: string, name: string): Promise<HierarchyNodeView> {
-    return this.updateLocation(locationId, (directory) =>
-      directory.renameLocation(createLocationId(locationId), createLocationName(name)),
-    );
-  }
-  public async move(locationId: string, parentId: string): Promise<HierarchyNodeView> {
-    return this.updateLocation(locationId, (directory) =>
-      directory.moveHierarchyNode(createLocationId(locationId), createLocationId(parentId)),
-    );
-  }
-  public async archive(locationId: string): Promise<HierarchyNodeView> {
-    return this.updateLocation(locationId, (directory) =>
-      directory.retireHierarchyNode(createLocationId(locationId), {
-        occupied: true,
-        historicallyReferenced: true,
-      }) === "Archived"
-        ? directory.getHierarchyNode(createLocationId(locationId))!
-        : (() => {
-            throw new Error("Unreachable");
-          })(),
-    );
-  }
-
-  public async remove(locationId: string): Promise<void> {
-    const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    const id = createLocationId(locationId);
-    if (directory.getHierarchyNode(id) === undefined)
-      throw new ApplicationFailureException(
-        resourceUnavailable({ detail: "That location was not found." }),
-      );
-
     try {
-      const outcome = directory.retireHierarchyNode(id, {
-        occupied: false,
-        historicallyReferenced: false,
-      });
-      if (outcome !== "Removed") throw new Error("The location could not be deleted.");
-
-      await this.database.transaction().execute(async (tx) => {
-        // Buildings currently carry a self-referencing building_id backfill.
-        // Clear that link before removing a newly-created, otherwise-unused
-        // building so PostgreSQL does not reject the delete on its own row.
-        await tx
-          .withSchema(SCHEMA)
-          .updateTable("locations")
-          .set({ building_id: null })
-          .where("id", "=", locationId)
-          .execute();
-        await tx.withSchema(SCHEMA).deleteFrom("locations").where("id", "=", locationId).execute();
-      });
-    } catch (error) {
-      if (postgresErrorCode(error) === "23503")
-        throw new ApplicationFailureException(
-          validationFailed(
-            { location: ["This location is in use and must be archived instead of deleted."] },
-            { code: "locations.in_use" },
-          ),
-        );
-      throw domainFailure(error);
-    }
-  }
-
-  public async createMap(
-    buildingId: string,
-    background: FloorPlanMetadata = { kind: "Blank" },
-    actorUserId: string,
-  ): Promise<MapSnapshot> {
-    const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    try {
-      const mapId = createMapId(randomUUID());
-      const map = BuildingMap.create(
-        mapId,
-        createLocationId(buildingId),
-        background as BuildingMapSnapshot["background"],
-        directory,
-      );
       await this.database.transaction().execute(async (tx) => {
         await tx
           .withSchema(SCHEMA)
-          .insertInto("building_maps")
+          .insertInto("maps")
           .values({
-            id: map.id,
-            building_location_id: buildingId,
-            background_kind: background.kind,
-            background_asset_id: background.documentId ?? null,
-            background_metadata: background as unknown as JsonObject,
+            id: mapId,
+            code: createLocationCode(input.code),
+            name: createLocationName(input.name),
+            background_kind: "Blank",
+            background_asset_id: null,
+            background_metadata: { kind: "Blank" } as unknown as JsonObject,
             status: "Active",
             revision: 0,
           })
@@ -524,39 +340,37 @@ export class LocationsService {
           .insertInto("map_edit_events")
           .values({
             id: randomUUID(),
-            map_id: map.id,
+            map_id: mapId,
             actor_user_id: actorUserId,
             action: "map.created",
             before_state: null,
-            after_state: { revision: 0, regions: 0 },
+            after_state: { revision: 0, locations: 0 },
             reason: null,
           })
           .execute();
       });
-      return this.snapshot(
-        {
-          id: map.id,
-          building_location_id: buildingId,
-          background_kind: background.kind,
-          background_asset_id: background.documentId ?? null,
-          background_metadata: background,
-          status: "Active",
-          revision: 0,
-        },
-        rows,
-        [],
-      );
     } catch (error) {
+      if (postgresErrorCode(error) === "23505")
+        throw new ApplicationFailureException(
+          validationFailed({ code: ["That map code is already in use."] }),
+        );
       throw domainFailure(error);
     }
+    return this.map(mapId);
   }
 
+  /**
+   * The single write path for locations. Saving a map inserts what was drawn,
+   * updates what moved, retires what was erased, and then recomputes every
+   * `derived_parent_id` on the map from the geometry — all inside the revision
+   * guard, so the stored tree can never disagree with the stored shapes.
+   */
   public async saveMap(
     mapId: string,
     input: SaveMapRequest,
     actorUserId: string,
     floorPlanDocument?: FloorPlanDocumentRow & { readonly object_key: string },
-  ): Promise<MapSnapshot> {
+  ): Promise<MapView> {
     const map = await this.repository.findMap(mapId);
     if (map === undefined)
       throw new ApplicationFailureException(
@@ -568,141 +382,187 @@ export class LocationsService {
           detail: "Another map save has occurred. Reload the latest version before saving.",
         }),
       );
-    const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    const existing = await this.repository.listRegions(mapId);
+
+    const allRows = await this.repository.listLocations();
+    const existing = allRows.filter((row) => row.map_id === mapId);
+    const existingById = new Map(existing.map((row) => [row.id, row]));
+    const resolved = this.resolve(input.locations, existingById, allRows);
+    const keptIds = new Set(resolved.map((location) => location.id));
+    const removed = existing.filter((row) => !keptIds.has(row.id));
     const background = input.background ?? backgroundFor(map);
-    const regionInputs = input.regions.map((region) => ({
-      id: createMapRegionId(region.id ?? randomUUID()),
-      displayName: createLocationName(region.displayName),
-      hierarchyNodeId: createLocationId(region.hierarchyNodeId),
-      ...(region.parentRegionId === undefined || region.parentRegionId === null
-        ? {}
-        : { parentRegionId: createMapRegionId(region.parentRegionId) }),
-      geometry: inputGeometry(region) as never,
-      zOrder: region.zOrder,
-      searchAliases: region.searchAliases ?? [],
-      status: region.status ?? "Active",
-    }));
-    let canonical: BuildingMap;
+
+    let saved: LocationMapSnapshot;
     try {
-      canonical = BuildingMap.rehydrate(
-        {
-          id: createMapId(map.id),
-          buildingId: createLocationId(map.building_location_id),
-          background: background as BuildingMapSnapshot["background"],
-          status: map.status,
-          regions: regionInputs,
-        },
-        directory,
-      );
+      saved = LocationMap.rehydrate({
+        id: createMapId(map.id),
+        code: createLocationCode(map.code),
+        name: createLocationName(map.name),
+        background: background as LocationMapSnapshot["background"],
+        status: map.status,
+        locations: resolved.map((location) => ({
+          id: createLocationId(location.id),
+          code: createLocationCode(location.code),
+          name: createLocationName(location.name),
+          geometry: location.geometry as never,
+          zOrder: location.zOrder,
+          searchAliases: location.searchAliases,
+          status: location.status,
+        })),
+      }).snapshot();
     } catch (error) {
       throw domainFailure(error);
     }
-    const saved = canonical.snapshot();
-    try {
-      await this.database.transaction().execute(async (tx) => {
-        if (floorPlanDocument !== undefined)
-          await tx
-            .withSchema(SCHEMA)
-            .insertInto("floor_plan_documents")
-            .values({
-              id: floorPlanDocument.id,
-              object_key: floorPlanDocument.object_key,
-              original_file_name: floorPlanDocument.original_file_name,
-              media_type: floorPlanDocument.media_type,
-              byte_length: floorPlanDocument.byte_length,
-              sha256: floorPlanDocument.sha256,
-              created_by_user_id: actorUserId,
-            })
-            .execute();
-        const update = await tx
-          .withSchema(SCHEMA)
-          .updateTable("building_maps")
-          .set({
-            background_kind: saved.background.kind,
-            background_asset_id:
-              saved.background.kind === "FloorPlan" ? saved.background.documentId : null,
-            background_metadata: saved.background as unknown as JsonObject,
-            revision: map.revision + 1,
-            updated_at: new Date(),
-          })
-          .where("id", "=", mapId)
-          .where("revision", "=", input.expectedRevision)
-          .executeTakeFirst();
-        if (Number(update.numUpdatedRows) !== 1)
-          throw new ApplicationFailureException(
-            optimisticConflict({
-              detail: "Another map save has occurred. Reload the latest version before saving.",
-            }),
-          );
-        await tx.withSchema(SCHEMA).deleteFrom("map_regions").where("map_id", "=", mapId).execute();
-        if (saved.regions.length > 0)
-          await tx
-            .withSchema(SCHEMA)
-            .insertInto("map_regions")
-            .values(
-              saved.regions.map((region) => ({
-                id: region.id,
-                map_id: mapId,
-                hierarchy_location_id: region.hierarchyNodeId,
-                parent_region_id: region.parentRegionId ?? null,
-                display_name: region.displayName,
-                geometry: region.geometry as unknown as JsonObject,
-                z_order: region.zOrder,
-                search_aliases: JSON.stringify(region.searchAliases),
-                status: region.status,
-              })),
-            )
-            .execute();
+
+    const usage = await this.repository.usage(removed.map((row) => row.id));
+    const parents = deriveContainment(
+      saved.locations
+        .filter((location) => location.status === "Active")
+        .map((location) => ({
+          id: location.id,
+          geometry: location.geometry,
+          zOrder: location.zOrder,
+        })),
+    );
+    const now = new Date();
+
+    await this.database.transaction().execute(async (tx) => {
+      if (floorPlanDocument !== undefined)
         await tx
           .withSchema(SCHEMA)
-          .insertInto("map_edit_events")
+          .insertInto("floor_plan_documents")
           .values({
-            id: randomUUID(),
-            map_id: mapId,
-            actor_user_id: actorUserId,
-            action: "snapshot.saved",
-            before_state: { revision: map.revision, regions: existing.length },
-            after_state: { revision: map.revision + 1, regions: saved.regions.length },
-            reason: null,
+            id: floorPlanDocument.id,
+            object_key: floorPlanDocument.object_key,
+            original_file_name: floorPlanDocument.original_file_name,
+            media_type: floorPlanDocument.media_type,
+            byte_length: floorPlanDocument.byte_length,
+            sha256: floorPlanDocument.sha256,
+            created_by_user_id: actorUserId,
           })
           .execute();
-      });
-    } catch (error) {
-      if (error instanceof ApplicationFailureException) throw error;
-      throw error;
-    }
-    const latest = {
-      ...map,
-      revision: map.revision + 1,
-      background_kind: saved.background.kind,
-      background_asset_id:
-        saved.background.kind === "FloorPlan" ? saved.background.documentId : null,
-      background_metadata: saved.background,
-    };
-    return this.snapshot(
-      latest,
-      rows,
-      saved.regions.map((region) => ({
-        id: region.id,
-        map_id: mapId,
-        hierarchy_location_id: region.hierarchyNodeId,
-        parent_region_id: region.parentRegionId ?? null,
-        display_name: region.displayName,
-        geometry: region.geometry,
-        z_order: region.zOrder,
-        search_aliases: region.searchAliases,
-        status: region.status,
-      })),
-    );
+
+      const update = await tx
+        .withSchema(SCHEMA)
+        .updateTable("maps")
+        .set({
+          background_kind: saved.background.kind,
+          background_asset_id:
+            saved.background.kind === "FloorPlan" ? saved.background.documentId : null,
+          background_metadata: saved.background as unknown as JsonObject,
+          revision: map.revision + 1,
+          updated_at: now,
+        })
+        .where("id", "=", mapId)
+        .where("revision", "=", input.expectedRevision)
+        .executeTakeFirst();
+      if (Number(update.numUpdatedRows) !== 1)
+        throw new ApplicationFailureException(
+          optimisticConflict({
+            detail: "Another map save has occurred. Reload the latest version before saving.",
+          }),
+        );
+
+      /*
+       * Parent links are cleared before anything is added or removed so a
+       * deleted shape never has a row still pointing at it, and so the new
+       * links below are written against a clean slate.
+       */
+      await tx
+        .withSchema(SCHEMA)
+        .updateTable("locations")
+        .set({ derived_parent_id: null })
+        .where("map_id", "=", mapId)
+        .execute();
+
+      for (const row of removed) {
+        const outcome = retirementOutcome(
+          usage.get(row.id) ?? { occupied: true, historicallyReferenced: true },
+        );
+        if (outcome === "Removed") {
+          await tx.withSchema(SCHEMA).deleteFrom("locations").where("id", "=", row.id).execute();
+          continue;
+        }
+        await tx
+          .withSchema(SCHEMA)
+          .updateTable("locations")
+          .set({
+            map_id: null,
+            geometry: null,
+            is_active: false,
+            archived_at: row.archived_at ?? now,
+            updated_at: now,
+          })
+          .where("id", "=", row.id)
+          .execute();
+      }
+
+      for (const location of saved.locations) {
+        const source = resolved.find((candidate) => candidate.id === location.id)!;
+        const values = {
+          name: location.name,
+          map_id: mapId,
+          geometry: location.geometry as unknown as JsonObject,
+          z_order: location.zOrder,
+          search_aliases: JSON.stringify(location.searchAliases),
+          is_active: location.status === "Active",
+          archived_at: location.status === "Archived" ? now : null,
+        };
+        if (source.isNew) {
+          await tx
+            .withSchema(SCHEMA)
+            .insertInto("locations")
+            .values({
+              id: location.id,
+              code: location.code,
+              kind: "Store",
+              job_id: null,
+              derived_parent_id: null,
+              ...values,
+            })
+            .execute();
+          continue;
+        }
+        await tx
+          .withSchema(SCHEMA)
+          .updateTable("locations")
+          .set({ ...values, updated_at: now })
+          .where("id", "=", location.id)
+          .execute();
+      }
+
+      for (const [id, parentId] of parents) {
+        if (parentId === null) continue;
+        await tx
+          .withSchema(SCHEMA)
+          .updateTable("locations")
+          .set({ derived_parent_id: parentId })
+          .where("id", "=", id)
+          .execute();
+      }
+
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("map_edit_events")
+        .values({
+          id: randomUUID(),
+          map_id: mapId,
+          actor_user_id: actorUserId,
+          action: "snapshot.saved",
+          before_state: { revision: map.revision, locations: existing.length },
+          after_state: { revision: map.revision + 1, locations: saved.locations.length },
+          reason: null,
+        })
+        .execute();
+    });
+
+    return this.map(mapId);
   }
 
   public async uploadBackground(
     mapId: string,
     input: UploadFloorPlanRequest,
     actorUserId: string,
-  ): Promise<MapSnapshot> {
+  ): Promise<MapView> {
     let decoded: DecodedFloorPlan;
     try {
       decoded = decodeFloorPlan(input, this.maxFloorPlanBytes);
@@ -733,7 +593,7 @@ export class LocationsService {
         mapId,
         {
           expectedRevision: input.expectedRevision,
-          regions: input.regions,
+          locations: input.locations,
           background: {
             kind: "FloorPlan",
             documentId,
@@ -774,23 +634,24 @@ export class LocationsService {
     };
   }
 
-  public async archiveMap(mapId: string, actorUserId: string): Promise<MapSnapshot> {
+  public async archiveMap(mapId: string, actorUserId: string): Promise<MapView> {
     const map = await this.repository.findMap(mapId);
     if (map === undefined)
       throw new ApplicationFailureException(
         resourceUnavailable({ detail: "That map was not found." }),
       );
+    const now = new Date();
     await this.database.transaction().execute(async (tx) => {
       await tx
         .withSchema(SCHEMA)
-        .updateTable("building_maps")
-        .set({ status: "Archived", updated_at: new Date() })
+        .updateTable("maps")
+        .set({ status: "Archived", updated_at: now })
         .where("id", "=", mapId)
         .execute();
       await tx
         .withSchema(SCHEMA)
-        .updateTable("map_regions")
-        .set({ status: "Archived", updated_at: new Date() })
+        .updateTable("locations")
+        .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
         .where("map_id", "=", mapId)
         .execute();
       await tx
@@ -807,67 +668,127 @@ export class LocationsService {
         })
         .execute();
     });
-    return this.mapForBuilding(map.building_location_id);
+    return this.map(mapId);
   }
 
-  private async updateLocation(
-    locationId: string,
-    operation: (directory: LocationDirectory) => HierarchyLocationNode,
-  ): Promise<HierarchyNodeView> {
+  /**
+   * Retires a location without erasing its drawing: the shape stays on the map
+   * greyed out, and drops out of containment so anything inside it re-derives
+   * its parent from what remains.
+   */
+  public async archive(locationId: string): Promise<void> {
     const rows = await this.repository.listLocations();
-    const directory = toDirectory(rows);
-    const before = directory.getHierarchyNode(createLocationId(locationId));
-    if (before === undefined)
+    const row = rows.find((candidate) => candidate.id === locationId);
+    if (row === undefined || row.kind !== "Store")
       throw new ApplicationFailureException(
         resourceUnavailable({ detail: "That location was not found." }),
       );
-    try {
-      const node = operation(directory);
-      await this.database
+    if (!row.is_active)
+      throw new ApplicationFailureException(
+        validationFailed({ location: ["That location is already archived."] }),
+      );
+    const now = new Date();
+    await this.database.transaction().execute(async (tx) => {
+      await tx
         .withSchema(SCHEMA)
         .updateTable("locations")
-        .set({
-          name: node.name,
-          parent_id: node.parentId ?? null,
-          building_id: node.buildingId ?? null,
-          general_fulfilment_enabled: node.generalFulfilmentEnabled,
-          is_active: node.status === "Active",
-          archived_at: node.status === "Archived" ? new Date() : null,
-          updated_at: new Date(),
-        })
+        .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
         .where("id", "=", locationId)
         .execute();
-      return nodeView(node);
+      await tx
+        .withSchema(SCHEMA)
+        .updateTable("locations")
+        .set({ derived_parent_id: row.derived_parent_id, updated_at: now })
+        .where("derived_parent_id", "=", locationId)
+        .execute();
+    });
+  }
+
+  public async remove(locationId: string): Promise<void> {
+    const rows = await this.repository.listLocations();
+    const row = rows.find((candidate) => candidate.id === locationId);
+    if (row === undefined || row.kind !== "Store")
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That location was not found." }),
+      );
+    const usage = await this.repository.usage([locationId]);
+    if (retirementOutcome(usage.get(locationId)!) !== "Removed")
+      throw new ApplicationFailureException(
+        validationFailed(
+          { location: ["This location is in use and must be archived instead of deleted."] },
+          { code: "locations.in_use" },
+        ),
+      );
+    try {
+      await this.database.transaction().execute(async (tx) => {
+        await tx
+          .withSchema(SCHEMA)
+          .updateTable("locations")
+          .set({ derived_parent_id: null })
+          .where("derived_parent_id", "=", locationId)
+          .execute();
+        await tx.withSchema(SCHEMA).deleteFrom("locations").where("id", "=", locationId).execute();
+      });
     } catch (error) {
+      if (postgresErrorCode(error) === "23503")
+        throw new ApplicationFailureException(
+          validationFailed(
+            { location: ["This location is in use and must be archived instead of deleted."] },
+            { code: "locations.in_use" },
+          ),
+        );
       throw domainFailure(error);
     }
   }
 
-  private async snapshot(
-    map: MapRow,
-    rows: readonly LocationRow[],
-    regions: readonly RegionRow[] | readonly MapRegion[],
-  ): Promise<MapSnapshot> {
-    const directory = toDirectory(rows);
-    const building = directory.getHierarchyNode(createLocationId(map.building_location_id));
-    if (building === undefined)
-      throw new ApplicationFailureException(
-        resourceUnavailable({ detail: "That Building was not found." }),
-      );
-    const descendants = (rootId: string): readonly string[] => {
-      const found = new Set<string>([rootId]);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const node of directory.listHierarchyNodes()) {
-          if (node.parentId !== undefined && found.has(node.parentId) && !found.has(node.id)) {
-            found.add(node.id);
-            changed = true;
-          }
-        }
-      }
-      return [...found];
-    };
+  /**
+   * Fills in what the browser did not send: a code derived from the name, and an
+   * id when even that is absent.
+   *
+   * The editor mints a UUID the moment a shape is drawn, so an id it has never
+   * seen is a new location rather than a mistake. An id belonging to a location
+   * on another map is refused, since a save must not reach off its own canvas.
+   */
+  private resolve(
+    inputs: readonly MapLocationInput[],
+    existing: ReadonlyMap<string, LocationRow>,
+    allRows: readonly LocationRow[],
+  ): readonly ResolvedLocation[] {
+    const everywhere = new Set(allRows.map((row) => row.id));
+    const taken = new Set(allRows.map((row) => row.code.toUpperCase()));
+    for (const input of inputs) {
+      const row = input.id === undefined ? undefined : existing.get(input.id);
+      if (row !== undefined) taken.delete(row.code.toUpperCase());
+    }
+    return inputs.map((input) => {
+      if (input.id !== undefined && !existing.has(input.id) && everywhere.has(input.id))
+        throw new ApplicationFailureException(
+          validationFailed({ locations: ["That location belongs to another map."] }),
+        );
+      const row = input.id === undefined ? undefined : existing.get(input.id);
+      const supplied = input.code?.trim();
+      const code = (
+        supplied === undefined || supplied === ""
+          ? (row?.code ?? generateCode(input.name, taken))
+          : supplied
+      ).toUpperCase();
+      taken.add(code);
+      return {
+        id: input.id ?? randomUUID(),
+        code,
+        name: input.name,
+        geometry: input.geometry,
+        zOrder: input.zOrder,
+        searchAliases: input.searchAliases ?? aliasesFor(row?.search_aliases),
+        status: input.status ?? "Active",
+        isNew: row === undefined,
+      };
+    });
+  }
+
+  private async view(map: MapRow, mapRows: readonly LocationRow[]): Promise<MapView> {
+    const allRows = await this.repository.listLocations();
+    const parents = new Map(allRows.map((row) => [row.id, row.derived_parent_id] as const));
     const stockRows = await this.database
       .withSchema(SCHEMA)
       .selectFrom("stock_levels")
@@ -879,114 +800,106 @@ export class LocationsService {
         "items.name as item_name",
         "items.low_stock_threshold as low_stock_threshold",
       ])
-      .where(
-        "stock_levels.location_id",
-        "in",
-        directory.listHierarchyNodes().map((node) => node.id),
-      )
       .execute();
-    const regionViews = regions.map((region) => {
-      const raw =
-        "map_id" in region
-          ? region
-          : {
-              id: region.id,
-              map_id: map.id,
-              hierarchy_location_id: region.hierarchyNodeId,
-              parent_region_id: region.parentRegionId ?? null,
-              display_name: region.displayName,
-              geometry: region.geometry,
-              z_order: region.zOrder,
-              search_aliases: region.searchAliases,
-              status: region.status,
-            };
-      const linked = directory.getHierarchyNode(createLocationId(raw.hierarchy_location_id));
-      const archived = linked?.status === "Archived" || raw.status === "Archived";
-      const held = stockRows.filter(
-        (row) =>
-          descendants(raw.hierarchy_location_id).includes(row.location_id) &&
-          Number(row.quantity) > 0,
-      );
-      const quantity = held.reduce((total, row) => total + Number(row.quantity), 0);
-      const itemTotals = new Map<string, { readonly name: string; readonly quantity: string }>();
-      for (const row of held) {
-        const existing = itemTotals.get(row.item_id);
-        itemTotals.set(row.item_id, {
-          name: row.item_name,
-          quantity: String(Number(existing?.quantity ?? "0") + Number(row.quantity)),
-        });
-      }
-      const items = [...itemTotals.values()].sort((left, right) =>
-        left.name.localeCompare(right.name),
-      );
-      const low = held.some(
-        (row) =>
-          row.low_stock_threshold !== null &&
-          Number(row.quantity) < Number(row.low_stock_threshold),
-      );
-      const status: MapStatusSummary = archived
+    const paths = locationPaths(allRows);
+    return {
+      id: map.id,
+      code: map.code,
+      name: map.name,
+      status: map.status,
+      revision: map.revision,
+      background: backgroundFor(map),
+      locations: mapRows.map((row) => this.locationView(row, parents, stockRows, paths)),
+      capabilities: ["view", "search"],
+    };
+  }
+
+  private locationView(
+    row: LocationRow,
+    parents: ReadonlyMap<string, string | null>,
+    stockRows: readonly {
+      readonly location_id: string;
+      readonly item_id: string;
+      readonly quantity: string;
+      readonly item_name: string;
+      readonly low_stock_threshold: string | null;
+    }[],
+    paths: ReadonlyMap<string, { readonly path: string; readonly depth: number }>,
+  ): MapLocationView {
+    const within = descendantIds(parents, row.id);
+    const held = stockRows.filter(
+      (stock) => within.has(stock.location_id) && Number(stock.quantity) > 0,
+    );
+    const quantity = held.reduce((total, stock) => total + Number(stock.quantity), 0);
+    const itemTotals = new Map<string, { readonly name: string; readonly quantity: string }>();
+    for (const stock of held) {
+      const existing = itemTotals.get(stock.item_id);
+      itemTotals.set(stock.item_id, {
+        name: stock.item_name,
+        quantity: String(Number(existing?.quantity ?? "0") + Number(stock.quantity)),
+      });
+    }
+    const items = [...itemTotals.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    const low = held.some(
+      (stock) =>
+        stock.low_stock_threshold !== null &&
+        Number(stock.quantity) < Number(stock.low_stock_threshold),
+    );
+    const archived = !row.is_active;
+    const stock: MapStatusSummary = archived
+      ? {
+          status: "Archived",
+          colour: "#757575",
+          text: "Archived",
+          icon: "archive",
+          itemCount: items.length,
+          quantity: String(quantity),
+          items,
+        }
+      : low
         ? {
-            status: "Archived",
-            colour: "#757575",
-            text: "Archived",
-            icon: "archive",
+            status: "LowStock",
+            colour: "#ED6C02",
+            text: "Low stock",
+            icon: "warning",
             itemCount: items.length,
             quantity: String(quantity),
             items,
           }
-        : low
+        : quantity > 0
           ? {
-              status: "LowStock",
-              colour: "#ED6C02",
-              text: "Low stock",
-              icon: "warning",
+              status: "Available",
+              colour: "#2E7D32",
+              text: "Available",
+              icon: "check-circle",
               itemCount: items.length,
               quantity: String(quantity),
               items,
             }
-          : quantity > 0
-            ? {
-                status: "Available",
-                colour: "#2E7D32",
-                text: "Available",
-                icon: "check-circle",
-                itemCount: items.length,
-                quantity: String(quantity),
-                items,
-              }
-            : {
-                status: "OutOfStock",
-                colour: "#D32F2F",
-                text: "Out of stock",
-                icon: "remove-circle",
-                itemCount: 0,
-                quantity: "0",
-                items: [],
-              };
-      return {
-        id: raw.id,
-        displayName: raw.display_name,
-        hierarchyNodeId: raw.hierarchy_location_id,
-        parentRegionId: raw.parent_region_id,
-        geometry: geometryFor(raw.geometry),
-        zOrder: raw.z_order,
-        searchAliases: Array.isArray(raw.search_aliases)
-          ? raw.search_aliases.filter((alias): alias is string => typeof alias === "string")
-          : [],
-        status: raw.status,
-        stock: status,
-      };
-    });
+          : {
+              status: "OutOfStock",
+              colour: "#D32F2F",
+              text: "Out of stock",
+              icon: "remove-circle",
+              itemCount: 0,
+              quantity: "0",
+              items: [],
+            };
+    const placement = paths.get(row.id);
     return {
-      id: map.id,
-      buildingId: building.id,
-      building: treeFor(directory.listHierarchyNodes(), building.id),
-      status: map.status,
-      revision: map.revision,
-      background: backgroundFor(map),
-      hierarchy: [treeFor(directory.listHierarchyNodes(), building.id)],
-      regions: regionViews,
-      capabilities: ["view", "search"],
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      geometry: geometryFor(row.geometry),
+      zOrder: row.z_order,
+      searchAliases: aliasesFor(row.search_aliases),
+      status: row.is_active ? "Active" : "Archived",
+      derivedParentId: row.derived_parent_id,
+      depth: placement?.depth ?? 0,
+      path: placement?.path ?? row.name,
+      stock,
     };
   }
 }

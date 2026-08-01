@@ -1,46 +1,48 @@
 import type {
-  HierarchyNodeView,
   MapGeometry,
-  MapRegionInput,
-  MapRegionView,
-  MapSnapshot,
+  MapLocationInput,
+  MapLocationView,
+  MapView,
 } from "@stockcontrol/contracts";
+import { deriveContainment, PATH_SEPARATOR } from "@stockcontrol/module-locations";
 
 /**
  * The map editor's committed state. Everything here changes at most once per
  * gesture — in-flight drag geometry lives in `live-geometry-store` instead, so
- * moving a region does not re-render the page sixty times a second.
+ * moving a location does not re-render the page sixty times a second.
+ *
+ * Nesting is never stored in the draft. It is re-derived from the shapes after
+ * every committed change with the same function the server uses on save, so the
+ * breadcrumb the user reads while dragging is the one that will be persisted.
  */
 
-export type EditorMode = "select" | "rectangle" | "polygon" | "pan" | "entrance" | "exit";
-export type RegionChanges = Partial<Omit<MapRegionView, "id" | "geometry">>;
+export type EditorMode = "select" | "rectangle" | "polygon" | "pan";
+export type LocationChanges = Partial<
+  Omit<MapLocationView, "id" | "geometry" | "derivedParentId" | "depth" | "path">
+>;
 
 export interface EditorState {
-  readonly persisted: MapSnapshot | null;
-  readonly draft: MapSnapshot | null;
-  readonly selectedRegionId: string | null;
+  readonly persisted: MapView | null;
+  readonly draft: MapView | null;
+  readonly selectedLocationId: string | null;
   readonly mode: EditorMode;
   readonly snapEnabled: boolean;
   readonly dirty: boolean;
 }
 
 export type EditorAction =
-  | { readonly type: "load"; readonly map: MapSnapshot }
-  | { readonly type: "saved"; readonly map: MapSnapshot }
+  | { readonly type: "load"; readonly map: MapView }
+  | { readonly type: "saved"; readonly map: MapView }
   | { readonly type: "select"; readonly id: string | null }
   | { readonly type: "mode"; readonly mode: EditorMode }
   | { readonly type: "toggle-snap" }
   | { readonly type: "revert" }
-  | {
-      readonly type: "add-region";
-      readonly geometry: MapGeometry;
-      readonly displayName?: string;
-    }
-  | { readonly type: "patch-region"; readonly id: string; readonly changes: RegionChanges }
+  | { readonly type: "add-location"; readonly geometry: MapGeometry; readonly name?: string }
+  | { readonly type: "patch-location"; readonly id: string; readonly changes: LocationChanges }
   | { readonly type: "commit-geometry"; readonly id: string; readonly geometry: MapGeometry }
-  | { readonly type: "remove-region"; readonly id: string }
+  | { readonly type: "remove-location"; readonly id: string }
   | {
-      readonly type: "reorder-region";
+      readonly type: "reorder-location";
       readonly id: string;
       readonly direction: "raise" | "lower";
     };
@@ -48,13 +50,13 @@ export type EditorAction =
 export const initialEditor: EditorState = {
   persisted: null,
   draft: null,
-  selectedRegionId: null,
+  selectedLocationId: null,
   mode: "select",
   snapEnabled: true,
   dirty: false,
 };
 
-const newRegionStock: MapRegionView["stock"] = {
+const emptyStock: MapLocationView["stock"] = {
   status: "OutOfStock",
   colour: "#D32F2F",
   text: "Out of stock",
@@ -65,85 +67,82 @@ const newRegionStock: MapRegionView["stock"] = {
 };
 
 /**
- * New regions get a canonical UUID up front rather than a `draft-` placeholder.
- * The server accepts a client-supplied region id (`createMapRegionId`), so a
- * region keeps its identity across the save and — unlike the placeholder — can
- * be referenced as another region's visual parent in the same payload.
+ * A newly drawn location gets a canonical UUID up front. The server accepts a
+ * client-supplied id, so the shape keeps its identity across the save and the
+ * selection survives the round trip.
  */
-export const createRegionId = (): string => globalThis.crypto.randomUUID();
-
-export const flattenHierarchy = (
-  nodes: readonly HierarchyNodeView[],
-): readonly HierarchyNodeView[] =>
-  nodes.flatMap((node) => [node, ...flattenHierarchy(node.children)]);
+export const createLocationId = (): string => globalThis.crypto.randomUUID();
 
 /** Paint order. The inspector's Raise and Lower had no effect without this. */
-export const sortedByZOrder = (regions: readonly MapRegionView[]): readonly MapRegionView[] =>
-  [...regions].sort((left, right) => left.zOrder - right.zOrder);
-
-export const toInputs = (map: MapSnapshot): readonly MapRegionInput[] =>
-  map.regions.map((region) => ({
-    id: region.id,
-    displayName: region.displayName,
-    hierarchyNodeId: region.hierarchyNodeId,
-    parentRegionId: region.parentRegionId,
-    geometry: region.geometry,
-    zOrder: region.zOrder,
-    searchAliases: region.searchAliases,
-    status: region.status,
-  }));
-
-const descendantsOf = (regions: readonly MapRegionView[], id: string): ReadonlySet<string> => {
-  const found = new Set<string>();
-  let added = true;
-  while (added) {
-    added = false;
-    for (const region of regions) {
-      if (region.parentRegionId === null || found.has(region.id)) continue;
-      if (region.parentRegionId === id || found.has(region.parentRegionId)) {
-        found.add(region.id);
-        added = true;
-      }
-    }
-  }
-  return found;
-};
-
-const withRegions = (state: EditorState, regions: readonly MapRegionView[]): EditorState =>
-  state.draft === null ? state : { ...state, draft: { ...state.draft, regions }, dirty: true };
+export const sortedByZOrder = (locations: readonly MapLocationView[]): readonly MapLocationView[] =>
+  [...locations].sort((left, right) => left.zOrder - right.zOrder);
 
 /**
- * The server rejects an active region under an archived parent, and an archived
- * region whose children are still active, so archiving cascades downwards and
- * restoring detaches from a still-archived parent.
+ * A shape drawn but not yet saved has no code, and sends none: the server
+ * derives one from the name. Sending an empty string instead would be a code
+ * the domain cannot parse.
  */
-const applyStatus = (
-  regions: readonly MapRegionView[],
-  id: string,
-  status: MapRegionView["status"],
-): readonly MapRegionView[] => {
-  if (status === "Archived") {
-    const affected = descendantsOf(regions, id);
-    return regions.map((region) =>
-      region.id === id || affected.has(region.id) ? { ...region, status } : region,
-    );
-  }
-  const archived = new Set(
-    regions.filter((region) => region.status === "Archived").map((region) => region.id),
+export const toInputs = (map: MapView): readonly MapLocationInput[] =>
+  map.locations.map((location) => ({
+    id: location.id,
+    ...(location.code === "" ? {} : { code: location.code }),
+    name: location.name,
+    geometry: location.geometry,
+    zOrder: location.zOrder,
+    searchAliases: location.searchAliases,
+    status: location.status,
+  }));
+
+/**
+ * Recomputes every location's parent, depth and breadcrumb from the geometry.
+ * Archived shapes stay on the canvas but take no part in containment, so a
+ * location inside one simply re-derives to whatever is left around it.
+ */
+export const withDerivedNesting = (
+  locations: readonly MapLocationView[],
+): readonly MapLocationView[] => {
+  const parents = deriveContainment(
+    locations
+      .filter((location) => location.status === "Active")
+      .map((location) => ({
+        id: location.id,
+        geometry: location.geometry,
+        zOrder: location.zOrder,
+      })),
   );
-  return regions.map((region) =>
-    region.id === id
-      ? {
-          ...region,
-          status,
-          parentRegionId:
-            region.parentRegionId !== null && archived.has(region.parentRegionId)
-              ? null
-              : region.parentRegionId,
-        }
-      : region,
-  );
+  const byId = new Map(locations.map((location) => [location.id, location]));
+  const trailOf = (id: string): readonly string[] => {
+    const trail: string[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null = id;
+    while (cursor !== null && !seen.has(cursor)) {
+      seen.add(cursor);
+      const location = byId.get(cursor);
+      if (location === undefined) break;
+      trail.unshift(location.name);
+      cursor = parents.get(cursor) ?? null;
+    }
+    return trail;
+  };
+  return locations.map((location) => {
+    const trail = trailOf(location.id);
+    return {
+      ...location,
+      derivedParentId: parents.get(location.id) ?? null,
+      depth: Math.max(trail.length - 1, 0),
+      path: trail.join(PATH_SEPARATOR),
+    };
+  });
 };
+
+const withLocations = (state: EditorState, locations: readonly MapLocationView[]): EditorState =>
+  state.draft === null
+    ? state
+    : {
+        ...state,
+        draft: { ...state.draft, locations: withDerivedNesting(locations) },
+        dirty: true,
+      };
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
@@ -153,83 +152,80 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         persisted: action.map,
         draft: action.map,
         dirty: false,
-        selectedRegionId: null,
+        selectedLocationId: null,
       };
     case "saved":
       return { ...state, persisted: action.map, draft: action.map, dirty: false };
     case "select":
-      return state.selectedRegionId === action.id
+      return state.selectedLocationId === action.id
         ? state
-        : { ...state, selectedRegionId: action.id };
+        : { ...state, selectedLocationId: action.id };
     case "mode":
       return state.mode === action.mode ? state : { ...state, mode: action.mode };
     case "toggle-snap":
       return { ...state, snapEnabled: !state.snapEnabled };
     case "revert":
-      return { ...state, draft: state.persisted, dirty: false, selectedRegionId: null };
-    case "add-region": {
+      return { ...state, draft: state.persisted, dirty: false, selectedLocationId: null };
+    case "add-location": {
       if (state.draft === null) return state;
-      const id = createRegionId();
-      const orders = state.draft.regions.map((region) => Math.round(region.zOrder));
-      const region: MapRegionView = {
+      const id = createLocationId();
+      const orders = state.draft.locations.map((location) => Math.round(location.zOrder));
+      const location: MapLocationView = {
         id,
-        displayName: action.displayName ?? "New region",
-        hierarchyNodeId: state.draft.buildingId,
-        parentRegionId: null,
+        code: "",
+        name: action.name ?? "New location",
         geometry: action.geometry,
         zOrder: orders.length === 0 ? 1 : Math.max(...orders) + 1,
         searchAliases: [],
         status: "Active",
-        stock: newRegionStock,
+        derivedParentId: null,
+        depth: 0,
+        path: action.name ?? "New location",
+        stock: emptyStock,
       };
       return {
-        ...withRegions(state, [...state.draft.regions, region]),
-        selectedRegionId: id,
+        ...withLocations(state, [...state.draft.locations, location]),
+        selectedLocationId: id,
         mode: "select",
       };
     }
-    case "patch-region": {
+    case "patch-location": {
       if (state.draft === null) return state;
-      const { status, ...rest } = action.changes;
-      const staged =
-        status === undefined
-          ? state.draft.regions
-          : applyStatus(state.draft.regions, action.id, status);
-      return withRegions(
+      return withLocations(
         state,
-        staged.map((region) => (region.id === action.id ? { ...region, ...rest } : region)),
+        state.draft.locations.map((location) =>
+          location.id === action.id ? { ...location, ...action.changes } : location,
+        ),
       );
     }
     case "commit-geometry":
       if (state.draft === null) return state;
-      return withRegions(
+      return withLocations(
         state,
-        state.draft.regions.map((region) =>
-          region.id === action.id ? { ...region, geometry: action.geometry } : region,
+        state.draft.locations.map((location) =>
+          location.id === action.id ? { ...location, geometry: action.geometry } : location,
         ),
       );
-    case "remove-region": {
+    case "remove-location": {
       if (state.draft === null) return state;
-      /* Children must lose the link or the server refuses the save as an orphan. */
-      const regions = state.draft.regions
-        .filter((region) => region.id !== action.id)
-        .map((region) =>
-          region.parentRegionId === action.id ? { ...region, parentRegionId: null } : region,
-        );
       return {
-        ...withRegions(state, regions),
-        selectedRegionId: state.selectedRegionId === action.id ? null : state.selectedRegionId,
+        ...withLocations(
+          state,
+          state.draft.locations.filter((location) => location.id !== action.id),
+        ),
+        selectedLocationId:
+          state.selectedLocationId === action.id ? null : state.selectedLocationId,
       };
     }
-    case "reorder-region": {
-      if (state.draft === null || state.draft.regions.length === 0) return state;
-      const orders = state.draft.regions.map((region) => Math.round(region.zOrder));
+    case "reorder-location": {
+      if (state.draft === null || state.draft.locations.length === 0) return state;
+      const orders = state.draft.locations.map((location) => Math.round(location.zOrder));
       const zOrder =
         action.direction === "raise" ? Math.max(...orders) + 1 : Math.min(...orders) - 1;
-      return withRegions(
+      return withLocations(
         state,
-        state.draft.regions.map((region) =>
-          region.id === action.id ? { ...region, zOrder } : region,
+        state.draft.locations.map((location) =>
+          location.id === action.id ? { ...location, zOrder } : location,
         ),
       );
     }

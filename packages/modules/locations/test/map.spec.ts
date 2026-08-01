@@ -1,47 +1,43 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BuildingMap,
-  LocationDirectory,
   LocationDomainError,
+  LocationMap,
   createLocationCode,
   createLocationId,
   createLocationName,
   createMapId,
-  createMapRegionId,
   createPolygonGeometry,
   createRectangleGeometry,
+  retirementOutcome,
 } from "../src/index.js";
 
 const id = (value: number): ReturnType<typeof createLocationId> =>
   createLocationId(`00000000-0000-4000-8000-${String(value).padStart(12, "0")}`);
-const regionId = (value: number): ReturnType<typeof createMapRegionId> =>
-  createMapRegionId(`00000000-0000-4000-8000-${String(value + 100).padStart(12, "0")}`);
 
-function directory(): LocationDirectory {
-  const result = LocationDirectory.create({
-    id: id(1),
-    code: createLocationCode("BRANCH-001"),
-    name: createLocationName("Main Branch"),
+const emptyMap = (): LocationMap =>
+  LocationMap.create(
+    createMapId("00000000-0000-4000-8000-000000000010"),
+    createLocationCode("MAP-001"),
+    createLocationName("Main Store"),
+    { kind: "Blank" },
+  );
+
+const add = (
+  map: LocationMap,
+  value: number,
+  code: string,
+  name: string,
+  geometry: ReturnType<typeof createRectangleGeometry>,
+  zOrder = value,
+): ReturnType<LocationMap["addLocation"]> =>
+  map.addLocation({
+    id: id(value),
+    code: createLocationCode(code),
+    name: createLocationName(name),
+    geometry,
+    zOrder,
   });
-  const building = result.addHierarchyNode({
-    id: id(2),
-    code: createLocationCode("BUILDING-001"),
-    name: createLocationName("Main Store"),
-    nodeKind: "Building",
-    operationalKind: "Container",
-    parentId: id(1),
-  });
-  result.addHierarchyNode({
-    id: id(3),
-    code: createLocationCode("AREA-001"),
-    name: createLocationName("Ground floor"),
-    nodeKind: "Area",
-    operationalKind: "Storage",
-    parentId: building.id,
-  });
-  return result;
-}
 
 describe("normalized map geometry", () => {
   it("accepts bounded rectangles and rejects overflow", () => {
@@ -72,70 +68,112 @@ describe("normalized map geometry", () => {
   });
 });
 
-describe("location hierarchy", () => {
-  it("rejects cross-building moves and never reuses archived codes", () => {
-    const locations = directory();
-    const secondBuilding = locations.addHierarchyNode({
-      id: id(4),
-      code: createLocationCode("BUILDING-002"),
-      name: createLocationName("Overflow Store"),
-      nodeKind: "Building",
-      operationalKind: "Container",
-      parentId: id(1),
-    });
-    const area = locations.getHierarchyNode(id(3))!;
+describe("LocationMap", () => {
+  it("makes a drawn shape a location in its own right", () => {
+    const map = emptyMap();
+    const drawn = add(map, 1, "STORE-A1", "Aisle 1", createRectangleGeometry(0.1, 0.1, 0.4, 0.4));
 
-    expect(() => locations.moveHierarchyNode(area.id, secondBuilding.id)).toThrowError(
-      LocationDomainError,
-    );
-    locations.retireHierarchyNode(area.id, { occupied: true, historicallyReferenced: true });
+    expect(drawn.status).toBe("Active");
+    expect(map.getLocation(drawn.id)?.name).toBe("Aisle 1");
+    expect(map.snapshot().locations).toHaveLength(1);
+  });
+
+  it("refuses duplicate identities and duplicate codes", () => {
+    const map = emptyMap();
+    add(map, 1, "STORE-A1", "Aisle 1", createRectangleGeometry(0.1, 0.1, 0.4, 0.4));
+
     expect(() =>
-      locations.addHierarchyNode({
-        id: id(5),
-        code: area.code,
-        name: createLocationName("Replacement"),
-        nodeKind: "Area",
-        operationalKind: "Storage",
-        parentId: secondBuilding.id,
-      }),
+      add(map, 1, "STORE-A2", "Aisle 2", createRectangleGeometry(0.6, 0.1, 0.2, 0.2)),
+    ).toThrowError(LocationDomainError);
+    expect(() =>
+      add(map, 2, "STORE-A1", "Aisle 2", createRectangleGeometry(0.6, 0.1, 0.2, 0.2)),
+    ).toThrowError(LocationDomainError);
+  });
+
+  it("derives nesting from geometry alone, with no parent ever supplied", () => {
+    const map = emptyMap();
+    add(map, 1, "STORE-A", "Ground floor", createRectangleGeometry(0, 0, 1, 1));
+    add(map, 2, "STORE-B", "Aisle 3", createRectangleGeometry(0.1, 0.1, 0.5, 0.5));
+    add(map, 3, "STORE-C", "Shelf B", createRectangleGeometry(0.2, 0.2, 0.1, 0.1));
+
+    expect(map.tree().map((node) => node.path)).toEqual([
+      "Ground floor",
+      "Ground floor › Aisle 3",
+      "Ground floor › Aisle 3 › Shelf B",
+    ]);
+  });
+
+  it("re-derives nesting when a shape is dragged out of its container", () => {
+    const map = emptyMap();
+    add(map, 1, "STORE-A", "Ground floor", createRectangleGeometry(0, 0, 0.6, 0.6));
+    const shelf = add(map, 2, "STORE-B", "Shelf B", createRectangleGeometry(0.1, 0.1, 0.1, 0.1));
+    expect(map.containment().get(shelf.id)).toBe(id(1));
+
+    map.updateLocation(shelf.id, { geometry: createRectangleGeometry(0.8, 0.8, 0.1, 0.1) });
+    expect(map.containment().get(shelf.id)).toBeNull();
+  });
+
+  it("drops an archived shape out of the derived tree without orphaning its contents", () => {
+    const map = emptyMap();
+    add(map, 1, "STORE-A", "Ground floor", createRectangleGeometry(0, 0, 1, 1));
+    const aisle = add(map, 2, "STORE-B", "Aisle 3", createRectangleGeometry(0.1, 0.1, 0.5, 0.5));
+    add(map, 3, "STORE-C", "Shelf B", createRectangleGeometry(0.2, 0.2, 0.1, 0.1));
+
+    map.archiveLocation(aisle.id);
+
+    expect(map.tree().map((node) => node.path)).toEqual(["Ground floor", "Ground floor › Shelf B"]);
+  });
+
+  it("matches search on code, name and alias", () => {
+    const map = emptyMap();
+    const aisle = add(map, 1, "STORE-A1", "Aisle 1", createRectangleGeometry(0.1, 0.1, 0.4, 0.4));
+    map.updateLocation(aisle.id, { searchAliases: ["copper fittings"] });
+
+    expect(map.search("store-a1").map((match) => match.id)).toEqual([aisle.id]);
+    expect(map.search("aisle").map((match) => match.id)).toEqual([aisle.id]);
+    expect(map.search("copper").map((match) => match.id)).toEqual([aisle.id]);
+    expect(map.search("nothing")).toEqual([]);
+  });
+
+  it("refuses changes once the map is archived", () => {
+    const map = LocationMap.rehydrate({
+      id: createMapId("00000000-0000-4000-8000-000000000010"),
+      code: createLocationCode("MAP-001"),
+      name: createLocationName("Old Store"),
+      background: { kind: "Blank" },
+      status: "Archived",
+      locations: [],
+    });
+
+    expect(() =>
+      add(map, 1, "STORE-A1", "Aisle 1", createRectangleGeometry(0.1, 0.1, 0.4, 0.4)),
+    ).toThrowError(LocationDomainError);
+  });
+
+  it("rejects floor-plan metadata that could escape the object store", () => {
+    expect(() =>
+      LocationMap.create(
+        createMapId("00000000-0000-4000-8000-000000000010"),
+        createLocationCode("MAP-001"),
+        createLocationName("Main Store"),
+        {
+          kind: "FloorPlan",
+          documentId: createLocationCode("DOC-1") as unknown as never,
+          originalFileName: "../../etc/passwd",
+          mediaType: "image/png",
+        },
+      ),
     ).toThrowError(LocationDomainError);
   });
 });
 
-describe("BuildingMap", () => {
-  it("links regions to the same Building and keeps visual nesting separate", () => {
-    const locations = directory();
-    const building = locations.listHierarchyNodes().find((node) => node.nodeKind === "Building")!;
-    const area = locations.listHierarchyNodes().find((node) => node.nodeKind === "Area")!;
-    const map = BuildingMap.create(
-      createMapId("00000000-0000-4000-8000-000000000010"),
-      building.id,
-      { kind: "Blank" },
-      locations,
-    );
-    const parent = map.addRegion(
-      {
-        id: regionId(1),
-        displayName: createLocationName("North"),
-        hierarchyNodeId: area.id,
-        geometry: createRectangleGeometry(0.1, 0.1, 0.4, 0.4),
-        zOrder: 1,
-      },
-      locations,
-    );
-    const child = map.addRegion(
-      {
-        id: regionId(2),
-        displayName: createLocationName("Rack"),
-        hierarchyNodeId: area.id,
-        parentRegionId: parent.id,
-        geometry: createRectangleGeometry(0.2, 0.2, 0.1, 0.1),
-        zOrder: 2,
-      },
-      locations,
-    );
-    expect(child.parentRegionId).toBe(parent.id);
-    expect(map.snapshot().regions[0]?.hierarchyNodeId).toBe(area.id);
-    expect(() => map.nestRegion(parent.id, child.id)).toThrowError(LocationDomainError);
+describe("retirementOutcome", () => {
+  it("keeps identity for anything the ledger still needs", () => {
+    expect(retirementOutcome({ occupied: true, historicallyReferenced: false })).toBe("Archived");
+    expect(retirementOutcome({ occupied: false, historicallyReferenced: true })).toBe("Archived");
+  });
+
+  it("removes a shape that was never used", () => {
+    expect(retirementOutcome({ occupied: false, historicallyReferenced: false })).toBe("Removed");
   });
 });

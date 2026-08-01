@@ -1,4 +1,4 @@
-import type { LocationDirectory, HierarchyLocationNode } from "./directory.js";
+import { derivedTree, deriveContainment, type ContainmentTreeNode } from "./containment.js";
 import { failLocation, LocationDomainError } from "./errors.js";
 import {
   copyGeometry,
@@ -8,15 +8,15 @@ import {
 } from "./geometry.js";
 import {
   createDocumentId,
+  createLocationCode,
   createLocationId,
   createLocationName,
   createMapId,
-  createMapRegionId,
   type DocumentId,
+  type LocationCode,
   type LocationId,
   type LocationName,
   type MapId,
-  type MapRegionId,
 } from "./value-objects.js";
 
 export interface BlankMapBackground {
@@ -32,56 +32,66 @@ export interface FloorPlanMapBackground {
 }
 export type MapBackground = BlankMapBackground | FloorPlanMapBackground;
 export type MapStatus = "Active" | "Archived";
-export type MapRegionStatus = "Active" | "Archived";
-export interface MapRegion {
-  readonly id: MapRegionId;
-  readonly displayName: LocationName;
-  readonly hierarchyNodeId: LocationId;
-  readonly parentRegionId?: MapRegionId;
+export type MapLocationStatus = "Active" | "Archived";
+
+/**
+ * A location as it exists on the map. There is no separate "region": the shape
+ * and the place stock sits are one record, so drawing is the only way a
+ * location comes into being and geometry is the only thing that nests it.
+ */
+export interface MapLocation {
+  readonly id: LocationId;
+  readonly code: LocationCode;
+  readonly name: LocationName;
   readonly geometry: MapGeometry;
   readonly zOrder: number;
   readonly searchAliases: readonly string[];
-  readonly status: MapRegionStatus;
+  readonly status: MapLocationStatus;
 }
-export interface BuildingMapSnapshot {
+
+export interface LocationMapSnapshot {
   readonly id: MapId;
-  readonly buildingId: LocationId;
+  readonly code: LocationCode;
+  readonly name: LocationName;
   readonly background: MapBackground;
   readonly status: MapStatus;
-  readonly regions: readonly MapRegion[];
+  readonly locations: readonly MapLocation[];
 }
-export interface AddMapRegion {
-  readonly id: MapRegionId;
-  readonly displayName: LocationName;
-  readonly hierarchyNodeId: LocationId;
-  readonly parentRegionId?: MapRegionId;
+
+export interface AddMapLocation {
+  readonly id: LocationId;
+  readonly code: LocationCode;
+  readonly name: LocationName;
   readonly geometry: MapGeometry;
   readonly zOrder: number;
   readonly searchAliases?: readonly string[];
 }
-export interface UpdateMapRegion {
-  readonly displayName?: LocationName;
+
+export interface UpdateMapLocation {
+  readonly name?: LocationName;
   readonly geometry?: MapGeometry;
   readonly zOrder?: number;
   readonly searchAliases?: readonly string[];
 }
+
 export type DerivedStockStatus =
   "Available" | "LowStock" | "OutOfStock" | "Attention" | "Quarantined" | "Archived";
-export interface MapRegionStatusPresentation {
+export interface MapStockStatusPresentation {
   readonly status: DerivedStockStatus;
   readonly colour: `#${string}`;
   readonly text: string;
   readonly icon: string;
 }
 
-const cloneRegion = (region: MapRegion): MapRegion => ({
-  ...region,
-  geometry: copyGeometry(region.geometry),
-  searchAliases: [...region.searchAliases],
+const cloneLocation = (location: MapLocation): MapLocation => ({
+  ...location,
+  geometry: copyGeometry(location.geometry),
+  searchAliases: [...location.searchAliases],
 });
+
 const aliases = (values: readonly string[]): readonly string[] => {
   if (values.length > 20)
-    failLocation("InvalidOperation", "A map region supports at most 20 aliases.");
+    failLocation("InvalidOperation", "A location supports at most 20 aliases.");
   const normalized = values.map((value) => {
     if (
       value.length > 160 ||
@@ -101,23 +111,7 @@ const aliases = (values: readonly string[]): readonly string[] => {
     failLocation("InvalidOperation", "Map search aliases must be unique.");
   return Object.freeze(normalized);
 };
-const nodeFor = (
-  directory: LocationDirectory,
-  nodeId: LocationId,
-  buildingId: LocationId,
-  allowArchived: boolean,
-): HierarchyLocationNode => {
-  const node = directory.getHierarchyNode(nodeId);
-  if (node === undefined || node.nodeKind === "Branch")
-    failLocation("InvalidMapLink", "A map region must link to a hierarchy node.");
-  const linkedBuilding = node.nodeKind === "Building" ? node.id : node.buildingId;
-  if (linkedBuilding !== buildingId || (!allowArchived && node.status !== "Active"))
-    failLocation(
-      "InvalidMapLink",
-      "A map region can link only to an active node in the same Building.",
-    );
-  return node;
-};
+
 const backgroundCopy = (background: MapBackground): MapBackground => {
   if (background.kind === "Blank") return { kind: "Blank" };
   try {
@@ -134,7 +128,7 @@ const backgroundCopy = (background: MapBackground): MapBackground => {
       background.originalFileName.length > 240 ||
       unsafeName
     )
-      failLocation("InvalidMapLink", "Floor-plan metadata is invalid.");
+      failLocation("InvalidBackground", "Floor-plan metadata is invalid.");
     if (
       (background.pixelWidth === undefined) !== (background.pixelHeight === undefined) ||
       (background.pixelWidth !== undefined &&
@@ -143,171 +137,135 @@ const backgroundCopy = (background: MapBackground): MapBackground => {
           background.pixelWidth < 1 ||
           background.pixelHeight! < 1))
     )
-      failLocation("InvalidMapLink", "Floor-plan dimensions are invalid.");
+      failLocation("InvalidBackground", "Floor-plan dimensions are invalid.");
     return { ...background };
   } catch (error) {
     if (error instanceof LocationDomainError) throw error;
-    failLocation("InvalidMapLink", "Floor-plan metadata is invalid.");
+    failLocation("InvalidBackground", "Floor-plan metadata is invalid.");
   }
 };
 
-export class BuildingMap {
+export class LocationMap {
   readonly #id: MapId;
-  readonly #buildingId: LocationId;
+  readonly #code: LocationCode;
+  readonly #name: LocationName;
   #background: MapBackground;
   #status: MapStatus;
-  readonly #regions: Map<MapRegionId, MapRegion>;
-  private constructor(snapshot: BuildingMapSnapshot, directory: LocationDirectory) {
+  readonly #locations: Map<LocationId, MapLocation>;
+
+  private constructor(snapshot: LocationMapSnapshot) {
     const runtimeStatus: string = snapshot.status;
     if (
       createMapId(snapshot.id) !== snapshot.id ||
-      createLocationId(snapshot.buildingId) !== snapshot.buildingId ||
+      createLocationCode(snapshot.code) !== snapshot.code ||
+      createLocationName(snapshot.name) !== snapshot.name ||
       (runtimeStatus !== "Active" && runtimeStatus !== "Archived")
     )
-      failLocation("InvalidMapLink", "Map identity or status is invalid.");
-    const building = directory.getHierarchyNode(snapshot.buildingId);
-    if (
-      building?.nodeKind !== "Building" ||
-      (snapshot.status === "Active") !== (building.status === "Active")
-    )
-      failLocation(
-        "InvalidMapLink",
-        "A map must belong to a Building with the same archive state.",
-      );
-    const regions = snapshot.regions.map((region) => {
+      failLocation("InvalidOperation", "Map identity or status is invalid.");
+    const locations = snapshot.locations.map((location) => {
       if (
-        createMapRegionId(region.id) !== region.id ||
-        createLocationName(region.displayName) !== region.displayName ||
-        createLocationId(region.hierarchyNodeId) !== region.hierarchyNodeId
+        createLocationId(location.id) !== location.id ||
+        createLocationCode(location.code) !== location.code ||
+        createLocationName(location.name) !== location.name
       )
-        failLocation("InvalidMapLink", "Map contains a malformed region.");
-      nodeFor(directory, region.hierarchyNodeId, snapshot.buildingId, region.status === "Archived");
+        failLocation("InvalidOperation", "Map contains a malformed location.");
+      if (!Number.isSafeInteger(location.zOrder))
+        failLocation("InvalidOperation", "Map z-order is invalid.");
+      if (snapshot.status === "Archived" && location.status !== "Archived")
+        failLocation("ArchivedEntity", "An archived map cannot contain active locations.");
       return {
-        ...region,
-        geometry: copyGeometry(region.geometry),
-        zOrder: Number.isSafeInteger(region.zOrder)
-          ? region.zOrder
-          : (() => {
-              failLocation("InvalidOperation", "Map z-order is invalid.");
-            })(),
-        searchAliases: aliases(region.searchAliases),
+        ...location,
+        geometry: copyGeometry(location.geometry),
+        searchAliases: aliases(location.searchAliases),
       };
     });
-    if (new Set(regions.map((region) => region.id)).size !== regions.length)
-      failLocation("DuplicateEntity", "Map region identities must be unique.");
-    const byId = new Map(regions.map((region) => [region.id, region]));
-    for (const region of regions) {
-      if (snapshot.status === "Archived" && region.status !== "Archived")
-        failLocation("InvalidMapLink", "An archived map cannot contain active regions.");
-      if (region.parentRegionId !== undefined) {
-        const parent = byId.get(region.parentRegionId);
-        if (parent === undefined)
-          failLocation("Orphan", "Nested map region parent does not exist.");
-        if (region.status === "Active" && parent.status === "Archived")
-          failLocation("Orphan", "An active region cannot have an archived parent.");
-        const seen = new Set<MapRegionId>([region.id]);
-        let cursor: MapRegion | undefined = parent;
-        while (cursor !== undefined) {
-          if (seen.has(cursor.id)) failLocation("Cycle", "Map region nesting contains a cycle.");
-          seen.add(cursor.id);
-          cursor =
-            cursor.parentRegionId === undefined ? undefined : byId.get(cursor.parentRegionId);
-        }
-      }
-    }
+    if (new Set(locations.map((location) => location.id)).size !== locations.length)
+      failLocation("DuplicateEntity", "Location identities must be unique.");
+    if (new Set(locations.map((location) => location.code)).size !== locations.length)
+      failLocation("CodeAlreadyUsed", "Location codes must be unique.");
     this.#id = snapshot.id;
-    this.#buildingId = snapshot.buildingId;
+    this.#code = snapshot.code;
+    this.#name = snapshot.name;
     this.#background = backgroundCopy(snapshot.background);
     this.#status = snapshot.status;
-    this.#regions = new Map(regions.map((region) => [region.id, region]));
+    this.#locations = new Map(locations.map((location) => [location.id, location]));
   }
+
   public static create(
     id: MapId,
-    buildingId: LocationId,
+    code: LocationCode,
+    name: LocationName,
     background: MapBackground,
-    directory: LocationDirectory,
-  ): BuildingMap {
-    const building = directory.getHierarchyNode(buildingId);
-    if (building?.nodeKind !== "Building" || building.status !== "Active")
-      failLocation("InvalidMapLink", "An active map must belong to an active Building.");
-    return new BuildingMap(
-      { id, buildingId, background, status: "Active", regions: [] },
-      directory,
-    );
+  ): LocationMap {
+    return new LocationMap({ id, code, name, background, status: "Active", locations: [] });
   }
-  public static rehydrate(
-    snapshot: BuildingMapSnapshot,
-    directory: LocationDirectory,
-  ): BuildingMap {
-    return new BuildingMap(snapshot, directory);
+
+  public static rehydrate(snapshot: LocationMapSnapshot): LocationMap {
+    return new LocationMap(snapshot);
   }
+
   public get id(): MapId {
     return this.#id;
   }
-  public get buildingId(): LocationId {
-    return this.#buildingId;
+  public get code(): LocationCode {
+    return this.#code;
+  }
+  public get name(): LocationName {
+    return this.#name;
   }
   public get status(): MapStatus {
     return this.#status;
   }
-  public snapshot(): BuildingMapSnapshot {
+
+  public snapshot(): LocationMapSnapshot {
     return {
       id: this.#id,
-      buildingId: this.#buildingId,
+      code: this.#code,
+      name: this.#name,
       background: backgroundCopy(this.#background),
       status: this.#status,
-      regions: [...this.#regions.values()].map(cloneRegion),
+      locations: [...this.#locations.values()].map(cloneLocation),
     };
   }
-  public getRegion(id: MapRegionId): MapRegion | undefined {
-    const region = this.#regions.get(id);
-    return region === undefined ? undefined : cloneRegion(region);
+
+  public getLocation(id: LocationId): MapLocation | undefined {
+    const location = this.#locations.get(id);
+    return location === undefined ? undefined : cloneLocation(location);
   }
+
   public setBackground(background: MapBackground): MapBackground {
-    if (this.#status !== "Active")
-      failLocation("ArchivedEntity", "Archived maps cannot be changed.");
+    this.assertActive();
     this.#background = backgroundCopy(background);
     return backgroundCopy(this.#background);
   }
-  public addRegion(input: AddMapRegion, directory: LocationDirectory): MapRegion {
-    if (this.#status !== "Active")
-      failLocation("ArchivedEntity", "Archived maps cannot be changed.");
-    if (this.#regions.has(input.id))
-      failLocation("DuplicateEntity", "Map region identity is already in use.");
-    nodeFor(directory, input.hierarchyNodeId, this.#buildingId, false);
-    if (
-      input.parentRegionId !== undefined &&
-      (!this.#regions.has(input.parentRegionId) ||
-        this.#regions.get(input.parentRegionId)!.status !== "Active")
-    )
-      failLocation("Orphan", "A nested region requires an active parent.");
-    const region: MapRegion = {
+
+  public addLocation(input: AddMapLocation): MapLocation {
+    this.assertActive();
+    if (this.#locations.has(input.id))
+      failLocation("DuplicateEntity", "Location identity is already in use.");
+    if ([...this.#locations.values()].some((location) => location.code === input.code))
+      failLocation("CodeAlreadyUsed", "Location code is already in use.");
+    if (!Number.isSafeInteger(input.zOrder))
+      failLocation("InvalidOperation", "Map z-order is invalid.");
+    const location: MapLocation = {
       id: input.id,
-      displayName: input.displayName,
-      hierarchyNodeId: input.hierarchyNodeId,
-      ...(input.parentRegionId === undefined ? {} : { parentRegionId: input.parentRegionId }),
+      code: input.code,
+      name: input.name,
       geometry: copyGeometry(input.geometry),
       zOrder: input.zOrder,
       searchAliases: aliases(input.searchAliases ?? []),
       status: "Active",
     };
-    if (!Number.isSafeInteger(region.zOrder))
-      failLocation("InvalidOperation", "Map z-order is invalid.");
-    this.#regions.set(region.id, region);
-    return cloneRegion(region);
+    this.#locations.set(location.id, location);
+    return cloneLocation(location);
   }
-  public updateRegion(id: MapRegionId, update: UpdateMapRegion): MapRegion {
-    if (this.#status !== "Active")
-      failLocation("ArchivedEntity", "Archived maps cannot be changed.");
-    const existing = this.#regions.get(id);
-    if (existing === undefined) failLocation("MissingEntity", "Map region does not exist.");
-    if (existing.status !== "Active")
-      failLocation("ArchivedEntity", "Archived map regions cannot be changed.");
-    const changed: MapRegion = {
+
+  public updateLocation(id: LocationId, update: UpdateMapLocation): MapLocation {
+    this.assertActive();
+    const existing = this.activeLocation(id);
+    const changed: MapLocation = {
       ...existing,
-      ...(update.displayName === undefined
-        ? {}
-        : { displayName: createLocationName(update.displayName) }),
+      ...(update.name === undefined ? {} : { name: createLocationName(update.name) }),
       ...(update.geometry === undefined ? {} : { geometry: copyGeometry(update.geometry) }),
       ...(update.zOrder === undefined ? {} : { zOrder: update.zOrder }),
       ...(update.searchAliases === undefined
@@ -316,79 +274,80 @@ export class BuildingMap {
     };
     if (!Number.isSafeInteger(changed.zOrder))
       failLocation("InvalidOperation", "Map z-order is invalid.");
-    this.#regions.set(id, changed);
-    return cloneRegion(changed);
+    this.#locations.set(id, changed);
+    return cloneLocation(changed);
   }
-  public nestRegion(id: MapRegionId, parentRegionId?: MapRegionId): MapRegion {
-    const region = this.activeRegion(id);
-    if (parentRegionId === region.parentRegionId)
-      failLocation("NoChange", "Map region nesting is unchanged.");
-    if (parentRegionId !== undefined) {
-      const parent = this.activeRegion(parentRegionId);
-      if (parent.id === region.id || this.isDescendant(parent.id, region.id))
-        failLocation("Cycle", "Map region nesting cannot contain a cycle.");
-    }
-    const changed =
-      parentRegionId === undefined
-        ? (({ parentRegionId: ignored, ...rest }) => {
-            void ignored;
-            return rest;
-          })(region)
-        : { ...region, parentRegionId };
-    this.#regions.set(id, changed);
-    return cloneRegion(changed);
+
+  /**
+   * Archiving needs no orphan check: anything drawn inside this shape simply
+   * re-derives its parent from what is left around it.
+   */
+  public archiveLocation(id: LocationId): MapLocation {
+    const location = this.activeLocation(id);
+    const changed = { ...location, status: "Archived" as const };
+    this.#locations.set(id, changed);
+    return cloneLocation(changed);
   }
-  public archiveRegion(id: MapRegionId): MapRegion {
-    const region = this.activeRegion(id);
-    if (
-      [...this.#regions.values()].some(
-        (candidate) => candidate.parentRegionId === id && candidate.status === "Active",
-      )
-    )
-      failLocation("Orphan", "Archive every active nested region first.");
-    const changed = { ...region, status: "Archived" as const };
-    this.#regions.set(id, changed);
-    return cloneRegion(changed);
+
+  /** Every active location mapped to the smallest active shape containing it. */
+  public containment(): ReadonlyMap<string, string | null> {
+    return deriveContainment(this.activePlacements());
   }
-  public search(query: string, directory: LocationDirectory): readonly MapRegion[] {
+
+  public tree(): readonly ContainmentTreeNode[] {
+    return derivedTree(
+      this.activePlacements().map((placement) => ({
+        ...placement,
+        name: this.#locations.get(placement.id as LocationId)!.name,
+      })),
+    );
+  }
+
+  public search(query: string): readonly MapLocation[] {
     const normalized = query.trim().replaceAll(/\s+/gu, " ").toLocaleLowerCase("en-GB");
     if (normalized.length < 1 || normalized.length > 100)
       failLocation("InvalidOperation", "Map search query must contain 1-100 characters.");
-    return [...this.#regions.values()]
-      .filter((region) => {
-        if (region.status !== "Active") return false;
-        const node = directory.getHierarchyNode(region.hierarchyNodeId);
-        return (
-          node !== undefined &&
-          [region.displayName, node.name, node.code, ...region.searchAliases].some((value) =>
+    return [...this.#locations.values()]
+      .filter(
+        (location) =>
+          location.status === "Active" &&
+          [location.name, location.code, ...location.searchAliases].some((value) =>
             value.toLocaleLowerCase("en-GB").includes(normalized),
-          )
-        );
-      })
-      .sort((a, b) => a.zOrder - b.zOrder || a.displayName.localeCompare(b.displayName, "en-GB"))
-      .map(cloneRegion);
+          ),
+      )
+      .sort((a, b) => a.zOrder - b.zOrder || a.name.localeCompare(b.name, "en-GB"))
+      .map(cloneLocation);
   }
-  private activeRegion(id: MapRegionId): MapRegion {
-    const region = this.#regions.get(id);
-    if (region === undefined) failLocation("MissingEntity", "Map region does not exist.");
-    if (region.status !== "Active")
-      failLocation("ArchivedEntity", "Archived map regions cannot be changed.");
-    return region;
+
+  private activePlacements(): readonly {
+    readonly id: string;
+    readonly geometry: MapGeometry;
+    readonly zOrder: number;
+  }[] {
+    return [...this.#locations.values()]
+      .filter((location) => location.status === "Active")
+      .map((location) => ({
+        id: location.id,
+        geometry: location.geometry,
+        zOrder: location.zOrder,
+      }));
   }
-  private isDescendant(candidateId: MapRegionId, ancestorId: MapRegionId): boolean {
-    let cursor = this.#regions.get(candidateId);
-    const seen = new Set<MapRegionId>();
-    while (cursor?.parentRegionId !== undefined) {
-      if (seen.has(cursor.id)) failLocation("Cycle", "Map contains a cycle.");
-      seen.add(cursor.id);
-      if (cursor.parentRegionId === ancestorId) return true;
-      cursor = this.#regions.get(cursor.parentRegionId);
-    }
-    return false;
+
+  private assertActive(): void {
+    if (this.#status !== "Active")
+      failLocation("ArchivedEntity", "Archived maps cannot be changed.");
+  }
+
+  private activeLocation(id: LocationId): MapLocation {
+    const location = this.#locations.get(id);
+    if (location === undefined) failLocation("MissingEntity", "Location does not exist.");
+    if (location.status !== "Active")
+      failLocation("ArchivedEntity", "Archived locations cannot be changed.");
+    return location;
   }
 }
 
-const STATUS_PRESENTATIONS: Readonly<Record<DerivedStockStatus, MapRegionStatusPresentation>> =
+const STATUS_PRESENTATIONS: Readonly<Record<DerivedStockStatus, MapStockStatusPresentation>> =
   Object.freeze({
     Available: { status: "Available", colour: "#2E7D32", text: "Available", icon: "check-circle" },
     LowStock: { status: "LowStock", colour: "#ED6C02", text: "Low stock", icon: "warning" },
@@ -407,12 +366,14 @@ const STATUS_PRESENTATIONS: Readonly<Record<DerivedStockStatus, MapRegionStatusP
     Quarantined: { status: "Quarantined", colour: "#455A64", text: "Quarantined", icon: "block" },
     Archived: { status: "Archived", colour: "#757575", text: "Archived", icon: "archive" },
   });
-export const mapRegionStatusPresentation = (
+
+export const mapStockStatusPresentation = (
   status: DerivedStockStatus,
-): MapRegionStatusPresentation => {
+): MapStockStatusPresentation => {
   const runtimeStatus: string = status;
   if (!Object.hasOwn(STATUS_PRESENTATIONS, runtimeStatus))
     failLocation("InvalidOperation", "Map stock status is not supported.");
   return Object.freeze(STATUS_PRESENTATIONS[runtimeStatus as DerivedStockStatus]);
 };
+
 export { createPolygonGeometry, createRectangleGeometry };

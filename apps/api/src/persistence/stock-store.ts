@@ -61,7 +61,7 @@ export async function loadLocationFacts(
   const row = await tx
     .withSchema(SCHEMA)
     .selectFrom("locations")
-    .select(["id", "code", "kind", "is_active", "operational_kind", "general_fulfilment_enabled"])
+    .select(["id", "code", "kind", "is_active"])
     .where("id", "=", locationId)
     .executeTakeFirst();
 
@@ -72,8 +72,6 @@ export async function loadLocationFacts(
         code: row.code,
         kind: row.kind,
         isActive: row.is_active,
-        operationalKind: row.operational_kind,
-        generalFulfilmentEnabled: row.general_fulfilment_enabled,
       };
 }
 

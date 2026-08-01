@@ -1,4 +1,4 @@
-import type { MapRegionView } from "@stockcontrol/contracts";
+import type { MapLocationView } from "@stockcontrol/contracts";
 import { memo, useSyncExternalStore, type ReactElement } from "react";
 
 import { selectionStroke } from "./constants";
@@ -6,7 +6,7 @@ import { MAP_UNITS, type ResizeHandle } from "./geometry";
 import type { LiveGeometryStore } from "./live-geometry-store";
 
 interface SelectionHandlesProps {
-  readonly region: MapRegionView;
+  readonly location: MapLocationView;
   readonly scale: number;
   readonly store: LiveGeometryStore;
 }
@@ -24,15 +24,15 @@ const cursorFor: Readonly<Record<ResizeHandle, string>> = {
 /**
  * Corner handles for the selected rectangle. Split from the shape so that a
  * zoom, which changes the handle radius, re-renders only this one component
- * rather than every region on the map.
+ * rather than every shape on the map.
  */
 export const SelectionHandles = memo(function SelectionHandles({
-  region,
+  location,
   scale,
   store,
 }: SelectionHandlesProps): ReactElement | null {
-  const live = useSyncExternalStore(store.subscribe, () => store.getRegionGeometry(region.id));
-  const geometry = live ?? region.geometry;
+  const live = useSyncExternalStore(store.subscribe, () => store.getShapeGeometry(location.id));
+  const geometry = live ?? location.geometry;
   if (geometry.kind !== "Rectangle") return null;
 
   const radius = HANDLE_RADIUS_PIXELS / scale;
@@ -49,7 +49,7 @@ export const SelectionHandles = memo(function SelectionHandles({
         <circle
           key={handle}
           data-handle={handle}
-          data-handle-region={region.id}
+          data-handle-location={location.id}
           cx={x * MAP_UNITS}
           cy={y * MAP_UNITS}
           r={radius}

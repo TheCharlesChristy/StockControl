@@ -1,7 +1,7 @@
 import type { MapGeometry } from "@stockcontrol/contracts";
 
 /**
- * Geometry helpers for the building map, kept free of React so the maths that
+ * Geometry helpers for the map canvas, kept free of React so the maths that
  * decides where a shape lands can be tested directly. Coordinates are the
  * normalized `[0, 1]` values the API stores; `MAP_UNITS` converts them to the
  * SVG user space the canvas draws in.
@@ -148,7 +148,7 @@ export const resizeRectangle = (
 /**
  * Builds a rectangle from the two corners of a drag, in any direction. Returns
  * null when the drag was too small to be anything but a stray click — the old
- * editor turned those into 2% regions.
+ * editor turned those into 2% shapes.
  */
 export const rectangleFromPoints = (start: Point, end: Point): RectangleGeometry | null => {
   const width = Math.abs(end.x - start.x);

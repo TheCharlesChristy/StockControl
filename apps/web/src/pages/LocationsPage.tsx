@@ -1,17 +1,5 @@
-import AddRounded from "@mui/icons-material/AddRounded";
 import MapRounded from "@mui/icons-material/MapRounded";
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, Stack, Tooltip, Typography } from "@mui/material";
 import {
   useCallback,
   useEffect,
@@ -21,12 +9,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import type {
-  CreateHierarchyNodeRequest,
-  HierarchyNodeView,
-  LocationSearchResult,
-  MapGeometry,
-} from "@stockcontrol/contracts";
+import type { CreateMapRequest, LocationSearchResult, MapGeometry } from "@stockcontrol/contracts";
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
@@ -35,65 +18,56 @@ import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { mapBorder } from "./locations/constants";
 import {
   editorReducer,
-  flattenHierarchy,
   initialEditor,
   toInputs,
   type EditorMode,
-  type RegionChanges,
+  type LocationChanges,
 } from "./locations/editor-state";
-import { HierarchyPanel } from "./locations/HierarchyPanel";
+import { LocationInspector } from "./locations/LocationInspector";
+import { LocationListPanel } from "./locations/LocationListPanel";
 import { MapWorkspace } from "./locations/MapWorkspace";
-import { RegionInspector } from "./locations/RegionInspector";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
- * The locations screen: hierarchy on the left, building map in the middle,
- * region details on the right. This component only loads data and owns the
- * committed editor state — pan, zoom and in-flight drag geometry live under
- * `./locations`, which is what keeps a drag from re-rendering the page.
+ * The locations screen: the map's contents on the left, the map in the middle,
+ * location details on the right. There is no hierarchy to manage — a location
+ * exists because it is drawn, and it sits inside whatever it is drawn inside.
+ *
+ * This component only loads data and owns the committed editor state — pan,
+ * zoom and in-flight drag geometry live under `./locations`, which is what
+ * keeps a drag from re-rendering the page.
  */
 export function LocationsPage(): ReactElement {
   const api = useApi();
   /*
-   * Editing the hierarchy and the map is one capability, resolved through the
-   * shared role map rather than a role name, so a change to ROLE_CAPABILITIES
-   * carries this screen with it. The server checks the same capability again.
+   * Editing the map is one capability, resolved through the shared role map
+   * rather than a role name, so a change to ROLE_CAPABILITIES carries this
+   * screen with it. The server checks the same capability again.
    */
   const canEdit = useCapability("manageLocations");
-  const [buildingId, setBuildingId] = useState<string | null>(null);
+  const [mapId, setMapId] = useState<string | null>(null);
   const [editor, dispatch] = useReducer(editorReducer, initialEditor);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(new Set());
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [pendingFocusRegionId, setPendingFocusRegionId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const locations = useResource(
-    useCallback(
-      (signal: AbortSignal) => Promise.all([api.getLocationTree(signal), api.listMaps(signal)]),
-      [api],
-    ),
-  );
-  const maps = useMemo(() => locations.data?.[1] ?? [], [locations.data]);
-  const buildings = useMemo(() => locations.data?.[0].buildings ?? [], [locations.data]);
-  const selectedBuildingId = buildingId ?? buildings[0]?.id ?? null;
+  const mapList = useResource(useCallback((signal: AbortSignal) => api.listMaps(signal), [api]));
+  const maps = useMemo(() => mapList.data ?? [], [mapList.data]);
+  const selectedMapId = mapId ?? maps[0]?.id ?? null;
   const persistedMapId = editor.persisted?.id ?? null;
   const persistedRevision = editor.persisted?.revision ?? -1;
 
   const mapResource = useResource(
     useCallback(
       (signal: AbortSignal) =>
-        selectedBuildingId === null
-          ? Promise.reject(new Error("No Building"))
-          : maps.some((map) => map.buildingId === selectedBuildingId)
-            ? api.getMap(selectedBuildingId, signal)
-            : Promise.reject(new Error("No map configured")),
-      [api, maps, selectedBuildingId],
+        selectedMapId === null
+          ? Promise.reject(new Error("No map"))
+          : api.getMap(selectedMapId, signal),
+      [api, selectedMapId],
     ),
   );
   const searchResource = useResource(
@@ -106,66 +80,39 @@ export function LocationsPage(): ReactElement {
     ),
   );
 
-  useEffect(() => {
-    if (
-      mapResource.data !== undefined &&
-      (mapResource.data.id !== persistedMapId || mapResource.data.revision !== persistedRevision)
-    )
-      dispatch({ type: "load", map: mapResource.data });
-  }, [mapResource.data, persistedMapId, persistedRevision]);
-
   /*
-   * Applies a search hit once its building's map has arrived. Keyed on the map
-   * rather than the draft: the old effect re-ran on every draft change, adding a
-   * render to every frame of a drag.
+   * Adopt what the server sends, unless we already hold something newer. A save
+   * leaves the page a revision ahead of the last fetch, and loading that stale
+   * copy over it would throw the selection away the moment you pressed Save.
    */
   useEffect(() => {
-    if (pendingFocusRegionId === null) return;
-    dispatch({ type: "select", id: pendingFocusRegionId });
-  }, [persistedMapId, pendingFocusRegionId]);
+    const fetched = mapResource.data;
+    if (fetched === undefined) return;
+    if (fetched.id === persistedMapId && fetched.revision <= persistedRevision) return;
+    dispatch({ type: "load", map: fetched });
+  }, [mapResource.data, persistedMapId, persistedRevision]);
 
   const draft = editor.draft;
-  const regions = useMemo(() => draft?.regions ?? [], [draft]);
-  const selectedRegion = useMemo(
-    () => regions.find((region) => region.id === editor.selectedRegionId) ?? null,
-    [regions, editor.selectedRegionId],
+  const locations = useMemo(() => draft?.locations ?? [], [draft]);
+  const selectedLocation = useMemo(
+    () => locations.find((location) => location.id === editor.selectedLocationId) ?? null,
+    [locations, editor.selectedLocationId],
   );
-  const showInspector = inspectorOpen || selectedRegion !== null;
+  const showInspector = inspectorOpen || selectedLocation !== null;
+  const selectedMap = useMemo(
+    () => maps.find((map) => map.id === selectedMapId),
+    [maps, selectedMapId],
+  );
 
-  const hierarchyRoot = locations.data?.[0].root ?? null;
-  const hierarchyNodes = useMemo(
-    () => (hierarchyRoot === null ? [] : flattenHierarchy([hierarchyRoot])),
-    [hierarchyRoot],
-  );
-  const nodesById = useMemo(
-    () => new Map(hierarchyNodes.map((node) => [node.id, node])),
-    [hierarchyNodes],
-  );
-  const assignableNodes = useMemo(
+  /* Display order follows the derived tree: a parent, then what sits inside it. */
+  const listedLocations = useMemo(
     () =>
-      hierarchyNodes.filter(
-        (node) => node.buildingId === draft?.buildingId && node.status === "Active",
+      [...locations].sort(
+        (left, right) =>
+          left.path.localeCompare(right.path, "en-GB") || left.name.localeCompare(right.name),
       ),
-    [hierarchyNodes, draft?.buildingId],
+    [locations],
   );
-  const parentRegionOptions = useMemo(
-    () =>
-      regions.filter((region) => region.id !== selectedRegion?.id && region.status === "Active"),
-    [regions, selectedRegion?.id],
-  );
-  const selectedBuilding = useMemo(
-    () => buildings.find((building) => building.id === selectedBuildingId),
-    [buildings, selectedBuildingId],
-  );
-  const buildingHasMap = useMemo(
-    () => maps.some((map) => map.buildingId === selectedBuildingId),
-    [maps, selectedBuildingId],
-  );
-
-  const reloadAll = useCallback((): void => {
-    locations.reload();
-    mapResource.reload();
-  }, [locations, mapResource]);
 
   const reportFailure = useCallback((error: unknown, fallback: string): void => {
     if (error instanceof ApiError && error.status === 409) {
@@ -182,7 +129,7 @@ export function LocationsPage(): ReactElement {
     api
       .saveMap(draft.id, {
         expectedRevision: editor.persisted.revision,
-        regions: toInputs(draft),
+        locations: toInputs(draft),
       })
       .then((saved) => {
         dispatch({ type: "saved", map: saved });
@@ -211,7 +158,7 @@ export function LocationsPage(): ReactElement {
         api
           .uploadFloorPlan(draft.id, {
             expectedRevision: editor.persisted?.revision ?? draft.revision,
-            regions: toInputs(draft),
+            locations: toInputs(draft),
             originalFileName: file.name,
             mediaType: file.type as "image/png" | "image/jpeg",
             contentBase64: value.split(",", 2)[1] ?? "",
@@ -229,163 +176,48 @@ export function LocationsPage(): ReactElement {
     [api, canEdit, draft, editor.persisted, reportFailure],
   );
 
-  const createMap = useCallback((): void => {
-    if (selectedBuildingId === null) return;
-    api
-      .createMap(selectedBuildingId)
-      .then((map) => {
-        dispatch({ type: "load", map });
-        locations.reload();
-      })
-      .catch((error: unknown) => {
-        reportFailure(error, "Map could not be created");
-      });
-  }, [api, locations, reportFailure, selectedBuildingId]);
-
-  const createNode = useCallback(
-    (request: CreateHierarchyNodeRequest): void => {
-      if (request.code.trim() === "" || request.name.trim() === "") {
-        setSaveMessage("Enter a code, name, and parent location.");
-        return;
-      }
+  const createMap = useCallback(
+    (request: CreateMapRequest): void => {
       api
-        .createHierarchyNode(request)
+        .createMap(request)
         .then((created) => {
-          if (created.nodeKind === "Building") {
-            setBuildingId(created.id);
-            setSelectedNodeId(created.id);
-          }
-          setSaveMessage("Hierarchy node created");
-          reloadAll();
+          setMapId(created.id);
+          dispatch({ type: "load", map: created });
+          setSaveMessage("Map created");
+          mapList.reload();
         })
         .catch((error: unknown) => {
-          reportFailure(error, "Location could not be created");
+          reportFailure(error, "Map could not be created");
         });
     },
-    [api, reloadAll, reportFailure],
+    [api, mapList, reportFailure],
   );
-
-  const renameNode = useCallback(
-    (id: string, name: string): void => {
-      api
-        .renameLocation(id, name)
-        .then(() => {
-          setSaveMessage("Location renamed");
-          reloadAll();
-        })
-        .catch((error: unknown) => {
-          reportFailure(error, "Location could not be renamed");
-        });
-    },
-    [api, reloadAll, reportFailure],
-  );
-
-  const moveNode = useCallback(
-    (id: string, parentId: string): void => {
-      api
-        .moveLocation(id, parentId)
-        .then(() => {
-          setSaveMessage("Location moved");
-          reloadAll();
-        })
-        .catch((error: unknown) => {
-          reportFailure(error, "Location could not be moved");
-        });
-    },
-    [api, reloadAll, reportFailure],
-  );
-
-  const archiveNode = useCallback(
-    (id: string): void => {
-      if (!window.confirm(`Archive ${nodesById.get(id)?.name ?? "this location"}?`)) return;
-      api
-        .archiveLocation(id)
-        .then(() => {
-          setSelectedNodeId(null);
-          setSaveMessage("Location archived");
-          reloadAll();
-        })
-        .catch((error: unknown) => {
-          reportFailure(error, "Location could not be archived");
-        });
-    },
-    [api, nodesById, reloadAll, reportFailure],
-  );
-
-  const deleteNode = useCallback(
-    (id: string): void => {
-      const node = nodesById.get(id);
-      if (!window.confirm(`Delete ${node?.name ?? "this location"}?`)) return;
-      api
-        .deleteLocation(id)
-        .then(() => {
-          if (node?.nodeKind === "Building") setBuildingId(null);
-          setSelectedNodeId(null);
-          setSaveMessage("Location deleted");
-          reloadAll();
-        })
-        .catch((error: unknown) => {
-          reportFailure(error, "Location could not be deleted");
-        });
-    },
-    [api, nodesById, reloadAll, reportFailure],
-  );
-
-  const selectNode = useCallback(
-    (node: HierarchyNodeView): void => {
-      setSelectedNodeId(node.id);
-      if (node.nodeKind === "Building") setBuildingId(node.id);
-      const region = regions.find((candidate) => candidate.hierarchyNodeId === node.id);
-      if (region !== undefined) {
-        setPendingFocusRegionId(region.id);
-        dispatch({ type: "select", id: region.id });
-      }
-    },
-    [regions],
-  );
-
-  const toggleNode = useCallback((id: string): void => {
-    setCollapsedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   const selectSearchResult = useCallback((result: LocationSearchResult): void => {
-    if (result.location.buildingId !== null) setBuildingId(result.location.buildingId);
-    /* Select now for the map already on screen; the effect above covers the rest. */
-    setPendingFocusRegionId(result.regionId);
-    dispatch({ type: "select", id: result.regionId });
+    if (result.mapId !== null) setMapId(result.mapId);
+    dispatch({ type: "select", id: result.id });
   }, []);
 
-  const selectRegion = useCallback((id: string | null): void => {
+  const selectLocation = useCallback((id: string | null): void => {
     dispatch({ type: "select", id });
+  }, []);
+  const selectMap = useCallback((id: string): void => {
+    setMapId(id);
   }, []);
   const commitGeometry = useCallback((id: string, geometry: MapGeometry): void => {
     dispatch({ type: "commit-geometry", id, geometry });
   }, []);
-  const createRegion = useCallback(
-    (geometry: MapGeometry): void => {
-      dispatch({
-        type: "add-region",
-        geometry,
-        ...(editor.mode === "entrance" || editor.mode === "exit"
-          ? { displayName: editor.mode === "entrance" ? "Entrance" : "Exit" }
-          : {}),
-      });
-    },
-    [editor.mode],
-  );
-  const removeRegion = useCallback((id: string): void => {
-    dispatch({ type: "remove-region", id });
+  const createLocation = useCallback((geometry: MapGeometry): void => {
+    dispatch({ type: "add-location", geometry });
   }, []);
-  const patchRegion = useCallback((id: string, changes: RegionChanges): void => {
-    dispatch({ type: "patch-region", id, changes });
+  const removeLocation = useCallback((id: string): void => {
+    dispatch({ type: "remove-location", id });
   }, []);
-  const reorderRegion = useCallback((id: string, direction: "raise" | "lower"): void => {
-    dispatch({ type: "reorder-region", id, direction });
+  const patchLocation = useCallback((id: string, changes: LocationChanges): void => {
+    dispatch({ type: "patch-location", id, changes });
+  }, []);
+  const reorderLocation = useCallback((id: string, direction: "raise" | "lower"): void => {
+    dispatch({ type: "reorder-location", id, direction });
   }, []);
   const changeMode = useCallback((mode: EditorMode): void => {
     dispatch({ type: "mode", mode });
@@ -420,13 +252,6 @@ export function LocationsPage(): ReactElement {
           alignItems={{ md: "center" }}
           spacing={1.5}
         >
-          {/*
-           * The building said once. This header used to name it four times over
-           * — breadcrumb, heading, a "Building" chip, its code, and again inside
-           * the selector — which is a lot of furniture for one fact. The
-           * breadcrumb marks the section, the heading names the building, the
-           * caption carries its code, and the selector is how you change it.
-           */}
           <Box sx={{ minWidth: 0 }}>
             <Typography
               variant="overline"
@@ -440,64 +265,23 @@ export function LocationsPage(): ReactElement {
               component="h1"
               sx={{ fontSize: { xs: "1.6rem", sm: "2rem" }, lineHeight: 1.15 }}
             >
-              {selectedBuilding?.name ?? "Locations"}
+              {selectedMap?.name ?? "Locations"}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-              {selectedBuilding?.code ?? "Select a building to open its map"}
+              {selectedMap?.code ?? "Create a map to start drawing locations"}
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="stretch">
-            <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 240 } }}>
-              <InputLabel id="building-label">Building</InputLabel>
-              <Select
-                labelId="building-label"
-                label="Building"
-                value={selectedBuildingId ?? ""}
-                onChange={(event) => {
-                  setBuildingId(event.target.value);
-                }}
-              >
-                {buildings.map((building) => (
-                  <MenuItem key={building.id} value={building.id}>
-                    {building.name} · {building.code}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            {/*
-             * Both of these only exist for a role that can actually change
-             * something. A role that cannot gets no button at all rather than a
-             * greyed stub or — worse — a live one that quietly does nothing:
-             * the navigation already hides whole sections by role, and this is
-             * the same idea one level down.
-             */}
-            {canEdit && (
-              <>
-                <Tooltip title="Jumps to the new-location form below the hierarchy">
-                  <span>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddRounded />}
-                      onClick={() => document.getElementById("new-location-code")?.focus()}
-                      disabled={hierarchyRoot === null}
-                    >
-                      Add building
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<MapRounded />}
-                  onClick={() => svgRef.current?.focus()}
-                  disabled={draft === null}
-                >
-                  Edit map
-                </Button>
-              </>
-            )}
-          </Stack>
+          {canEdit && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<MapRounded />}
+              onClick={() => svgRef.current?.focus()}
+              disabled={draft === null}
+            >
+              Edit map
+            </Button>
+          )}
         </Stack>
         {(conflict || saveMessage !== null) && (
           <Stack spacing={1} sx={{ mt: 1.5 }}>
@@ -516,7 +300,11 @@ export function LocationsPage(): ReactElement {
             )}
             {saveMessage !== null && (
               <Alert
-                severity={saveMessage.endsWith("saved") ? "success" : "error"}
+                severity={
+                  saveMessage.endsWith("saved") || saveMessage.endsWith("created")
+                    ? "success"
+                    : "error"
+                }
                 onClose={() => {
                   setSaveMessage(null);
                 }}
@@ -545,26 +333,19 @@ export function LocationsPage(): ReactElement {
           bgcolor: "background.paper",
         }}
       >
-        <HierarchyPanel
+        <LocationListPanel
           canEdit={canEdit}
-          root={hierarchyRoot}
-          buildings={buildings}
-          nodes={hierarchyNodes}
-          selectedNodeId={selectedNodeId}
-          selectedBuildingId={selectedBuildingId}
-          collapsedIds={collapsedIds}
+          maps={maps}
+          selectedMapId={selectedMapId}
+          locations={listedLocations}
+          selectedLocationId={editor.selectedLocationId}
           query={query}
           searchResults={searchResource.data}
-          focusedRegionId={editor.selectedRegionId}
           onQueryChange={setQuery}
           onSelectSearchResult={selectSearchResult}
-          onSelectNode={selectNode}
-          onToggleNode={toggleNode}
-          onCreateNode={createNode}
-          onRenameNode={renameNode}
-          onMoveNode={moveNode}
-          onArchiveNode={archiveNode}
-          onDeleteNode={deleteNode}
+          onSelectMap={selectMap}
+          onSelectLocation={selectLocation}
+          onCreateMap={createMap}
         />
         <MapWorkspace
           map={draft}
@@ -572,25 +353,25 @@ export function LocationsPage(): ReactElement {
           dirty={editor.dirty}
           mode={editor.mode}
           snapEnabled={editor.snapEnabled}
-          selectedRegionId={editor.selectedRegionId}
-          canCreateMap={canEdit && !buildingHasMap && selectedBuildingId !== null}
+          selectedLocationId={editor.selectedLocationId}
+          canCreateMap={false}
           svgRef={svgRef}
           onModeChange={changeMode}
           onToggleSnap={toggleSnap}
-          onSelect={selectRegion}
+          onSelect={selectLocation}
           onCommitGeometry={commitGeometry}
-          onCreateRegion={createRegion}
-          onRemoveRegion={removeRegion}
+          onCreateLocation={createLocation}
+          onRemoveLocation={removeLocation}
           onSave={save}
           onRevert={revert}
           onUploadFile={uploadFloorPlan}
-          onCreateMap={createMap}
+          onCreateMap={() => undefined}
           onProblem={setSaveMessage}
         />
         {showInspector ? (
           <Box
             component="aside"
-            aria-label="Region details"
+            aria-label="Location details"
             sx={{
               minWidth: 0,
               minHeight: { xs: 360, lg: 0 },
@@ -598,21 +379,13 @@ export function LocationsPage(): ReactElement {
               borderLeft: { lg: `1px solid ${mapBorder}` },
             }}
           >
-            <RegionInspector
-              region={selectedRegion}
+            <LocationInspector
+              location={selectedLocation}
               canEdit={canEdit}
               dirty={editor.dirty}
-              locationCode={
-                selectedRegion === null
-                  ? ""
-                  : (nodesById.get(selectedRegion.hierarchyNodeId)?.code ??
-                    selectedRegion.hierarchyNodeId)
-              }
-              nodeOptions={assignableNodes}
-              parentOptions={parentRegionOptions}
-              onPatch={patchRegion}
-              onReorder={reorderRegion}
-              onRemove={removeRegion}
+              onPatch={patchLocation}
+              onReorder={reorderLocation}
+              onRemove={removeLocation}
               onClose={closeInspector}
               onSave={save}
             />
@@ -620,7 +393,7 @@ export function LocationsPage(): ReactElement {
         ) : (
           <Box
             component="aside"
-            aria-label="Region details collapsed"
+            aria-label="Location details collapsed"
             sx={{
               display: { xs: "none", lg: "flex" },
               flexDirection: "column",
@@ -631,18 +404,11 @@ export function LocationsPage(): ReactElement {
               bgcolor: "#FBFCFE",
             }}
           >
-            {/*
-             * One control, reading the normal way round. This was an icon
-             * button above a second button with its text turned on its side —
-             * two ways to do the same thing, and the label unreadable without
-             * tilting your head. Someone who has just clicked a region needs to
-             * see at a glance where its details went.
-             */}
-            <Tooltip title="Open region details" placement="left">
+            <Tooltip title="Open location details" placement="left">
               <Button
                 variant="text"
                 size="small"
-                aria-label="Open region details"
+                aria-label="Open location details"
                 onClick={() => {
                   setInspectorOpen(true);
                 }}
