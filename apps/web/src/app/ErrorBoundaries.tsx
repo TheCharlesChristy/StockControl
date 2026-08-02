@@ -123,7 +123,7 @@ function ApplicationErrorFallback({ onRetry }: BoundaryFallbackProps): ReactElem
     <ErrorPanel
       eyebrow="Application error"
       title="StockControl could not start"
-      description="The application encountered an unexpected problem. Try starting it again. If the problem continues, contact your administrator."
+      description="The application encountered an unexpected problem. Try again. If the problem continues, contact your administrator."
       actions={
         <Button variant="contained" startIcon={<RefreshRounded />} onClick={onRetry}>
           Try again

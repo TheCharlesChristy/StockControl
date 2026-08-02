@@ -152,8 +152,8 @@ export function JobsPage(): ReactElement {
     <Box>
       <PageHeader
         eyebrow="Jobs"
-        title="Work, and the stock committed to it"
-        description="Reserve stock against a job, hand it over, and close the job when it is done."
+        title="Jobs and their stock"
+        description="Open a job to reserve stock for it, collect stock to site, or close it."
         actions={
           canManageJobs ? (
             <Button
@@ -257,7 +257,7 @@ export function JobsPage(): ReactElement {
                     Assigned to
                   </TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell align="right">Open reservations</TableCell>
+                  <TableCell align="right">Open commitments</TableCell>
                   <TableCell>Created</TableCell>
                 </TableRow>
               </TableHead>

@@ -2,6 +2,7 @@ import ExpandLessRounded from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -94,7 +95,7 @@ function ReservationList({
                 {reservation.itemReference} — {reservation.itemName}
               </Link>
             }
-            secondary={`${formatQuantity(reservation.quantityOutstanding)} ${reservation.unit} outstanding for ${reservation.jobNumber} ${reservation.jobName}${
+            secondary={`${formatQuantity(reservation.quantityOutstanding)} ${reservation.unit} remaining to collect for ${reservation.jobNumber} ${reservation.jobName}${
               showOwner ? ` · ${reservation.createdByName}` : ""
             }`}
           />
@@ -161,7 +162,7 @@ function EngineerDashboard({
                   </Typography>
                 </Link>
                 <Typography variant="body2" color="text.secondary">
-                  {job.customer} · {job.openReservationCount} open reservation
+                  {job.customer} · {job.openReservationCount} open commitment
                   {job.openReservationCount === 1 ? "" : "s"}
                 </Typography>
                 {job.jobSiteStock.length === 0 ? (
@@ -193,9 +194,9 @@ function EngineerDashboard({
         )}
       </Panel>
 
-      <Panel title="Your reservations">
+      <Panel title="Stock committed for you">
         {data.myReservations.length === 0 ? (
-          <Empty>You have not reserved anything that is still waiting to be collected.</Empty>
+          <Empty>You have no stock waiting to be collected.</Empty>
         ) : (
           <ReservationList reservations={data.myReservations} showOwner={false} />
         )}
@@ -234,15 +235,29 @@ function OfficeDashboard({
   return (
     <Stack spacing={3}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-        <StatTile label="Catalogue items" value={String(data.counts.items)} tone="primary" />
+        <StatTile label="Items in catalogue" value={String(data.counts.items)} tone="primary" />
         <StatTile label="Open jobs" value={String(data.counts.openJobs)} />
-        <StatTile label="Open reservations" value={String(data.counts.openReservations)} />
+        <StatTile label="Open commitments" value={String(data.counts.openReservations)} />
         <StatTile
           label="Requests waiting"
           value={String(data.counts.pendingRequests)}
           tone={data.counts.pendingRequests > 0 ? "warning" : "neutral"}
         />
       </Stack>
+
+      {data.counts.pendingRequests > 0 && (
+        <Alert
+          severity="warning"
+          action={
+            <Button component={RouterLink} to="/requests" color="inherit" size="small">
+              Review requests
+            </Button>
+          }
+        >
+          {data.counts.pendingRequests} stock request
+          {data.counts.pendingRequests === 1 ? " is" : "s are"} waiting for a decision.
+        </Alert>
+      )}
 
       <Panel
         title="Low on stock"
@@ -265,7 +280,7 @@ function OfficeDashboard({
                       {item.reference} — {item.name}
                     </Link>
                   }
-                  secondary={`${formatQuantity(item.available)} ${item.unit} available, minimum ${formatQuantity(item.lowStockThreshold ?? "0")}`}
+                  secondary={`${formatQuantity(item.available)} ${item.unit} ready to use, minimum ${formatQuantity(item.lowStockThreshold ?? "0")}`}
                 />
                 {/*
                  * A state, not an instruction. "Reorder" reads as a button that
@@ -325,7 +340,7 @@ function OfficeDashboard({
                   }
                 />
                 <Chip
-                  label={`${job.openReservationCount} reserved`}
+                  label={`${job.openReservationCount} committed`}
                   size="small"
                   variant="outlined"
                 />
@@ -336,18 +351,18 @@ function OfficeDashboard({
       </Panel>
 
       <Panel
-        title="Reserved stock"
+        title="Stock waiting to be collected"
         action={
           <Button size="small" onClick={() => setMineOnly((only) => !only)}>
-            {mineOnly ? "Show everyone" : "Show only mine"}
+            {mineOnly ? "Show everyone" : "Show mine"}
           </Button>
         }
       >
         {reservations.length === 0 ? (
           <Empty>
             {mineOnly
-              ? "You have not reserved anything that is still waiting."
-              : "Nothing is reserved and waiting to be collected."}
+              ? "You have no stock committed to you that is still waiting."
+              : "Nothing is committed and waiting to be collected."}
           </Empty>
         ) : (
           <ReservationList reservations={reservations} showOwner={!mineOnly} />

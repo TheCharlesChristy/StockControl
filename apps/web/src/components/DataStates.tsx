@@ -15,12 +15,12 @@ import type { ApiError } from "../api/ApiClient";
  */
 export const transactionKindLabels: Readonly<Record<TransactionKind, string>> = {
   Receive: "Receive",
-  Issue: "Take out",
+  Issue: "Taken from store",
   Transfer: "Transfer",
   Adjust: "Adjust",
   Reserve: "Reserve",
-  Collect: "Collect",
-  Release: "Release",
+  Collect: "Collected to site",
+  Release: "Reservation released",
 };
 
 /** Trims trailing zeros so a table reads "7" and "7.5", not "7.000". */

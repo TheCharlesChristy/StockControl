@@ -21,7 +21,7 @@ export type StockOperation = "receive" | "issue" | "transfer" | "adjust";
 
 const titles: Readonly<Record<StockOperation, string>> = {
   receive: "Receive stock",
-  issue: "Take out stock",
+  issue: "Take from store",
   transfer: "Transfer stock",
   /*
    * "Adjust" on its own suggests a difference — add three, take two away — but
@@ -33,7 +33,7 @@ const titles: Readonly<Record<StockOperation, string>> = {
 
 const submitLabels: Readonly<Record<StockOperation, string>> = {
   receive: "Receive",
-  issue: "Take out",
+  issue: "Take from store",
   transfer: "Transfer",
   adjust: "Save new count",
 };
@@ -111,8 +111,11 @@ export function StockOperationDialog({
           path: pathById.get(balance.locationId) ?? "",
         }));
 
+  const selectedLocationId = locationId || sourceOptions[0]?.id || "";
+  const firstDestination = stores.find((store) => store.id !== selectedLocationId);
+  const selectedDestinationId = destinationId || firstDestination?.id || "";
   const currentAtLocation = item.balances.find(
-    (balance) => balance.locationId === locationId,
+    (balance) => balance.locationId === selectedLocationId,
   )?.quantity;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -123,20 +126,20 @@ export function StockOperationDialog({
     const run = async (): Promise<{ item: ItemDetailView }> => {
       switch (operation) {
         case "receive":
-          return api.receive({ itemId: item.id, locationId, quantity });
+          return api.receive({ itemId: item.id, locationId: selectedLocationId, quantity });
         case "issue":
-          return api.issue({ itemId: item.id, locationId, quantity });
+          return api.issue({ itemId: item.id, locationId: selectedLocationId, quantity });
         case "transfer":
           return api.transfer({
             itemId: item.id,
-            fromLocationId: locationId,
-            toLocationId: destinationId,
+            fromLocationId: selectedLocationId,
+            toLocationId: selectedDestinationId,
             quantity,
           });
         case "adjust":
           return api.adjust({
             itemId: item.id,
-            locationId,
+            locationId: selectedLocationId,
             countedQuantity: quantity,
             reason,
           });
@@ -180,11 +183,19 @@ export function StockOperationDialog({
               select
               required
               label={operation === "transfer" ? "From location" : "Location"}
-              value={locationId}
+              value={selectedLocationId}
               onChange={(event) => setLocationId(event.target.value)}
               disabled={submitting}
               error={error?.fieldError("locationId") !== undefined}
-              helperText={error?.fieldError("locationId") ?? error?.fieldError("fromLocationId")}
+              helperText={
+                error?.fieldError("locationId") ??
+                error?.fieldError("fromLocationId") ??
+                (operation === "receive"
+                  ? "Choose the store where this stock arrived."
+                  : currentAtLocation === undefined
+                    ? "Choose where to take the stock from."
+                    : `${formatQuantity(currentAtLocation)} ${item.unit} is held here.`)
+              }
             >
               {sourceOptions.length === 0 && (
                 <MenuItem value="" disabled>
@@ -203,14 +214,14 @@ export function StockOperationDialog({
                 select
                 required
                 label="To location"
-                value={destinationId}
+                value={selectedDestinationId}
                 onChange={(event) => setDestinationId(event.target.value)}
                 disabled={submitting}
                 error={error?.fieldError("toLocationId") !== undefined}
                 helperText={error?.fieldError("toLocationId")}
               >
                 {stores
-                  .filter((store) => store.id !== locationId)
+                  .filter((store) => store.id !== selectedLocationId)
                   .map((store) => (
                     <MenuItem key={store.id} value={store.id}>
                       <LocationOption label={`${store.code} — ${store.name}`} path={store.path} />
@@ -244,7 +255,9 @@ export function StockOperationDialog({
                         ? ""
                         : ` Currently recorded: ${formatQuantity(currentAtLocation)} ${item.unit}.`
                     }`
-                  : `Quantity in ${item.unit}`)
+                  : currentAtLocation === undefined
+                    ? `Quantity in ${item.unit}`
+                    : `${formatQuantity(currentAtLocation)} ${item.unit} is available at this location.`)
               }
             />
 
@@ -269,7 +282,17 @@ export function StockOperationDialog({
           <Button onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={submitting}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={
+              submitting ||
+              selectedLocationId === "" ||
+              quantity.trim() === "" ||
+              (operation === "transfer" && selectedDestinationId === "") ||
+              (operation === "adjust" && reason.trim() === "")
+            }
+          >
             {submitting ? "Working…" : submitLabels[operation]}
           </Button>
         </DialogActions>

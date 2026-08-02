@@ -12,6 +12,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Stack,
   Toolbar,
   Tooltip,
@@ -27,6 +28,7 @@ import { ScanFab } from "../components/ScanFab";
 import { navigationForUser, navigationItems } from "../navigation";
 
 const drawerWidth = 272;
+const primaryNavigationPaths = new Set(["/dashboard", "/inventory", "/jobs", "/requests"]);
 
 function initials(displayName: string): string {
   return displayName
@@ -61,6 +63,10 @@ export function AppShell(): ReactElement | null {
   };
 
   const roleNavigation = navigationForUser(user);
+  const primaryNavigation = roleNavigation.filter((item) => primaryNavigationPaths.has(item.path));
+  const secondaryNavigation = roleNavigation.filter(
+    (item) => !primaryNavigationPaths.has(item.path),
+  );
   const isLocationWorkspace = location.pathname === "/locations";
   /*
    * Longest matching prefix, so a detail route such as /inventory/:id still
@@ -72,6 +78,61 @@ export function AppShell(): ReactElement | null {
     )
     .sort((left, right) => right.path.length - left.path.length)[0];
   const pageTitle = currentNavigationItem?.label ?? "StockControl";
+
+  const renderNavigation = (items: typeof roleNavigation): ReactElement[] =>
+    items.map((item) => {
+      const Icon = item.icon;
+
+      return (
+        /*
+         * `describeChild` matters: without it MUI makes the tooltip the
+         * link's accessible name, so screen readers would announce the
+         * description instead of the section it leads to.
+         */
+        <Tooltip key={item.path} title={item.description} placement="right" describeChild>
+          <ListItemButton
+            component={RouterLink}
+            to={item.path}
+            selected={
+              location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
+            }
+            onClick={() => setMobileNavigationOpen(false)}
+            sx={{
+              mb: 0.5,
+              color: "rgba(255,255,255,0.72)",
+              "& .MuiListItemIcon-root": {
+                color: "inherit",
+              },
+              "&:hover": {
+                color: "#FFFFFF",
+                bgcolor: "rgba(255,255,255,0.08)",
+              },
+              "&.Mui-selected": {
+                color: "#FFFFFF",
+                bgcolor: "rgba(234, 240, 252, 0.14)",
+                boxShadow: "inset 3px 0 0 #FFFFFF",
+                "&:hover": {
+                  bgcolor: "rgba(234, 240, 252, 0.2)",
+                },
+              },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <Icon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText
+              primary={item.label}
+              slotProps={{
+                primary: {
+                  fontSize: "0.9rem",
+                  fontWeight: 700,
+                },
+              }}
+            />
+          </ListItemButton>
+        </Tooltip>
+      );
+    });
 
   const drawerContent = (
     <Stack sx={{ height: "100%" }} aria-label="Primary navigation">
@@ -89,57 +150,28 @@ export function AppShell(): ReactElement | null {
           overflowY: "auto",
         }}
       >
-        {roleNavigation.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            /*
-             * `describeChild` matters: without it MUI makes the tooltip the
-             * link's accessible name, so screen readers would announce the
-             * description instead of the section it leads to.
-             */
-            <Tooltip key={item.path} title={item.description} placement="right" describeChild>
-              <ListItemButton
-                component={RouterLink}
-                to={item.path}
-                selected={location.pathname === item.path}
-                onClick={() => setMobileNavigationOpen(false)}
-                sx={{
-                  mb: 0.5,
-                  color: "rgba(255,255,255,0.72)",
-                  "& .MuiListItemIcon-root": {
-                    color: "inherit",
-                  },
-                  "&:hover": {
-                    color: "#FFFFFF",
-                    bgcolor: "rgba(255,255,255,0.08)",
-                  },
-                  "&.Mui-selected": {
-                    color: "#FFFFFF",
-                    bgcolor: "rgba(234, 240, 252, 0.14)",
-                    boxShadow: "inset 3px 0 0 #FFFFFF",
-                    "&:hover": {
-                      bgcolor: "rgba(234, 240, 252, 0.2)",
-                    },
-                  },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 40 }}>
-                  <Icon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText
-                  primary={item.label}
-                  slotProps={{
-                    primary: {
-                      fontSize: "0.9rem",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-              </ListItemButton>
-            </Tooltip>
-          );
-        })}
+        {renderNavigation(primaryNavigation)}
+        {secondaryNavigation.length > 0 && (
+          <>
+            <ListSubheader
+              component="div"
+              sx={{
+                px: 1.5,
+                pt: 2,
+                pb: 0.75,
+                color: "rgba(255,255,255,0.5)",
+                bgcolor: "transparent",
+                fontSize: "0.7rem",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              More
+            </ListSubheader>
+            {renderNavigation(secondaryNavigation)}
+          </>
+        )}
       </List>
       <Box sx={{ p: 1.5 }}>
         <Stack

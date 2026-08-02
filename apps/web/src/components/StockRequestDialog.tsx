@@ -73,7 +73,7 @@ export function StockRequestDialog({
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="xs">
       <Stack component="form" onSubmit={handleSubmit}>
-        <DialogTitle>Request stock</DialogTitle>
+        <DialogTitle>Ask for stock</DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ mb: 2 }}>
             {item.reference} — {item.name}
@@ -91,17 +91,17 @@ export function StockRequestDialog({
             />
             <TextField
               select
-              label="For a job (optional)"
+              label="Where will you use it?"
               value={jobId}
               onChange={(event) => setJobId(event.target.value)}
               error={error?.fieldError("jobId") !== undefined}
               helperText={
                 error?.fieldError("jobId") ??
-                "Naming a job reserves the stock against it once approved."
+                "Choose a job if this is for a specific site. Otherwise it goes to the general stock queue."
               }
               fullWidth
             >
-              <MenuItem value="">No job</MenuItem>
+              <MenuItem value="">General stock request</MenuItem>
               {openJobs.map((job) => (
                 <MenuItem key={job.id} value={job.id}>
                   {job.number} — {job.name}

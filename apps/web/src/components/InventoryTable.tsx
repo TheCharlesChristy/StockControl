@@ -256,8 +256,13 @@ export function InventoryTable({
             ),
           },
         }}
-        sx={{ mb: 2.5 }}
+        helperText="Search by item name, code, barcode or part number."
+        sx={{ mb: 1 }}
       />
+
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+        Ready to use means stock in stores minus stock already committed to jobs.
+      </Typography>
 
       {items.status === "error" && items.error !== undefined && (
         <ErrorState error={items.error} onRetry={items.reload} />
@@ -294,17 +299,17 @@ export function InventoryTable({
                   <TableCell sx={{ whiteSpace: "nowrap" }}>Item code</TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell align="right" sx={{ display: { xs: "none", sm: "table-cell" } }}>
-                    On hand
+                    Total in stock
                   </TableCell>
                   <TableCell align="right" sx={{ display: { xs: "none", sm: "table-cell" } }}>
-                    Reserved
+                    Committed to jobs
                   </TableCell>
                   {showReservedForYou && (
                     <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                      Reserved for you
+                      Committed for you
                     </TableCell>
                   )}
-                  <TableCell align="right">Available</TableCell>
+                  <TableCell align="right">Ready to use</TableCell>
                   <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>Unit</TableCell>
                 </TableRow>
               </TableHead>

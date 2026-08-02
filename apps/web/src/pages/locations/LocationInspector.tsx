@@ -213,7 +213,7 @@ export const LocationInspector = memo(function LocationInspector({
                   }}
                   sx={actionSx}
                 >
-                  Delete
+                  Remove from map
                 </Button>
               </Stack>
               <Button
@@ -226,8 +226,9 @@ export const LocationInspector = memo(function LocationInspector({
                 Save changes
               </Button>
               <Typography variant="caption" color="text.secondary">
-                Arrow keys move the selected shape, Shift + Arrow moves farther, Delete removes it.
-                A location that has held stock is archived rather than erased.
+                Changes stay in draft until you press Save changes. Arrow keys move the selected
+                shape, Shift + Arrow moves farther, and Delete removes it from the draft. A location
+                that has held stock is archived rather than erased.
               </Typography>
             </Stack>
           )}

@@ -1,4 +1,5 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
+import MoreHorizRounded from "@mui/icons-material/MoreHorizRounded";
 import PrintRounded from "@mui/icons-material/PrintRounded";
 import {
   Alert,
@@ -11,6 +12,8 @@ import {
   DialogContentText,
   DialogTitle,
   Divider,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -28,6 +31,7 @@ import { Link as RouterLink, useParams } from "react-router-dom";
 import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { useCapability } from "../auth/useCapability";
+import { ApiError } from "../api/ApiClient";
 import { CreateItemDialog } from "../components/CreateItemDialog";
 import {
   ErrorState,
@@ -57,6 +61,8 @@ export function ItemDetailPage(): ReactElement {
   const [editing, setEditing] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [moreActionsAnchor, setMoreActionsAnchor] = useState<HTMLElement | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadItem = useCallback((signal: AbortSignal) => api.getItem(itemId, signal), [api, itemId]);
   const loadLocations = useCallback((signal: AbortSignal) => api.listLocations(signal), [api]);
@@ -79,13 +85,23 @@ export function ItemDetailPage(): ReactElement {
     }
 
     setArchiving(true);
+    setActionError(null);
     void api
       .updateItem(data.id, { isActive: !data.isActive })
       .then(() => {
         setConfirmingArchive(false);
         return item.reload();
       })
+      .catch((caught: unknown) => {
+        setActionError(
+          caught instanceof ApiError ? caught.message : "The item could not be updated.",
+        );
+      })
       .finally(() => setArchiving(false));
+  };
+
+  const closeMoreActions = (): void => {
+    setMoreActionsAnchor(null);
   };
 
   return (
@@ -135,18 +151,8 @@ export function ItemDetailPage(): ReactElement {
                 )}
                 {canIssue && (
                   <Button variant="outlined" onClick={() => setOperation("issue")}>
-                    Take out
+                    Take from store
                   </Button>
-                )}
-                {canManageStock && (
-                  <>
-                    <Button variant="outlined" onClick={() => setOperation("transfer")}>
-                      Transfer
-                    </Button>
-                    <Button variant="outlined" onClick={() => setOperation("adjust")}>
-                      Adjust
-                    </Button>
-                  </>
                 )}
                 {canRequestStock && (
                   <Button
@@ -156,20 +162,68 @@ export function ItemDetailPage(): ReactElement {
                     Request stock
                   </Button>
                 )}
-                {canManageCatalogue && (
+                {(canManageStock || canManageCatalogue) && (
                   <>
-                    <Button variant="text" onClick={() => setEditing(true)}>
-                      Edit
-                    </Button>
                     <Button
-                      variant="text"
-                      onClick={() =>
-                        data.isActive ? setConfirmingArchive(true) : toggleArchived()
-                      }
-                      disabled={archiving}
+                      variant="outlined"
+                      startIcon={<MoreHorizRounded />}
+                      onClick={(event) => setMoreActionsAnchor(event.currentTarget)}
+                      aria-haspopup="menu"
+                      aria-expanded={moreActionsAnchor !== null}
                     >
-                      {data.isActive ? "Archive" : "Restore"}
+                      More actions
                     </Button>
+                    <Menu
+                      anchorEl={moreActionsAnchor}
+                      open={moreActionsAnchor !== null}
+                      onClose={closeMoreActions}
+                    >
+                      {canManageStock && [
+                        <MenuItem
+                          key="transfer"
+                          onClick={() => {
+                            closeMoreActions();
+                            setOperation("transfer");
+                          }}
+                        >
+                          Transfer between stores
+                        </MenuItem>,
+                        <MenuItem
+                          key="adjust"
+                          onClick={() => {
+                            closeMoreActions();
+                            setOperation("adjust");
+                          }}
+                        >
+                          Correct a counted quantity
+                        </MenuItem>,
+                      ]}
+                      {canManageCatalogue && [
+                        <MenuItem
+                          key="edit"
+                          onClick={() => {
+                            closeMoreActions();
+                            setEditing(true);
+                          }}
+                        >
+                          Edit item details
+                        </MenuItem>,
+                        <MenuItem
+                          key="archive"
+                          onClick={() => {
+                            closeMoreActions();
+                            if (data.isActive) {
+                              setConfirmingArchive(true);
+                            } else {
+                              toggleArchived();
+                            }
+                          }}
+                          disabled={archiving}
+                        >
+                          {data.isActive ? "Archive item" : "Restore item"}
+                        </MenuItem>,
+                      ]}
+                    </Menu>
                   </>
                 )}
               </Stack>
@@ -183,6 +237,12 @@ export function ItemDetailPage(): ReactElement {
             </Alert>
           )}
 
+          {actionError !== null && (
+            <Alert severity="error" role="alert" sx={{ mb: 2.5 }} className="no-print">
+              {actionError}
+            </Alert>
+          )}
+
           <Stack spacing={3}>
             {/*
              * Five figures that only make sense in relation to each other, so
@@ -192,7 +252,7 @@ export function ItemDetailPage(): ReactElement {
              */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <StatTile
-                label="On hand"
+                label="Total in stock"
                 value={`${formatQuantity(data.onHand)} ${data.unit}`}
                 caption="Everything, everywhere"
               />
@@ -207,12 +267,12 @@ export function ItemDetailPage(): ReactElement {
                 caption="Already collected to site"
               />
               <StatTile
-                label="Reserved"
+                label="Committed to jobs"
                 value={`${formatQuantity(data.reserved)} ${data.unit}`}
-                caption="Committed to a job, not yet moved"
+                caption="Reserved for a job, not yet moved"
               />
               <StatTile
-                label="Available"
+                label="Ready to use"
                 value={`${formatQuantity(data.available)} ${data.unit}`}
                 tone={data.belowThreshold ? "warning" : "primary"}
                 caption={

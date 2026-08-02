@@ -72,6 +72,14 @@ function normaliseDateQuery(value: string | null): string {
   return isoMatch === null ? value : `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
 }
 
+function formatDateInput(date: Date): string {
+  return [
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getFullYear()),
+  ].join("/");
+}
+
 export function TransactionsPage(): ReactElement {
   const api = useApi();
   const seesEveryone = useCapability("viewAllActivity");
@@ -103,6 +111,29 @@ export function TransactionsPage(): ReactElement {
           next.delete("page");
         }
 
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const setDateRange = (days: number | null): void => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("page");
+
+        if (days === null) {
+          next.delete("from");
+          next.delete("to");
+          return next;
+        }
+
+        const end = new Date();
+        const start = new Date(end);
+        start.setDate(end.getDate() - days + 1);
+        next.set("from", formatDateInput(start));
+        next.set("to", formatDateInput(end));
         return next;
       },
       { replace: true },
@@ -195,7 +226,7 @@ export function TransactionsPage(): ReactElement {
         description={
           seesEveryone
             ? "Nothing here can be edited or deleted. A mistake is put right with a new adjustment, so the original stays visible alongside the correction."
-            : "Everything you have received, taken out, collected or reserved. Nothing here can be edited or deleted."
+            : "Everything you have received, taken from store, collected to site or committed to a job. Nothing here can be edited or deleted."
         }
         actions={
           <Button variant="outlined" startIcon={<FileDownloadRounded />} onClick={handleExport}>
@@ -209,9 +240,20 @@ export function TransactionsPage(): ReactElement {
           Narrow the list
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Search by the item code, name, barcode, or part number. Dates use
-          <strong> dd/mm/yyyy</strong>.
+          Search by the item code, name, barcode, or part number. Dates use{" "}
+          <strong>dd/mm/yyyy</strong>, or choose a quick range below.
         </Typography>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+          <Button size="small" variant="outlined" onClick={() => setDateRange(0)}>
+            Today
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => setDateRange(6)}>
+            Last 7 days
+          </Button>
+          <Button size="small" onClick={() => setDateRange(null)}>
+            Clear dates
+          </Button>
+        </Stack>
         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
           <TextField
             label="Item"

@@ -89,7 +89,7 @@ describe("dashboard", () => {
     expect(screen.getByText(/ITM-0099/u)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Stock requests" })).toBeInTheDocument();
     expect(screen.getByText(/REQ-0001/u)).toBeInTheDocument();
-    expect(screen.getByText(/30 ea outstanding for J-1001/u)).toBeInTheDocument();
+    expect(screen.getByText(/30 ea remaining to collect for J-1001/u)).toBeInTheDocument();
   });
 
   /*
@@ -107,12 +107,12 @@ describe("dashboard", () => {
 
     expect(await screen.findByRole("table", { name: "Inventory" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Your jobs" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Your reservations" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Stock committed for you" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Your stock requests" })).toBeInTheDocument();
 
     expect(screen.queryByRole("heading", { name: "Low on stock" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Recent activity" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Catalogue items" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Items in catalogue" })).not.toBeInTheDocument();
   });
 
   it("shows an Engineer how much of an item is reserved for them", async () => {
@@ -124,7 +124,7 @@ describe("dashboard", () => {
     const table = await screen.findByRole("table", { name: "Inventory" });
 
     expect(
-      within(table).getByRole("columnheader", { name: "Reserved for you" }),
+      within(table).getByRole("columnheader", { name: "Committed for you" }),
     ).toBeInTheDocument();
     const row = within(table).getByText("M6 × 30 mm zinc-plated hex bolt").closest("tr");
     expect(within(row as HTMLElement).getByText("30")).toBeInTheDocument();
@@ -186,10 +186,10 @@ describe("item detail", () => {
     const figure = (label: string): string =>
       within(screen.getByRole("group", { name: label })).getByRole("paragraph").textContent;
 
-    expect(figure("On hand")).toBe("420 ea");
+    expect(figure("Total in stock")).toBe("420 ea");
     expect(figure("In stores")).toBe("400 ea");
     expect(figure("At job sites")).toBe("20 ea");
-    expect(figure("Available")).toBe("350 ea");
+    expect(figure("Ready to use")).toBe("350 ea");
   });
 
   it("renders a QR code labelled with the item reference", async () => {
@@ -213,7 +213,7 @@ describe("item detail", () => {
 
     await screen.findByRole("heading", { name: testItemDetail.name });
 
-    expect(screen.getByRole("button", { name: "Take out" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take from store" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request stock" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Receive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Adjust" })).not.toBeInTheDocument();
@@ -242,8 +242,10 @@ describe("item detail", () => {
     await screen.findByRole("heading", { name: testItemDetail.name });
 
     expect(screen.getByRole("heading", { name: "Recent transactions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Edit item details" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Archive item" })).toBeInTheDocument();
   });
 
   it("requires a reason before an adjustment can be submitted", async () => {
@@ -251,7 +253,8 @@ describe("item detail", () => {
     renderScreen(<ItemDetailPage />, options);
 
     await screen.findByRole("heading", { name: testItemDetail.name });
-    await user.click(screen.getByRole("button", { name: "Adjust" }));
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Correct a counted quantity" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/Reason/u)).toBeRequired();
@@ -280,20 +283,20 @@ describe("job detail", () => {
     await screen.findByRole("heading", { name: testJob.name });
 
     expect(
-      screen.getByText(/Closing the job releases uncollected reservations/u),
+      screen.getByText(/Closing the job releases stock still committed to it/u),
     ).toBeInTheDocument();
   });
 
   it("lets Office release a reservation but not an Engineer", async () => {
     renderScreen(<JobDetailPage />, { ...options, role: "Office" });
-    expect(await screen.findByRole("button", { name: "Release" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Release remaining" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close job" })).toBeInTheDocument();
 
     renderScreen(<JobDetailPage />, { ...options, role: "Engineer" });
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "Collect" })).toHaveLength(2);
+      expect(screen.getAllByRole("button", { name: "Collect to site" })).toHaveLength(2);
     });
-    expect(screen.getAllByRole("button", { name: "Release" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Release remaining" })).toHaveLength(1);
   });
 
   it("defaults a collection to the outstanding quantity", async () => {
@@ -301,7 +304,7 @@ describe("job detail", () => {
     renderScreen(<JobDetailPage />, options);
 
     await screen.findByRole("heading", { name: testJob.name });
-    await user.click(screen.getByRole("button", { name: "Collect" }));
+    await user.click(screen.getByRole("button", { name: "Collect to site" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/Quantity/u)).toHaveValue("30");
@@ -367,11 +370,11 @@ describe("stock requests", () => {
     expect(screen.getByText(/Sam Field/u)).toBeInTheDocument();
     expect(screen.getByText(/Running short on site/u)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Turn down" }));
+    await user.click(screen.getByRole("button", { name: "Reject" }));
 
     const dialog = await screen.findByRole("dialog");
     /* A refusal has to say why, so the person who asked is not left guessing. */
-    expect(within(dialog).getByRole("button", { name: "Turn down" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Reject" })).toBeDisabled();
   });
 
   it("offers an Engineer no way to decide their own request", async () => {

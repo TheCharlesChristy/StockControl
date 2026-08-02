@@ -22,10 +22,10 @@ export function ScanFab(): ReactElement {
 
   return (
     <>
-      <Tooltip title="Scan a QR code or barcode">
+      <Tooltip title="Find an item by scanning">
         <Fab
           color="primary"
-          aria-label="Scan a QR code or barcode"
+          aria-label="Find an item by scanning"
           className="no-print"
           onClick={() => setOpen(true)}
           sx={{

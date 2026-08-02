@@ -1,6 +1,15 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
+import { ApplicationErrorBoundary } from "./app/ErrorBoundaries";
+
+/*
+ * Keep the application import behind a boundary. A missing dependency or a
+ * stale generated package must produce a useful recovery screen, not an empty
+ * root element with no explanation.
+ */
+const App = lazy(async () => ({
+  default: (await import("./app/App")).App,
+}));
 
 const rootElement = document.querySelector<HTMLDivElement>("#root");
 
@@ -10,6 +19,16 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <ApplicationErrorBoundary>
+      <Suspense
+        fallback={
+          <main id="main-content" role="status" aria-live="polite">
+            Starting StockControl…
+          </main>
+        }
+      >
+        <App />
+      </Suspense>
+    </ApplicationErrorBoundary>
   </StrictMode>,
 );

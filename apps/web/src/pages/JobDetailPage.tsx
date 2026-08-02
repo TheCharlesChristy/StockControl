@@ -100,7 +100,7 @@ function ReserveDialog({
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Reserve stock for {job.number}</DialogTitle>
+      <DialogTitle>Reserve stock for job {job.number}</DialogTitle>
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
@@ -144,7 +144,7 @@ function ReserveDialog({
               helperText={
                 error?.fieldError("quantity") ??
                 (selected === null
-                  ? "Reserving reduces availability without moving anything."
+                  ? "This commits stock to the job without moving it yet."
                   : `${formatQuantity(selected.available)} ${selected.unit} available`)
               }
             />
@@ -154,8 +154,12 @@ function ReserveDialog({
           <Button onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={submitting || selected === null}>
-            {submitting ? "Reserving…" : "Reserve"}
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={submitting || selected === null || quantity.trim().length === 0}
+          >
+            {submitting ? "Reserving…" : "Reserve for job"}
           </Button>
         </DialogActions>
       </form>
@@ -187,6 +191,8 @@ function CollectDialog({
   const stores = (item.data?.balances ?? []).filter(
     (balance) => balance.kind === "Store" && Number(balance.quantity) > 0,
   );
+  const selectedSourceLocationId = sourceLocationId || stores[0]?.locationId || "";
+  const selectedSource = stores.find((store) => store.locationId === selectedSourceLocationId);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -194,7 +200,7 @@ function CollectDialog({
     setError(undefined);
 
     void api
-      .collect(reservation.id, { sourceLocationId, quantity })
+      .collect(reservation.id, { sourceLocationId: selectedSourceLocationId, quantity })
       .then(() => {
         onDone();
         onClose();
@@ -205,13 +211,14 @@ function CollectDialog({
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Collect stock</DialogTitle>
+      <DialogTitle>Collect stock to site</DialogTitle>
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
             <Typography variant="body2" color="text.secondary">
               {reservation.itemReference} — {reservation.itemName}.{" "}
-              {formatQuantity(reservation.quantityOutstanding)} {reservation.unit} outstanding.
+              {formatQuantity(reservation.quantityOutstanding)} {reservation.unit} remaining to
+              collect.
             </Typography>
             {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
@@ -221,12 +228,17 @@ function CollectDialog({
             <TextField
               select
               required
-              label="Collect from"
-              value={sourceLocationId}
+              label="Take from store"
+              value={selectedSourceLocationId}
               onChange={(event) => setSourceLocationId(event.target.value)}
               disabled={submitting}
               error={error?.fieldError("sourceLocationId") !== undefined}
-              helperText={error?.fieldError("sourceLocationId")}
+              helperText={
+                error?.fieldError("sourceLocationId") ??
+                (selectedSource === undefined
+                  ? "Choose the store where this item is held."
+                  : `${formatQuantity(selectedSource.quantity)} ${reservation.unit} is held here.`)
+              }
             >
               {stores.length === 0 && (
                 <MenuItem value="" disabled>
@@ -249,7 +261,7 @@ function CollectDialog({
               error={error?.fieldError("quantity") !== undefined}
               helperText={
                 error?.fieldError("quantity") ??
-                "Collect part of it if you like — the rest stays reserved."
+                "Take all of it or enter a smaller amount. The rest stays committed to the job."
               }
             />
           </Stack>
@@ -258,8 +270,12 @@ function CollectDialog({
           <Button onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={submitting}>
-            {submitting ? "Collecting…" : "Collect"}
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={submitting || selectedSourceLocationId === "" || quantity.trim().length === 0}
+          >
+            {submitting ? "Collecting…" : "Collect to site"}
           </Button>
         </DialogActions>
       </form>
@@ -298,13 +314,13 @@ function ReleaseDialog({
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Release reservation</DialogTitle>
+      <DialogTitle>Release remaining stock</DialogTitle>
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
             <Typography variant="body2" color="text.secondary">
               Gives back the {formatQuantity(reservation.quantityOutstanding)} {reservation.unit}{" "}
-              that has not been collected. Anything already collected stays at the job site.
+              still in stores. Anything already collected stays at the job site.
             </Typography>
             {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
@@ -329,8 +345,13 @@ function ReleaseDialog({
           <Button onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" color="warning" disabled={submitting}>
-            {submitting ? "Releasing…" : "Release"}
+          <Button
+            type="submit"
+            variant="contained"
+            color="warning"
+            disabled={submitting || reason.trim().length === 0}
+          >
+            {submitting ? "Releasing…" : "Release remaining"}
           </Button>
         </DialogActions>
       </form>
@@ -510,7 +531,7 @@ export function JobDetailPage(): ReactElement {
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {data.status === "Open" && canReserve && (
                   <Button variant="contained" onClick={() => setReserving(true)}>
-                    Reserve stock
+                    Reserve for this job
                   </Button>
                 )}
                 {data.status === "Open" && canManageJobs && (
@@ -538,7 +559,7 @@ export function JobDetailPage(): ReactElement {
               <Alert severity="info">
                 {data.jobSiteStock.length} item
                 {data.jobSiteStock.length === 1 ? " is" : "s are"} sitting at this job site. Closing
-                the job releases uncollected reservations but leaves that stock where it is.
+                the job releases stock still committed to it but leaves that stock where it is.
               </Alert>
             )}
 
@@ -549,7 +570,7 @@ export function JobDetailPage(): ReactElement {
                 tone={data.status === "Open" ? "primary" : "neutral"}
                 caption={data.closedAt === null ? undefined : `Closed ${formatDate(data.closedAt)}`}
               />
-              <StatTile label="Open reservations" value={String(openReservations.length)} />
+              <StatTile label="Open commitments" value={String(openReservations.length)} />
               <StatTile label="Items at site" value={String(data.jobSiteStock.length)} />
             </Stack>
 
@@ -557,13 +578,13 @@ export function JobDetailPage(): ReactElement {
 
             <Paper variant="outlined">
               <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
-                Reservations
+                Stock committed to this job
               </Typography>
               <Divider />
               {data.reservations.length === 0 ? (
                 <Box sx={{ px: 2.5, py: 3 }}>
                   <Typography color="text.secondary">
-                    Nothing has been reserved for this job yet.
+                    Nothing is committed to this job yet.
                   </Typography>
                 </Box>
               ) : (
@@ -572,11 +593,11 @@ export function JobDetailPage(): ReactElement {
                     <TableHead>
                       <TableRow>
                         <TableCell>Item</TableCell>
-                        <TableCell align="right">Reserved</TableCell>
-                        <TableCell align="right">Collected</TableCell>
-                        <TableCell align="right">Outstanding</TableCell>
+                        <TableCell align="right">Committed</TableCell>
+                        <TableCell align="right">At site</TableCell>
+                        <TableCell align="right">Remaining</TableCell>
                         <TableCell>Status</TableCell>
-                        <TableCell>Reserved by</TableCell>
+                        <TableCell>Committed by</TableCell>
                         <TableCell align="right" />
                       </TableRow>
                     </TableHead>
@@ -623,7 +644,7 @@ export function JobDetailPage(): ReactElement {
                               <Stack direction="row" spacing={1} justifyContent="flex-end">
                                 {canCollect && (
                                   <Button size="small" onClick={() => setCollecting(reservation)}>
-                                    Collect
+                                    Collect to site
                                   </Button>
                                 )}
                                 {canRelease && (
@@ -632,7 +653,7 @@ export function JobDetailPage(): ReactElement {
                                     color="warning"
                                     onClick={() => setReleasing(reservation)}
                                   >
-                                    Release
+                                    Release remaining
                                   </Button>
                                 )}
                               </Stack>
@@ -648,7 +669,7 @@ export function JobDetailPage(): ReactElement {
 
             <Paper variant="outlined">
               <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
-                Stock at the job site
+                Stock already at site
               </Typography>
               <Divider />
               {data.jobSiteStock.length === 0 ? (
@@ -764,7 +785,7 @@ export function JobDetailPage(): ReactElement {
               <DialogContentText>
                 {openReservations.length === 0
                   ? "Nothing is still reserved against this job."
-                  : `This releases ${String(openReservations.length)} uncollected reservation${
+                  : `This releases ${String(openReservations.length)} open commitment${
                       openReservations.length === 1 ? "" : "s"
                     } and gives that stock back to stores.`}
                 {data.jobSiteStock.length > 0 &&

@@ -15,6 +15,14 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   "All",
 ];
 
+const statusLabels: Readonly<Record<StatusFilter, string>> = {
+  Pending: "Waiting",
+  Approved: "Approved",
+  Rejected: "Rejected",
+  Cancelled: "Withdrawn",
+  All: "All requests",
+};
+
 /**
  * The review queue. Pending sits first because a request waiting on a decision
  * is the only kind anybody has to act on.
@@ -38,8 +46,8 @@ export function RequestsPage(): ReactElement {
     <Box>
       <PageHeader
         eyebrow="Stock requests"
-        title="What people have asked for"
-        description="Approving a request that names a job reserves the stock against it. Turning one down needs a reason, so the person who asked knows why."
+        title="Requests from the team"
+        description="Approve the amount you can provide, or reject it with a reason. Requests for a named job become commitments when approved."
       />
 
       <TextField
@@ -51,7 +59,7 @@ export function RequestsPage(): ReactElement {
       >
         {STATUS_FILTERS.map((option) => (
           <MenuItem key={option} value={option}>
-            {option}
+            {statusLabels[option]}
           </MenuItem>
         ))}
       </TextField>

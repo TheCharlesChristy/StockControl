@@ -32,9 +32,16 @@ const STATUS_COLOURS: Readonly<Record<StockRequestStatus, StatusColour>> = {
   Cancelled: "default",
 };
 
+const STATUS_LABELS: Readonly<Record<StockRequestStatus, string>> = {
+  Pending: "Waiting",
+  Approved: "Approved",
+  Rejected: "Rejected",
+  Cancelled: "Withdrawn",
+};
+
 interface StockRequestListProps {
   readonly requests: readonly StockRequestView[];
-  /** Whether to offer Approve and Turn down. The server checks this again. */
+  /** Whether to offer Approve and Reject. The server checks this again. */
   readonly canReview: boolean;
   readonly onChanged?: () => void;
 }
@@ -56,6 +63,7 @@ export function StockRequestList({
   const [note, setNote] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const [withdrawal, setWithdrawal] = useState<StockRequestView | null>(null);
 
   const open = (request: StockRequestView, kind: "approve" | "reject"): void => {
     setDialog({ request, kind });
@@ -102,15 +110,30 @@ export function StockRequestList({
 
   const withdraw = (request: StockRequestView): void => {
     setBusy(true);
+    setError(null);
     api
       .cancelStockRequest(request.id)
-      .then(() => onChanged?.())
-      .catch(() => undefined)
+      .then(() => {
+        setWithdrawal(null);
+        onChanged?.();
+      })
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof ApiError
+            ? cause
+            : new ApiError(0, "network.unreachable", "Could not reach StockControl."),
+        );
+      })
       .finally(() => setBusy(false));
   };
 
   return (
     <>
+      {error !== null && dialog === null && (
+        <Alert severity="error" role="alert" sx={{ m: 2 }}>
+          {error.message}
+        </Alert>
+      )}
       <List disablePadding>
         {requests.map((request) => (
           <ListItem key={request.id} divider sx={{ display: "block", py: 2 }}>
@@ -123,7 +146,7 @@ export function StockRequestList({
               <Box>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
                   <Chip
-                    label={request.status}
+                    label={STATUS_LABELS[request.status]}
                     size="small"
                     color={STATUS_COLOURS[request.status]}
                     variant="outlined"
@@ -168,13 +191,13 @@ export function StockRequestList({
                         Approve
                       </Button>
                       <Button size="small" onClick={() => open(request, "reject")}>
-                        Turn down
+                        Reject
                       </Button>
                     </>
                   )}
                   {user?.id === request.requestedById && (
-                    <Button size="small" disabled={busy} onClick={() => withdraw(request)}>
-                      Withdraw
+                    <Button size="small" disabled={busy} onClick={() => setWithdrawal(request)}>
+                      Withdraw request
                     </Button>
                   )}
                 </Stack>
@@ -186,7 +209,7 @@ export function StockRequestList({
 
       <Dialog open={dialog !== null} onClose={close} fullWidth maxWidth="xs">
         <DialogTitle>
-          {dialog?.kind === "approve" ? "Approve request" : "Turn down request"}
+          {dialog?.kind === "approve" ? "Approve request" : "Reject request"}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -217,7 +240,7 @@ export function StockRequestList({
 
             {dialog?.kind === "reject" && (
               <TextField
-                label="Why is this being turned down?"
+                label="Why reject this request?"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 multiline
@@ -243,7 +266,39 @@ export function StockRequestList({
             onClick={submit}
             disabled={busy || (dialog?.kind === "reject" && note.trim().length === 0)}
           >
-            {dialog?.kind === "approve" ? "Approve" : "Turn down"}
+            {dialog?.kind === "approve" ? "Approve" : "Reject"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={withdrawal !== null}
+        onClose={() => setWithdrawal(null)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Withdraw this request?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary">
+            This removes the request from the review queue. The item history keeps a record of the
+            withdrawal.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWithdrawal(null)} disabled={busy}>
+            Keep request
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              if (withdrawal !== null) {
+                withdraw(withdrawal);
+              }
+            }}
+            disabled={busy}
+          >
+            Withdraw request
           </Button>
         </DialogActions>
       </Dialog>

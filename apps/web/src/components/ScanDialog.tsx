@@ -161,7 +161,7 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
 
   return (
     <Dialog open={open} onClose={finish} fullWidth maxWidth="xs">
-      <DialogTitle>Scan a code</DialogTitle>
+      <DialogTitle>Find an item</DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
           <Box
@@ -214,7 +214,7 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
           <Box component="form" onSubmit={handleManualSubmit}>
             <Stack spacing={1.5}>
               <TextField
-                label="Item code"
+                label="Item code or barcode"
                 value={manualCode}
                 onChange={(event) => setManualCode(event.target.value)}
                 placeholder="ITM-0001, a barcode or a part number"
@@ -223,7 +223,7 @@ export function ScanDialog({ open, onClose }: ScanDialogProps): ReactElement {
                 fullWidth
               />
               <Button type="submit" variant="contained" disabled={busy || manualCode.length === 0}>
-                Go to item
+                Find item
               </Button>
             </Stack>
           </Box>
