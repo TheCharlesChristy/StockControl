@@ -3,6 +3,7 @@ export * from "./auth";
 export * from "./background-jobs";
 export * from "./dashboard";
 export * from "./inventory";
+export * from "./issues";
 export * from "./media";
 export * from "./locations";
 export * from "./jobs";

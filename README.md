@@ -132,6 +132,9 @@ CI runs the same four in [one workflow](.github/workflows/ci.yml).
 
 ## Where things are
 
+For step-by-step instructions for each page and role, start with the
+[`docs/user-guide/`](docs/user-guide/README.md).
+
 | Path                         | What is in it                                                  |
 | ---------------------------- | -------------------------------------------------------------- |
 | `apps/api`                   | NestJS API, the stock engine (`src/stock/`), and the demo seed |

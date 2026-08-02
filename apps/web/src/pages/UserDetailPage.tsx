@@ -44,6 +44,7 @@ import {
   StatTile,
 } from "../components/DataStates";
 import { ItemAvatar } from "../components/ItemAvatar";
+import { ImagePreview } from "../components/ImagePreview";
 import { StockRequestList } from "../components/StockRequestList";
 import { readImageFile } from "../components/photo-files";
 
@@ -112,7 +113,7 @@ function DetailsForm({
   };
 
   return (
-    <Paper variant="outlined">
+    <Paper variant="outlined" data-help-target="user-details-form">
       <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
         Details
       </Typography>
@@ -127,18 +128,20 @@ function DetailsForm({
           {saved && <Alert severity="success">Saved.</Alert>}
 
           <Stack direction="row" spacing={2} alignItems="center">
-            <Avatar
-              src={user.profilePhotoUrl ?? undefined}
-              alt={`${user.displayName} profile photo`}
-              sx={{ width: 64, height: 64 }}
-            >
-              {user.displayName
-                .split(" ")
-                .filter(Boolean)
-                .slice(0, 2)
-                .map((part) => part.charAt(0).toUpperCase())
-                .join("")}
-            </Avatar>
+            <ImagePreview src={user.profilePhotoUrl} alt={`${user.displayName} profile photo`}>
+              <Avatar
+                src={user.profilePhotoUrl ?? undefined}
+                alt={`${user.displayName} profile photo`}
+                sx={{ width: 64, height: 64 }}
+              >
+                {user.displayName
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part.charAt(0).toUpperCase())
+                  .join("")}
+              </Avatar>
+            </ImagePreview>
             <Stack direction="row" spacing={1}>
               <Button
                 component="label"
@@ -321,6 +324,7 @@ export function UserDetailPage(): ReactElement {
                 <Button
                   component={RouterLink}
                   to={`/transactions?actorUserId=${encodeURIComponent(userId)}`}
+                  data-help-target="user-full-log"
                   size="small"
                 >
                   See the full log
@@ -382,7 +386,7 @@ export function UserDetailPage(): ReactElement {
               )}
             </Paper>
 
-            <Paper variant="outlined">
+            <Paper variant="outlined" data-help-target="user-activity">
               <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
                 Open reservations
               </Typography>

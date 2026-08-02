@@ -26,9 +26,10 @@ export function InventoryPage(): ReactElement {
         title="What you have, and where"
         description="Search by item code, name, barcode or part number. Expand a row to see the per-location breakdown. Available is what is free to take: it counts stores only, never stock already dropped at a job site."
         actions={
-          <Stack direction="row" spacing={1.5}>
+          <Stack direction="row" spacing={1.5} data-help-target="inventory-actions">
             <Button
               variant="outlined"
+              data-help-target="inventory-export"
               startIcon={<FileDownloadRounded />}
               onClick={() => void table.current?.exportCsv()}
             >
@@ -37,6 +38,7 @@ export function InventoryPage(): ReactElement {
             {canManageCatalogue && (
               <Button
                 variant="contained"
+                data-help-target="inventory-new-item"
                 startIcon={<AddRounded />}
                 onClick={() => setCreating(true)}
               >

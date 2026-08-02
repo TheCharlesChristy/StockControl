@@ -541,7 +541,11 @@ export function JobDetailPage(): ReactElement {
             actions={
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {data.status === "Open" && canReserve && (
-                  <Button variant="contained" onClick={() => setReserving(true)}>
+                  <Button
+                    variant="contained"
+                    data-help-target="job-reserve"
+                    onClick={() => setReserving(true)}
+                  >
                     Reserve for this job
                   </Button>
                 )}
@@ -549,6 +553,7 @@ export function JobDetailPage(): ReactElement {
                   <Button
                     variant="outlined"
                     color="warning"
+                    data-help-target="job-close"
                     onClick={() => setConfirmingClose(true)}
                     disabled={closing}
                   >
@@ -574,7 +579,11 @@ export function JobDetailPage(): ReactElement {
               </Alert>
             )}
 
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              data-help-target="job-summary"
+            >
               <StatTile
                 label="Status"
                 value={data.status}
@@ -599,7 +608,7 @@ export function JobDetailPage(): ReactElement {
                   </Typography>
                 </Box>
               ) : (
-                <TableContainer>
+                <TableContainer data-help-target="job-reservations">
                   <Table size="small" aria-label="Reservations">
                     <TableHead>
                       <TableRow>

@@ -48,6 +48,7 @@ import {
 } from "../components/DataStates";
 import { ItemQrCode } from "../components/ItemQrCode";
 import { ItemAvatar } from "../components/ItemAvatar";
+import { ImagePreview } from "../components/ImagePreview";
 import { isValidEan13, ItemBarcode } from "../components/ItemBarcode";
 import { readImageFile } from "../components/photo-files";
 import { StockOperationDialog, type StockOperation } from "../components/StockOperationDialog";
@@ -156,18 +157,24 @@ function ItemPhotoGallery({
               variant="outlined"
               sx={{ width: { xs: "100%", sm: 190 }, overflow: "hidden" }}
             >
-              <Box
-                component="img"
+              <ImagePreview
                 src={photo.url}
                 alt={`${item.name} — ${photo.originalFileName}`}
-                sx={{
-                  display: "block",
-                  width: "100%",
-                  height: 145,
-                  objectFit: "cover",
-                  bgcolor: "action.hover",
-                }}
-              />
+                sx={{ display: "flex", width: "100%" }}
+              >
+                <Box
+                  component="img"
+                  src={photo.url}
+                  alt={`${item.name} — ${photo.originalFileName}`}
+                  sx={{
+                    display: "block",
+                    width: "100%",
+                    height: 145,
+                    objectFit: "cover",
+                    bgcolor: "action.hover",
+                  }}
+                />
+              </ImagePreview>
               <Stack spacing={0.75} sx={{ p: 1.25 }}>
                 <Typography variant="caption" noWrap title={photo.originalFileName}>
                   {photo.originalFileName}
@@ -309,20 +316,31 @@ export function ItemDetailPage(): ReactElement {
                 justifyContent={{ xs: "flex-start", sm: "flex-end" }}
                 className="no-print"
               >
-                <ItemLocationButton onClick={() => setLocationMapOpen(true)} />
+                <Box data-help-target="item-location">
+                  <ItemLocationButton onClick={() => setLocationMapOpen(true)} />
+                </Box>
                 {canManageStock && (
-                  <Button variant="contained" onClick={() => setOperation("receive")}>
+                  <Button
+                    variant="contained"
+                    data-help-target="item-receive"
+                    onClick={() => setOperation("receive")}
+                  >
                     Receive
                   </Button>
                 )}
                 {canIssue && (
-                  <Button variant="outlined" onClick={() => setOperation("issue")}>
+                  <Button
+                    variant="outlined"
+                    data-help-target="item-take"
+                    onClick={() => setOperation("issue")}
+                  >
                     Take from store
                   </Button>
                 )}
                 {canRequestStock && (
                   <Button
                     variant={canManageStock ? "outlined" : "contained"}
+                    data-help-target="item-request"
                     onClick={() => setRequesting(true)}
                   >
                     Request stock
@@ -332,6 +350,7 @@ export function ItemDetailPage(): ReactElement {
                   <>
                     <Button
                       variant="outlined"
+                      data-help-target="item-more"
                       startIcon={<MoreHorizRounded />}
                       onClick={(event) => setMoreActionsAnchor(event.currentTarget)}
                       aria-haspopup="menu"
@@ -451,7 +470,12 @@ export function ItemDetailPage(): ReactElement {
             </Stack>
 
             <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems="flex-start">
-              <Paper variant="outlined" sx={{ flex: 1, width: "100%" }} className="no-print">
+              <Paper
+                variant="outlined"
+                data-help-target="item-stock-balances"
+                sx={{ flex: 1, width: "100%" }}
+                className="no-print"
+              >
                 <Typography variant="h3" component="h2" sx={{ px: 2.5, py: 2 }}>
                   Where it is
                 </Typography>
@@ -503,6 +527,7 @@ export function ItemDetailPage(): ReactElement {
               <Paper
                 variant="outlined"
                 className="print-label"
+                data-help-target="item-scan"
                 sx={{ p: 3, width: { xs: "100%", md: 260 }, flexShrink: 0 }}
               >
                 <Box className="no-print">
@@ -563,7 +588,7 @@ export function ItemDetailPage(): ReactElement {
               </Paper>
             </Stack>
 
-            <Paper variant="outlined" className="no-print">
+            <Paper variant="outlined" className="no-print" data-help-target="item-transactions">
               <Stack
                 direction="row"
                 alignItems="center"

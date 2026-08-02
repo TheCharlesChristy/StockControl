@@ -100,6 +100,7 @@ export function MapWorkspace({
     <Box
       component="section"
       aria-label="Location map"
+      data-help-target="locations-map"
       sx={{
         display: "grid",
         gridTemplateRows: "auto minmax(0, 1fr)",

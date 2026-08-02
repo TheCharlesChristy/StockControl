@@ -129,6 +129,7 @@ export const MapToolbar = memo(function MapToolbar({
                 if (value !== null) onModeChange(value);
               }}
               aria-label="Drawing tools"
+              data-help-target="locations-drawing-tools"
               sx={toggleGroupSx}
             >
               <ToggleButton value="rectangle" aria-label="Draw rectangle" title="Rectangle">
@@ -190,6 +191,7 @@ export const MapToolbar = memo(function MapToolbar({
             <Button
               size="small"
               variant="contained"
+              data-help-target="locations-save"
               onClick={onSave}
               sx={{ minHeight: 34, px: 1.5 }}
             >

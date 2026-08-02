@@ -34,6 +34,8 @@ import { DatabaseLifecycle } from "./database/database-lifecycle";
 import { CatalogueService } from "./inventory/catalogue.service";
 import { InventoryController } from "./inventory/inventory.controller";
 import { StockService } from "./inventory/stock.service";
+import { IssuesController } from "./issues/issues.controller";
+import { IssuesService } from "./issues/issues.service";
 import { JobsController } from "./jobs/jobs.controller";
 import { JobsService } from "./jobs/jobs.service";
 import { StockRequestsController } from "./requests/requests.controller";
@@ -125,6 +127,10 @@ const providers: Provider[] = [
     inject: [SYSTEM_TOKENS.database],
   },
   {
+    provide: API_TOKENS.issuesService,
+    useFactory: () => new IssuesService(),
+  },
+  {
     provide: API_TOKENS.usersService,
     useFactory: (database: Database, sessions: SessionService, photos: PhotosService) =>
       new UsersService(database, sessions, photos),
@@ -170,6 +176,7 @@ const providers: Provider[] = [
     DashboardController,
     InventoryController,
     JobsController,
+    IssuesController,
     StockRequestsController,
     UsersController,
     LocationsController,

@@ -44,12 +44,13 @@ interface PanelProps {
   readonly title: string;
   readonly icon?: ReactNode;
   readonly action?: ReactNode;
+  readonly dataHelpTarget?: string;
   readonly children: ReactNode;
 }
 
-function Panel({ title, icon, action, children }: PanelProps): ReactElement {
+function Panel({ title, icon, action, dataHelpTarget, children }: PanelProps): ReactElement {
   return (
-    <Paper variant="outlined">
+    <Paper variant="outlined" data-help-target={dataHelpTarget}>
       <Stack
         direction="row"
         spacing={1}
@@ -130,7 +131,7 @@ function EngineerDashboard({
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined">
+      <Paper variant="outlined" data-help-target="dashboard-engineer-stock">
         <Stack
           direction="row"
           alignItems="center"
@@ -157,68 +158,78 @@ function EngineerDashboard({
         </Collapse>
       </Paper>
 
-      <Panel title="Your jobs">
-        {data.myJobs.length === 0 ? (
-          <Empty>You are not assigned to any open jobs. An Office user can put you on one.</Empty>
-        ) : (
-          <List disablePadding>
-            {data.myJobs.map((job) => (
-              <ListItem key={job.id} divider sx={{ display: "block", py: 2 }}>
-                <Link component={RouterLink} to={`/jobs/${job.id}`} underline="hover">
-                  <Typography component="span" sx={{ fontWeight: 700 }}>
-                    {job.number} — {job.name}
+      <Box data-help-target="dashboard-engineer-jobs">
+        <Panel title="Your jobs">
+          {data.myJobs.length === 0 ? (
+            <Empty>You are not assigned to any open jobs. An Office user can put you on one.</Empty>
+          ) : (
+            <List disablePadding>
+              {data.myJobs.map((job) => (
+                <ListItem key={job.id} divider sx={{ display: "block", py: 2 }}>
+                  <Link component={RouterLink} to={`/jobs/${job.id}`} underline="hover">
+                    <Typography component="span" sx={{ fontWeight: 700 }}>
+                      {job.number} — {job.name}
+                    </Typography>
+                  </Link>
+                  <Typography variant="body2" color="text.secondary">
+                    {job.customer} · {job.openReservationCount} open commitment
+                    {job.openReservationCount === 1 ? "" : "s"}
                   </Typography>
-                </Link>
-                <Typography variant="body2" color="text.secondary">
-                  {job.customer} · {job.openReservationCount} open commitment
-                  {job.openReservationCount === 1 ? "" : "s"}
-                </Typography>
-                {job.jobSiteStock.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    Nothing has been collected to this site yet.
-                  </Typography>
-                ) : (
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    sx={{ mt: 1, flexWrap: "wrap", rowGap: 1 }}
-                    aria-label={`Stock at ${job.number}`}
-                  >
-                    {job.jobSiteStock.map((balance) => (
-                      <Chip
-                        key={`${job.id}-${balance.locationName}`}
-                        size="small"
-                        variant="outlined"
-                        label={`${balance.locationName} · ${formatQuantity(balance.quantity)}${
-                          balance.unit === undefined ? "" : ` ${balance.unit}`
-                        }`}
-                      />
-                    ))}
-                  </Stack>
-                )}
-              </ListItem>
-            ))}
-          </List>
-        )}
-      </Panel>
+                  {job.jobSiteStock.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Nothing has been collected to this site yet.
+                    </Typography>
+                  ) : (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ mt: 1, flexWrap: "wrap", rowGap: 1 }}
+                      aria-label={`Stock at ${job.number}`}
+                    >
+                      {job.jobSiteStock.map((balance) => (
+                        <Chip
+                          key={`${job.id}-${balance.locationName}`}
+                          size="small"
+                          variant="outlined"
+                          label={`${balance.locationName} · ${formatQuantity(balance.quantity)}${
+                            balance.unit === undefined ? "" : ` ${balance.unit}`
+                          }`}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </Panel>
+      </Box>
 
-      <Panel title="Stock committed for you">
-        {data.myReservations.length === 0 ? (
-          <Empty>You have no stock waiting to be collected.</Empty>
-        ) : (
-          <ReservationList reservations={data.myReservations} showOwner={false} />
-        )}
-      </Panel>
+      <Box data-help-target="dashboard-engineer-requests">
+        <Panel title="Stock committed for you">
+          {data.myReservations.length === 0 ? (
+            <Empty>You have no stock waiting to be collected.</Empty>
+          ) : (
+            <ReservationList reservations={data.myReservations} showOwner={false} />
+          )}
+        </Panel>
 
-      <Panel title="Your stock requests">
-        {data.myRequests.length === 0 ? (
-          <Empty>
-            You have not asked for anything. Open an item and press Request stock to raise one.
-          </Empty>
-        ) : (
-          <StockRequestList requests={data.myRequests} canReview={false} onChanged={onChanged} />
-        )}
-      </Panel>
+        <Box sx={{ mt: 3 }}>
+          <Panel title="Your stock requests">
+            {data.myRequests.length === 0 ? (
+              <Empty>
+                You have not asked for anything. Open an item and press Request stock to raise one.
+              </Empty>
+            ) : (
+              <StockRequestList
+                requests={data.myRequests}
+                canReview={false}
+                onChanged={onChanged}
+              />
+            )}
+          </Panel>
+        </Box>
+      </Box>
     </Stack>
   );
 }
@@ -242,7 +253,7 @@ function OfficeDashboard({
 
   return (
     <Stack spacing={3}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} data-help-target="dashboard-stats">
         <StatTile label="Items in catalogue" value={String(data.counts.items)} tone="primary" />
         <StatTile label="Open jobs" value={String(data.counts.openJobs)} />
         <StatTile label="Open commitments" value={String(data.counts.openReservations)} />
@@ -307,6 +318,7 @@ function OfficeDashboard({
 
       <Panel
         title="Stock requests"
+        dataHelpTarget="dashboard-requests"
         action={
           <Button component={RouterLink} to="/requests" size="small">
             See all
@@ -326,6 +338,7 @@ function OfficeDashboard({
 
       <Panel
         title="Jobs coming up"
+        dataHelpTarget="dashboard-jobs"
         action={
           <Button component={RouterLink} to="/jobs" size="small">
             See all

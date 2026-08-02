@@ -228,6 +228,7 @@ export const LocationListPanel = memo(function LocationListPanel({
         fullWidth
         size="small"
         label="Search locations"
+        data-help-target="locations-search"
         value={query}
         onChange={(event) => {
           onQueryChange(event.target.value);

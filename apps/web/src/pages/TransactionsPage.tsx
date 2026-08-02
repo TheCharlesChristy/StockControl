@@ -230,7 +230,12 @@ export function TransactionsPage(): ReactElement {
             : "Everything you have received, taken from store, collected to site or committed to a job. Nothing here can be edited or deleted."
         }
         actions={
-          <Button variant="outlined" startIcon={<FileDownloadRounded />} onClick={handleExport}>
+          <Button
+            variant="outlined"
+            data-help-target="transactions-export"
+            startIcon={<FileDownloadRounded />}
+            onClick={handleExport}
+          >
             Export CSV
           </Button>
         }
@@ -255,7 +260,11 @@ export function TransactionsPage(): ReactElement {
             Clear dates
           </Button>
         </Stack>
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          data-help-target="transactions-filters"
+        >
           <TextField
             label="Item"
             value={itemId}
@@ -366,7 +375,7 @@ export function TransactionsPage(): ReactElement {
       )}
 
       {data !== undefined && rows.length > 0 && (
-        <Paper variant="outlined">
+        <Paper variant="outlined" data-help-target="transactions-results">
           <TableContainer>
             <Table aria-label="Transaction log">
               <TableHead>

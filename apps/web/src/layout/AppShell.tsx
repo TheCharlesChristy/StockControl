@@ -1,9 +1,11 @@
+import BugReportRounded from "@mui/icons-material/BugReportRounded";
 import LogoutRounded from "@mui/icons-material/LogoutRounded";
 import MenuRounded from "@mui/icons-material/MenuRounded";
 import {
   AppBar,
   Avatar,
   Box,
+  Button,
   Chip,
   Divider,
   Drawer,
@@ -24,6 +26,9 @@ import { useState, type ReactElement } from "react";
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
+import { ImagePreview } from "../components/ImagePreview";
+import { PageHelp } from "../components/PageHelp";
+import { ReportIssueDialog } from "../components/ReportIssueDialog";
 import { ScanFab } from "../components/ScanFab";
 import { navigationForUser, navigationItems } from "../navigation";
 
@@ -46,6 +51,7 @@ export function AppShell(): ReactElement | null {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [reportIssueOpen, setReportIssueOpen] = useState(false);
 
   if (user === null) {
     return null;
@@ -185,9 +191,8 @@ export function AppShell(): ReactElement | null {
             border: "1px solid rgba(255,255,255,0.09)",
           }}
         >
+          <ImagePreview src={user.profilePhotoUrl} alt={`${user.displayName} profile photo`}>
           <Avatar
-            component={RouterLink}
-            to="/profile"
             src={user.profilePhotoUrl ?? undefined}
             alt={`${user.displayName} profile photo`}
             sx={{
@@ -202,6 +207,7 @@ export function AppShell(): ReactElement | null {
           >
             {initials(user.displayName)}
           </Avatar>
+          </ImagePreview>
           {/* Named so the two lines are announced as one fact, not two stray strings. */}
           <Box role="group" aria-label="Signed in as" sx={{ minWidth: 0, flex: 1 }}>
             <Typography noWrap sx={{ color: "#FFFFFF", fontSize: "0.84rem", fontWeight: 750 }}>
@@ -293,12 +299,33 @@ export function AppShell(): ReactElement | null {
               {pageTitle}
             </Typography>
           </Box>
-          <Chip
-            label={user.role}
-            color={user.role === "Admin" ? "secondary" : "primary"}
-            variant="outlined"
-            size="small"
-          />
+          <Stack direction="row" spacing={{ xs: 0.75, sm: 1.5 }} alignItems="center">
+            <PageHelp path={location.pathname} role={user.role} />
+            <Button
+              variant="outlined"
+              color="primary"
+              size="small"
+              aria-label="Report an issue"
+              startIcon={<BugReportRounded fontSize="small" />}
+              onClick={() => setReportIssueOpen(true)}
+              sx={{
+                minWidth: { xs: 40, sm: 0 },
+                minHeight: 40,
+                px: { xs: 1, sm: 1.5 },
+                "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.75 } },
+              }}
+            >
+              <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                Report an issue
+              </Box>
+            </Button>
+            <Chip
+              label={user.role}
+              color={user.role === "Admin" ? "secondary" : "primary"}
+              variant="outlined"
+              size="small"
+            />
+          </Stack>
         </Toolbar>
       </AppBar>
 
@@ -360,6 +387,9 @@ export function AppShell(): ReactElement | null {
       </Box>
 
       {!isLocationWorkspace && <ScanFab />}
+      {reportIssueOpen && (
+        <ReportIssueDialog page={location.pathname} onClose={() => setReportIssueOpen(false)} />
+      )}
     </Box>
   );
 }

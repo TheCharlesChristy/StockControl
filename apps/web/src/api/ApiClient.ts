@@ -27,6 +27,8 @@ import type {
   MapView,
   SaveMapRequest,
   UploadFloorPlanRequest,
+  ReportIssueRequest,
+  ReportIssueResponse,
 } from "@stockcontrol/contracts";
 
 /**
@@ -416,6 +418,10 @@ export class ApiClient {
     });
 
     return request;
+  }
+
+  public reportIssue(body: ReportIssueRequest): Promise<ReportIssueResponse> {
+    return this.send("POST", "/issues", { body });
   }
 
   public async approveStockRequest(

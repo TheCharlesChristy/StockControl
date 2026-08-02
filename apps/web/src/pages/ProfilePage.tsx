@@ -7,6 +7,7 @@ import { ApiError } from "../api/ApiClient";
 import { useApi } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader } from "../components/DataStates";
+import { ImagePreview } from "../components/ImagePreview";
 import { readImageFile } from "../components/photo-files";
 
 function initials(displayName: string): string {
@@ -77,19 +78,21 @@ export function ProfilePage(): ReactElement {
       />
       <Paper variant="outlined" sx={{ p: { xs: 2.5, sm: 4 }, maxWidth: 640 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={3} alignItems={{ sm: "center" }}>
-          <Avatar
-            src={user.profilePhotoUrl ?? undefined}
-            alt={`${user.displayName} profile photo`}
-            sx={{
-              width: 112,
-              height: 112,
-              fontSize: "2rem",
-              bgcolor: "primary.light",
-              color: "primary.dark",
-            }}
-          >
-            {initials(user.displayName)}
-          </Avatar>
+          <ImagePreview src={user.profilePhotoUrl} alt={`${user.displayName} profile photo`}>
+            <Avatar
+              src={user.profilePhotoUrl ?? undefined}
+              alt={`${user.displayName} profile photo`}
+              sx={{
+                width: 112,
+                height: 112,
+                fontSize: "2rem",
+                bgcolor: "primary.light",
+                color: "primary.dark",
+              }}
+            >
+              {initials(user.displayName)}
+            </Avatar>
+          </ImagePreview>
           <Stack spacing={1}>
             <Typography variant="h3" component="h2">
               {user.displayName}
@@ -102,6 +105,7 @@ export function ProfilePage(): ReactElement {
               <Button
                 component="label"
                 variant="contained"
+                data-help-target="profile-photo"
                 startIcon={<PhotoCameraRounded />}
                 disabled={busy}
               >
@@ -112,6 +116,7 @@ export function ProfilePage(): ReactElement {
                 <Button
                   variant="outlined"
                   color="error"
+                  data-help-target="profile-remove"
                   startIcon={<DeleteOutlineRounded />}
                   onClick={remove}
                   disabled={busy}

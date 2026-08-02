@@ -53,6 +53,7 @@ export function RequestsPage(): ReactElement {
       <TextField
         select
         label="Status"
+        data-help-target="requests-status"
         value={status}
         onChange={(event) => setStatus(event.target.value as StatusFilter)}
         sx={{ mb: 2.5, minWidth: 200 }}
@@ -78,7 +79,7 @@ export function RequestsPage(): ReactElement {
       )}
 
       {data !== undefined && data.rows.length > 0 && (
-        <Paper variant="outlined">
+        <Paper variant="outlined" data-help-target="requests-list">
           <Stack>
             <StockRequestList requests={data.rows} canReview onChanged={requests.reload} />
           </Stack>

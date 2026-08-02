@@ -248,6 +248,7 @@ export function InventoryTable({
       <TextField
         fullWidth
         label="Search inventory"
+        data-help-target="inventory-search"
         value={search}
         onChange={(event) => {
           setSearch(event.target.value);
@@ -293,6 +294,7 @@ export function InventoryTable({
             {/* Tightened on a phone so the available figure stays on screen. */}
             <Table
               aria-label="Inventory"
+              data-help-target="inventory-results"
               sx={{
                 "& .MuiTableCell-root": {
                   px: { xs: 1, sm: 2 },

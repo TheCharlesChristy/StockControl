@@ -26,6 +26,7 @@ export function ScanFab(): ReactElement {
         <Fab
           color="primary"
           aria-label="Find an item by scanning"
+          data-help-target="scan-item"
           className="no-print"
           onClick={() => setOpen(true)}
           sx={{

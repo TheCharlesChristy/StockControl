@@ -41,6 +41,7 @@ import {
   LoadingRows,
   PageHeader,
 } from "../components/DataStates";
+import { ImagePreview } from "../components/ImagePreview";
 
 function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError
@@ -245,6 +246,7 @@ export function UsersPage(): ReactElement {
         actions={
           <Button
             variant="contained"
+            data-help-target="team-new-user"
             startIcon={<PersonAddRounded />}
             onClick={() => setCreating(true)}
           >
@@ -254,6 +256,7 @@ export function UsersPage(): ReactElement {
       />
 
       <TextField
+        data-help-target="team-search"
         fullWidth
         label="Search the team"
         value={search}
@@ -291,7 +294,7 @@ export function UsersPage(): ReactElement {
       )}
 
       {rows.length > 0 && (
-        <Paper variant="outlined">
+        <Paper variant="outlined" data-help-target="team-results">
           {/*
            * Above the table, not below it: this explains what the controls in
            * the rows do, and an explanation read after the fact is no use.
@@ -320,13 +323,18 @@ export function UsersPage(): ReactElement {
                     <TableRow key={row.id} hover>
                       <TableCell>
                         <Stack direction="row" spacing={1} alignItems="center">
-                          <Avatar
-                            src={row.profilePhotoUrl ?? undefined}
+                          <ImagePreview
+                            src={row.profilePhotoUrl}
                             alt={`${row.displayName} profile photo`}
-                            sx={{ width: 32, height: 32, fontSize: "0.72rem" }}
                           >
-                            {initials(row.displayName)}
-                          </Avatar>
+                            <Avatar
+                              src={row.profilePhotoUrl ?? undefined}
+                              alt={`${row.displayName} profile photo`}
+                              sx={{ width: 32, height: 32, fontSize: "0.72rem" }}
+                            >
+                              {initials(row.displayName)}
+                            </Avatar>
+                          </ImagePreview>
                           <Link
                             component={RouterLink}
                             to={`/team/${row.id}`}

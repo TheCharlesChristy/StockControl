@@ -17,6 +17,7 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
+import { PageHelp } from "../components/PageHelp";
 
 interface RedirectState {
   readonly from?: string;
@@ -147,6 +148,18 @@ export function SignInPage(): ReactElement {
     >
       <Box
         sx={{
+          position: "fixed",
+          top: { xs: 12, sm: 20 },
+          right: { xs: 12, sm: 24 },
+          zIndex: 1,
+          borderRadius: 2,
+          bgcolor: "rgba(255,255,255,0.86)",
+        }}
+      >
+        <PageHelp path="/sign-in" />
+      </Box>
+      <Box
+        sx={{
           display: { xs: "none", md: "flex" },
           minHeight: "100vh",
           alignItems: "center",
@@ -246,6 +259,7 @@ export function SignInPage(): ReactElement {
                   </Typography>
                   <TextField
                     id="email"
+                    data-help-target="sign-in-email"
                     type="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
@@ -268,6 +282,7 @@ export function SignInPage(): ReactElement {
                   </Typography>
                   <TextField
                     id="password"
+                    data-help-target="sign-in-password"
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
@@ -294,6 +309,7 @@ export function SignInPage(): ReactElement {
                   />
                 </Stack>
                 <Button
+                  data-help-target="sign-in-submit"
                   type="submit"
                   variant="contained"
                   size="large"

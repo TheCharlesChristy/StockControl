@@ -158,6 +158,7 @@ export function JobsPage(): ReactElement {
           canManageJobs ? (
             <Button
               variant="contained"
+              data-help-target="jobs-new"
               startIcon={<AddRounded />}
               onClick={() => setCreating(true)}
             >
@@ -168,6 +169,7 @@ export function JobsPage(): ReactElement {
       />
 
       <Stack
+        data-help-target="jobs-filters"
         direction={{ xs: "column", md: "row" }}
         spacing={2}
         alignItems={{ xs: "stretch", md: "center" }}
@@ -245,7 +247,7 @@ export function JobsPage(): ReactElement {
       )}
 
       {rows.length > 0 && (
-        <Paper variant="outlined">
+        <Paper variant="outlined" data-help-target="jobs-results">
           <TableContainer>
             <Table aria-label="Jobs">
               <TableHead>
