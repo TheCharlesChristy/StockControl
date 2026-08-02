@@ -1,5 +1,4 @@
-import MapRounded from "@mui/icons-material/MapRounded";
-import { Alert, Box, Button, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Menu, MenuItem, Snackbar, Stack, Typography } from "@mui/material";
 import {
   useCallback,
   useEffect,
@@ -23,16 +22,23 @@ import {
   type EditorMode,
   type LocationChanges,
 } from "./locations/editor-state";
-import { LocationInspector } from "./locations/LocationInspector";
+import { LocationDetailsDialog } from "./locations/LocationDetailsDialog";
 import { LocationListPanel } from "./locations/LocationListPanel";
 import { MapWorkspace } from "./locations/MapWorkspace";
+import { validateMapRules, type MapRuleViolation } from "./locations/map-rules";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
+interface LocationContextMenu {
+  readonly locationId: string;
+  readonly top: number;
+  readonly left: number;
+}
+
 /**
- * The locations screen: the map's contents on the left, the map in the middle,
- * location details on the right. There is no hierarchy to manage — a location
- * exists because it is drawn, and it sits inside whatever it is drawn inside.
+ * The locations screen: the map's contents on the left and the map in the
+ * middle. Hierarchy is derived from the shapes, while details and editing are
+ * available from the map or its contents list.
  *
  * This component only loads data and owns the committed editor state — pan,
  * zoom and in-flight drag geometry live under `./locations`, which is what
@@ -50,7 +56,8 @@ export function LocationsPage(): ReactElement {
   const [editor, dispatch] = useReducer(editorReducer, initialEditor);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [detailsLocationId, setDetailsLocationId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<LocationContextMenu | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -94,11 +101,14 @@ export function LocationsPage(): ReactElement {
 
   const draft = editor.draft;
   const locations = useMemo(() => draft?.locations ?? [], [draft]);
-  const selectedLocation = useMemo(
-    () => locations.find((location) => location.id === editor.selectedLocationId) ?? null,
-    [locations, editor.selectedLocationId],
+  const detailsLocation = useMemo(
+    () => locations.find((location) => location.id === detailsLocationId) ?? null,
+    [detailsLocationId, locations],
   );
-  const showInspector = inspectorOpen || selectedLocation !== null;
+  const ruleViolations = useMemo<readonly MapRuleViolation[]>(
+    () => validateMapRules(locations),
+    [locations],
+  );
   const selectedMap = useMemo(
     () => maps.find((map) => map.id === selectedMapId),
     [maps, selectedMapId],
@@ -124,6 +134,10 @@ export function LocationsPage(): ReactElement {
 
   const save = useCallback((): void => {
     if (!canEdit || draft === null || editor.persisted === null) return;
+    if (ruleViolations.length > 0) {
+      setSaveMessage("Cannot save with rule violations");
+      return;
+    }
     setSaveMessage(null);
     setConflict(false);
     api
@@ -138,11 +152,15 @@ export function LocationsPage(): ReactElement {
       .catch((error: unknown) => {
         reportFailure(error, "Map could not be saved");
       });
-  }, [api, canEdit, draft, editor.persisted, reportFailure]);
+  }, [api, canEdit, draft, editor.persisted, reportFailure, ruleViolations]);
 
   const uploadFloorPlan = useCallback(
     (file: File): void => {
       if (!canEdit || draft === null || editor.persisted === null) return;
+      if (ruleViolations.length > 0) {
+        setSaveMessage("Cannot save with rule violations");
+        return;
+      }
       if (file.type !== "image/png" && file.type !== "image/jpeg") {
         setSaveMessage("Choose a PNG or JPEG floor plan.");
         return;
@@ -173,7 +191,7 @@ export function LocationsPage(): ReactElement {
       });
       reader.readAsDataURL(file);
     },
-    [api, canEdit, draft, editor.persisted, reportFailure],
+    [api, canEdit, draft, editor.persisted, reportFailure, ruleViolations],
   );
 
   const createMap = useCallback(
@@ -204,6 +222,18 @@ export function LocationsPage(): ReactElement {
   const selectMap = useCallback((id: string): void => {
     setMapId(id);
   }, []);
+  const openLocationDetails = useCallback((id: string): void => {
+    dispatch({ type: "select", id });
+    setContextMenu(null);
+    setDetailsLocationId(id);
+  }, []);
+  const openLocationContextMenu = useCallback(
+    (id: string, position: { readonly top: number; readonly left: number }): void => {
+      dispatch({ type: "select", id });
+      setContextMenu({ locationId: id, ...position });
+    },
+    [],
+  );
   const commitGeometry = useCallback((id: string, geometry: MapGeometry): void => {
     dispatch({ type: "commit-geometry", id, geometry });
   }, []);
@@ -228,9 +258,12 @@ export function LocationsPage(): ReactElement {
   const revert = useCallback((): void => {
     dispatch({ type: "revert" });
   }, []);
-  const closeInspector = useCallback((): void => {
-    dispatch({ type: "select", id: null });
-    setInspectorOpen(false);
+  const closeDetails = useCallback((): void => {
+    setDetailsLocationId(null);
+  }, []);
+  const dismissNotification = useCallback((): void => {
+    setConflict(false);
+    setSaveMessage(null);
   }, []);
 
   return (
@@ -271,59 +304,56 @@ export function LocationsPage(): ReactElement {
               {selectedMap?.code ?? "Create a map to start drawing locations"}
             </Typography>
           </Box>
-          {canEdit && (
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<MapRounded />}
-              onClick={() => svgRef.current?.focus()}
-              disabled={draft === null}
-            >
-              Edit map
-            </Button>
-          )}
         </Stack>
-        {(conflict || saveMessage !== null) && (
-          <Stack spacing={1} sx={{ mt: 1.5 }}>
-            {conflict && (
-              <Alert
-                severity="warning"
-                action={
-                  <Button color="inherit" onClick={mapResource.reload}>
-                    Reload latest
-                  </Button>
-                }
-                sx={{ py: 0.25 }}
-              >
-                Another save has occurred. Your unsaved draft is still preserved.
-              </Alert>
-            )}
-            {saveMessage !== null && (
-              <Alert
-                severity={
-                  saveMessage.endsWith("saved") || saveMessage.endsWith("created")
-                    ? "success"
-                    : "error"
-                }
-                onClose={() => {
-                  setSaveMessage(null);
-                }}
-                sx={{ py: 0.25 }}
-              >
-                {saveMessage}
-              </Alert>
-            )}
-          </Stack>
-        )}
       </Box>
+      <Snackbar
+        key={conflict ? "map-conflict" : (saveMessage ?? "map-notice")}
+        open={conflict || saveMessage !== null}
+        autoHideDuration={4500}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        onClose={(_, reason) => {
+          if (reason !== "clickaway") dismissNotification();
+        }}
+        sx={{ mt: { xs: 1, sm: 2 }, mr: { xs: 1, sm: 2 } }}
+      >
+        <Alert
+          severity={
+            conflict
+              ? "warning"
+              : saveMessage?.endsWith("saved") || saveMessage?.endsWith("created")
+                ? "success"
+                : "error"
+          }
+          onClose={dismissNotification}
+          action={
+            conflict ? (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  dismissNotification();
+                  mapResource.reload();
+                }}
+              >
+                Reload latest
+              </Button>
+            ) : undefined
+          }
+          sx={{ width: "100%" }}
+        >
+          {conflict
+            ? "Another save has occurred. Your unsaved draft is still preserved."
+            : saveMessage}
+        </Alert>
+      </Snackbar>
       <Box
         sx={{
           display: "grid",
           gridTemplateColumns: {
             xs: "minmax(0, 1fr)",
-            lg: showInspector ? "280px minmax(0, 1fr) 320px" : "280px minmax(0, 1fr) 46px",
+            lg: "280px minmax(0, 1fr)",
           },
-          gridTemplateRows: { xs: "auto auto auto", lg: "minmax(0, 1fr)" },
+          gridTemplateRows: { xs: "auto auto", lg: "minmax(0, 1fr)" },
           minWidth: 0,
           minHeight: 0,
           overflow: { xs: "visible", lg: "hidden" },
@@ -345,6 +375,8 @@ export function LocationsPage(): ReactElement {
           onSelectSearchResult={selectSearchResult}
           onSelectMap={selectMap}
           onSelectLocation={selectLocation}
+          onOpenDetails={openLocationDetails}
+          onOpenContextMenu={openLocationContextMenu}
           onCreateMap={createMap}
         />
         <MapWorkspace
@@ -359,6 +391,8 @@ export function LocationsPage(): ReactElement {
           onModeChange={changeMode}
           onToggleSnap={toggleSnap}
           onSelect={selectLocation}
+          onOpenDetails={openLocationDetails}
+          onOpenContextMenu={openLocationContextMenu}
           onCommitGeometry={commitGeometry}
           onCreateLocation={createLocation}
           onRemoveLocation={removeLocation}
@@ -367,69 +401,40 @@ export function LocationsPage(): ReactElement {
           onUploadFile={uploadFloorPlan}
           onCreateMap={() => undefined}
           onProblem={setSaveMessage}
+          ruleViolations={ruleViolations}
         />
-        {showInspector ? (
-          <Box
-            component="aside"
-            aria-label="Location details"
-            sx={{
-              minWidth: 0,
-              minHeight: { xs: 360, lg: 0 },
-              overflowY: "auto",
-              borderLeft: { lg: `1px solid ${mapBorder}` },
-            }}
-          >
-            <LocationInspector
-              location={selectedLocation}
-              canEdit={canEdit}
-              dirty={editor.dirty}
-              onPatch={patchLocation}
-              onReorder={reorderLocation}
-              onRemove={removeLocation}
-              onClose={closeInspector}
-              onSave={save}
-            />
-          </Box>
-        ) : (
-          <Box
-            component="aside"
-            aria-label="Location details collapsed"
-            sx={{
-              display: { xs: "none", lg: "flex" },
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 1,
-              p: 0.75,
-              borderLeft: `1px solid ${mapBorder}`,
-              bgcolor: "#FBFCFE",
-            }}
-          >
-            <Tooltip title="Open location details" placement="left">
-              <Button
-                variant="text"
-                size="small"
-                aria-label="Open location details"
-                onClick={() => {
-                  setInspectorOpen(true);
-                }}
-                sx={{
-                  minWidth: 0,
-                  flexDirection: "column",
-                  gap: 0.25,
-                  px: 0.5,
-                  py: 1,
-                  fontSize: "0.7rem",
-                  fontWeight: 800,
-                  lineHeight: 1.2,
-                }}
-              >
-                <MapRounded fontSize="small" />
-                Details
-              </Button>
-            </Tooltip>
-          </Box>
-        )}
       </Box>
+      <LocationDetailsDialog
+        open={detailsLocationId !== null}
+        location={detailsLocation}
+        canEdit={canEdit}
+        dirty={editor.dirty}
+        onPatch={patchLocation}
+        onReorder={reorderLocation}
+        onRemove={removeLocation}
+        onClose={closeDetails}
+        onSave={save}
+      />
+      <Menu
+        open={contextMenu !== null}
+        onClose={() => {
+          setContextMenu(null);
+        }}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu === null ? undefined : { top: contextMenu.top, left: contextMenu.left }
+        }
+      >
+        <MenuItem
+          onClick={() => {
+            const locationId = contextMenu?.locationId;
+            setContextMenu(null);
+            if (locationId !== undefined) openLocationDetails(locationId);
+          }}
+        >
+          View details
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

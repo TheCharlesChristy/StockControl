@@ -14,26 +14,16 @@ const cliMocks = vi.hoisted(() => {
 
   return {
     MockDatabaseMigrationError,
-    createMigratorDatabase: vi.fn(),
-    destroy: vi.fn(),
-    loadMigrationDatabaseRoles: vi.fn(),
-    loadMigratorDatabaseConfiguration: vi.fn(),
-    runMigrations: vi.fn(),
+    migrateConfiguredDatabase: vi.fn(),
   };
 });
 
-vi.mock("../src/configuration", () => ({
-  loadMigrationDatabaseRoles: cliMocks.loadMigrationDatabaseRoles,
-  loadMigratorDatabaseConfiguration: cliMocks.loadMigratorDatabaseConfiguration,
-}));
-
-vi.mock("../src/connection", () => ({
-  createMigratorDatabase: cliMocks.createMigratorDatabase,
+vi.mock("../src/migrations/service", () => ({
+  migrateConfiguredDatabase: cliMocks.migrateConfiguredDatabase,
 }));
 
 vi.mock("../src/migrations/runner", () => ({
   DatabaseMigrationError: cliMocks.MockDatabaseMigrationError,
-  runMigrations: cliMocks.runMigrations,
 }));
 
 describe("database migration CLI", () => {
@@ -52,17 +42,7 @@ describe("database migration CLI", () => {
     stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    cliMocks.createMigratorDatabase.mockReset();
-    cliMocks.destroy.mockReset().mockResolvedValue(undefined);
-    cliMocks.loadMigrationDatabaseRoles.mockReset().mockReturnValue({
-      migratorRole: "migrator",
-      runtimeRole: "runtime",
-    });
-    cliMocks.loadMigratorDatabaseConfiguration.mockReset().mockReturnValue({
-      connectionString: "postgresql://migrator:secret@database/stockcontrol",
-    });
-    cliMocks.runMigrations.mockReset();
-    cliMocks.createMigratorDatabase.mockReturnValue({ destroy: cliMocks.destroy });
+    cliMocks.migrateConfiguredDatabase.mockReset();
   });
 
   afterEach(() => {
@@ -72,7 +52,7 @@ describe("database migration CLI", () => {
   });
 
   it("uses an explicit runtime role and reports only sanitized migration fields", async () => {
-    cliMocks.runMigrations.mockResolvedValue({
+    cliMocks.migrateConfiguredDatabase.mockResolvedValue({
       results: [
         {
           direction: "Up",
@@ -83,16 +63,9 @@ describe("database migration CLI", () => {
     });
 
     await executeCli();
-    await vi.waitFor(() => expect(cliMocks.destroy).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(stdout).toHaveBeenCalledOnce());
 
-    expect(cliMocks.loadMigrationDatabaseRoles).toHaveBeenCalledWith(
-      process.env,
-      "postgresql://migrator:secret@database/stockcontrol",
-    );
-    expect(cliMocks.runMigrations).toHaveBeenCalledWith(
-      cliMocks.createMigratorDatabase.mock.results[0]?.value,
-      { runtimeRole: "runtime" },
-    );
+    expect(cliMocks.migrateConfiguredDatabase).toHaveBeenCalledWith(process.env);
     expect(stderr).not.toHaveBeenCalled();
     const line = String(stdout.mock.calls[0]?.[0]);
     expect(JSON.parse(line)).toEqual({
@@ -108,8 +81,8 @@ describe("database migration CLI", () => {
     expect(line).not.toContain("secret");
   });
 
-  it("reports safe failed migration coordinates and SQLSTATE and closes the pool", async () => {
-    cliMocks.runMigrations.mockRejectedValue(
+  it("reports safe failed migration coordinates and SQLSTATE", async () => {
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue(
       new cliMocks.MockDatabaseMigrationError(
         [
           {
@@ -125,7 +98,6 @@ describe("database migration CLI", () => {
     await executeCli();
     await vi.waitFor(() => expect(stderr).toHaveBeenCalledOnce());
 
-    expect(cliMocks.destroy).toHaveBeenCalledOnce();
     expect(stdout).not.toHaveBeenCalled();
     expect(JSON.parse(String(stderr.mock.calls[0]?.[0]))).toEqual({
       error: "DatabaseMigrationError",
@@ -143,7 +115,7 @@ describe("database migration CLI", () => {
   });
 
   it("uses a stable error label and never serializes arbitrary failures", async () => {
-    cliMocks.runMigrations.mockRejectedValue(
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue(
       new TypeError("postgresql://runtime:secret@database/stockcontrol"),
     );
 
@@ -160,7 +132,7 @@ describe("database migration CLI", () => {
   });
 
   it("uses UnknownError for non-Error failures", async () => {
-    cliMocks.runMigrations.mockRejectedValue("database secret");
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue("database secret");
 
     await executeCli();
     await vi.waitFor(() => expect(stderr).toHaveBeenCalledOnce());
@@ -171,17 +143,14 @@ describe("database migration CLI", () => {
     expect(String(stderr.mock.calls[0]?.[0])).not.toContain("database secret");
   });
 
-  it("fails role validation before opening a pool", async () => {
-    cliMocks.loadMigrationDatabaseRoles.mockImplementation(() => {
-      throw new Error("DATABASE_RUNTIME_ROLE is invalid.");
-    });
+  it("reports migration setup failures without exposing their detail", async () => {
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue(
+      new Error("DATABASE_RUNTIME_ROLE is invalid."),
+    );
 
     await executeCli();
     await vi.waitFor(() => expect(stderr).toHaveBeenCalledOnce());
 
-    expect(cliMocks.createMigratorDatabase).not.toHaveBeenCalled();
-    expect(cliMocks.runMigrations).not.toHaveBeenCalled();
-    expect(cliMocks.destroy).not.toHaveBeenCalled();
     expect(JSON.parse(String(stderr.mock.calls[0]?.[0]))).toMatchObject({
       error: "Error",
       event: "database.migration.failed",

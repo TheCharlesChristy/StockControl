@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type { UserActivityResponse, UserRole, UserView } from "@stockcontrol/contracts";
+import type {
+  ImageUploadRequest,
+  UserActivityResponse,
+  UserRole,
+  UserView,
+} from "@stockcontrol/contracts";
 import { resourceUnavailable, userRoles, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
@@ -8,6 +13,7 @@ import { sql, type Kysely } from "kysely";
 
 import { hashPassword } from "../auth/password";
 import type { SessionService } from "../auth/session-service";
+import type { PhotosService } from "../media/photos.service";
 import {
   listOpenReservations,
   listStockRequests,
@@ -38,6 +44,7 @@ export class UsersService {
   public constructor(
     private readonly database: Kysely<StockControlDatabase>,
     private readonly sessions: SessionService,
+    private readonly photos: PhotosService,
   ) {}
 
   public async list(): Promise<readonly UserView[]> {
@@ -48,7 +55,9 @@ export class UsersService {
       .orderBy("display_name")
       .execute();
 
-    return rows.map(toView);
+    return Promise.all(
+      rows.map(async (row) => toView(row, await this.photos.profilePhotoUrl(row.id))),
+    );
   }
 
   public async create(input: NewUser): Promise<UserView> {
@@ -100,6 +109,22 @@ export class UsersService {
     }
 
     return this.require(id);
+  }
+
+  public profilePhoto(userId: string) {
+    return this.photos.profilePhoto(userId);
+  }
+
+  public async saveProfilePhoto(userId: string, input: ImageUploadRequest): Promise<UserView> {
+    await this.require(userId);
+    await this.photos.saveProfilePhoto(userId, input);
+    return this.require(userId);
+  }
+
+  public async deleteProfilePhoto(userId: string): Promise<UserView> {
+    await this.require(userId);
+    await this.photos.deleteProfilePhoto(userId);
+    return this.require(userId);
   }
 
   public async update(userId: string, input: UserChanges): Promise<UserView> {
@@ -200,6 +225,7 @@ export class UsersService {
     }
 
     await this.sessions.revokeAllForUser(userId);
+    await this.photos.deleteProfilePhoto(userId);
 
     await this.database
       .withSchema(SCHEMA)
@@ -305,18 +331,21 @@ export class UsersService {
       );
     }
 
-    return toView(row);
+    return toView(row, await this.photos.profilePhotoUrl(row.id));
   }
 }
 
-function toView(row: {
-  readonly id: string;
-  readonly email: string;
-  readonly display_name: string;
-  readonly role: UserRole;
-  readonly is_active: boolean;
-  readonly created_at: Date;
-}): UserView {
+function toView(
+  row: {
+    readonly id: string;
+    readonly email: string;
+    readonly display_name: string;
+    readonly role: UserRole;
+    readonly is_active: boolean;
+    readonly created_at: Date;
+  },
+  profilePhotoUrl: string | null,
+): UserView {
   return {
     id: row.id,
     email: row.email,
@@ -324,5 +353,6 @@ function toView(row: {
     role: row.role,
     isActive: row.is_active,
     createdAt: row.created_at.toISOString(),
+    profilePhotoUrl,
   };
 }

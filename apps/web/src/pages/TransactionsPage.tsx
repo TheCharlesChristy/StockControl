@@ -36,6 +36,7 @@ import {
   PageHeader,
   transactionKindLabels,
 } from "../components/DataStates";
+import { ItemAvatar } from "../components/ItemAvatar";
 
 const PAGE_SIZE = 50;
 
@@ -395,16 +396,25 @@ export function TransactionsPage(): ReactElement {
                       />
                     </TableCell>
                     <TableCell sx={{ minWidth: 180 }}>
-                      <Link
-                        component={RouterLink}
-                        to={`/inventory/${transaction.itemId}`}
-                        underline="hover"
-                      >
-                        {transaction.itemReference}
-                      </Link>
-                      <Typography variant="body2" color="text.secondary">
-                        {transaction.itemName}
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <ItemAvatar
+                          name={transaction.itemName}
+                          photoUrl={transaction.itemPhotoUrl}
+                          size={32}
+                        />
+                        <Box>
+                          <Link
+                            component={RouterLink}
+                            to={`/inventory/${transaction.itemId}`}
+                            underline="hover"
+                          >
+                            {transaction.itemReference}
+                          </Link>
+                          <Typography variant="body2" color="text.secondary">
+                            {transaction.itemName}
+                          </Typography>
+                        </Box>
+                      </Stack>
                     </TableCell>
                     <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                       {formatQuantity(transaction.quantity)} {transaction.unit}

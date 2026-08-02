@@ -21,6 +21,8 @@ export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
   maps: ["select", "insert", "update"],
   map_edit_events: ["select", "insert"],
   floor_plan_documents: ["select", "insert"],
+  user_profile_photos: ["select", "insert", "update", "delete"],
+  item_photos: ["select", "insert", "update", "delete"],
   migration_integrity: [],
   reservations: ["select", "insert", "update"],
   sessions: ["select", "insert", "delete"],

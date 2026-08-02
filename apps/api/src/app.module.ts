@@ -44,6 +44,7 @@ import { UsersController } from "./users/users.controller";
 import { UsersService } from "./users/users.service";
 import { LocationsController } from "./locations/locations.controller";
 import { LocationsService } from "./locations/locations.service";
+import { PhotosService } from "./media/photos.service";
 
 type Database = Kysely<StockControlDatabase>;
 
@@ -114,8 +115,9 @@ const providers: Provider[] = [
   },
   {
     provide: API_TOKENS.catalogueService,
-    useFactory: (database: Database) => new CatalogueService(database),
-    inject: [SYSTEM_TOKENS.database],
+    useFactory: (database: Database, photos: PhotosService) =>
+      new CatalogueService(database, photos),
+    inject: [SYSTEM_TOKENS.database, API_TOKENS.photosService],
   },
   {
     provide: API_TOKENS.jobsService,
@@ -124,9 +126,9 @@ const providers: Provider[] = [
   },
   {
     provide: API_TOKENS.usersService,
-    useFactory: (database: Database, sessions: SessionService) =>
-      new UsersService(database, sessions),
-    inject: [SYSTEM_TOKENS.database, API_TOKENS.sessionService],
+    useFactory: (database: Database, sessions: SessionService, photos: PhotosService) =>
+      new UsersService(database, sessions, photos),
+    inject: [SYSTEM_TOKENS.database, API_TOKENS.sessionService, API_TOKENS.photosService],
   },
   {
     provide: API_TOKENS.dashboardService,
@@ -142,6 +144,11 @@ const providers: Provider[] = [
   {
     provide: API_TOKENS.locationsService,
     useFactory: (database: Database) => new LocationsService(database),
+    inject: [SYSTEM_TOKENS.database],
+  },
+  {
+    provide: API_TOKENS.photosService,
+    useFactory: (database: Database) => new PhotosService(database),
     inject: [SYSTEM_TOKENS.database],
   },
   {

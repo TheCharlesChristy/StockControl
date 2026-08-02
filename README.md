@@ -23,6 +23,10 @@ pnpm dev                      # API on :3000, web on :5173
 
 Then open <http://localhost:5173> and sign in.
 
+The API checks the database migration state and applies pending migrations before it binds its
+listener. If migration integrity fails, the API exits without serving requests so a stale or
+incompatible schema cannot surface as runtime 500 responses.
+
 You need **Node.js 24**, **pnpm 11**, and **Docker with Compose**. MinIO is used only as a private local
 object store for floor-plan assets and is never exposed through a permanent public URL.
 

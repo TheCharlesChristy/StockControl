@@ -186,6 +186,10 @@ export function AppShell(): ReactElement | null {
           }}
         >
           <Avatar
+            component={RouterLink}
+            to="/profile"
+            src={user.profilePhotoUrl ?? undefined}
+            alt={`${user.displayName} profile photo`}
             sx={{
               width: 38,
               height: 38,
@@ -193,6 +197,7 @@ export function AppShell(): ReactElement | null {
               bgcolor: "primary.light",
               fontSize: "0.85rem",
               fontWeight: 800,
+              textDecoration: "none",
             }}
           >
             {initials(user.displayName)}

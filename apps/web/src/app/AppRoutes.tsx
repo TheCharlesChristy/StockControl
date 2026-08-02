@@ -12,6 +12,7 @@ import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { JobDetailPage } from "../pages/JobDetailPage";
 import { JobsPage } from "../pages/JobsPage";
 import { RequestsPage } from "../pages/RequestsPage";
+import { ProfilePage } from "../pages/ProfilePage";
 import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
@@ -94,6 +95,7 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route
               path="/locations"
               element={

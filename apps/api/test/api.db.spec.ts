@@ -164,6 +164,7 @@ async function clearBusinessData(): Promise<void> {
   await schema().deleteFrom("job_assignments").execute();
   await schema().deleteFrom("reservations").execute();
   await schema().deleteFrom("stock_levels").execute();
+  await schema().deleteFrom("item_photos").execute();
   await schema().deleteFrom("items").execute();
   await schema().deleteFrom("map_edit_events").execute();
   await schema().deleteFrom("locations").execute();
@@ -179,6 +180,7 @@ beforeAll(async () => {
 
   await clearBusinessData();
   await schema().deleteFrom("sessions").execute();
+  await schema().deleteFrom("user_profile_photos").execute();
   await schema().deleteFrom("users").execute();
 
   const adminUser = await createUser("integration.admin@example.com", "Admin");

@@ -22,6 +22,7 @@ interface AuthContextValue {
   readonly user: AuthenticatedUser | null;
   readonly signIn: (email: string, password: string) => Promise<void>;
   readonly signOut: () => Promise<void>;
+  readonly refresh: () => Promise<void>;
 }
 
 interface AuthProviderProps {
@@ -84,6 +85,11 @@ export function AuthProvider({
     setState(anonymousState);
   }, [client]);
 
+  const refresh = useCallback(async (): Promise<void> => {
+    const session = await client.getSession(new AbortController().signal);
+    setState(session === null ? anonymousState : { status: "authenticated", session });
+  }, [client]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status: state.status,
@@ -91,8 +97,9 @@ export function AuthProvider({
       user: state.session?.user ?? null,
       signIn,
       signOut,
+      refresh,
     }),
-    [signIn, signOut, state],
+    [refresh, signIn, signOut, state],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

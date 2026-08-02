@@ -15,6 +15,9 @@ import {
   testAisleId,
   testAreaId,
   testMapId,
+  testMap,
+  testPolygonLocation,
+  testRectangleLocation,
   type RecordedRequest,
 } from "../../test/fake-api";
 import { mockCanvasLayout, runFramesSynchronously } from "../../test/layout";
@@ -41,6 +44,7 @@ const session: AuthenticatedSession = {
     email: "admin@example.com",
     displayName: "Sam Field",
     role: "Admin",
+    profilePhotoUrl: null,
   },
   issuedAt: "2026-07-30T09:00:00.000Z",
   expiresAt: "2026-07-30T21:00:00.000Z",
@@ -67,9 +71,9 @@ interface Harness {
   readonly canvas: SVGSVGElement;
 }
 
-async function renderMap(): Promise<Harness> {
+async function renderMap(overrides: Readonly<Record<string, unknown>> = {}): Promise<Harness> {
   const requests: RecordedRequest[] = [];
-  const api = createFakeApiClient({}, (request) => {
+  const api = createFakeApiClient(overrides, (request) => {
     requests.push(request);
   });
 
@@ -136,7 +140,7 @@ describe("pointer coordinates", () => {
     const { requests, canvas } = await renderMap();
 
     await userEvent.click(screen.getByRole("button", { name: "Draw rectangle" }));
-    drag(canvas, at(0.2, 0.2), [at(0.4, 0.3), at(0.5, 0.4)], { altKey: true });
+    drag(canvas, at(0.2, 0.7), [at(0.4, 0.8), at(0.5, 0.9)], { altKey: true });
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -146,7 +150,7 @@ describe("pointer coordinates", () => {
     expect(drawn?.kind).toBe("Rectangle");
     if (drawn?.kind !== "Rectangle") throw new Error("expected a rectangle");
     expect(drawn.x).toBeCloseTo(0.2, 2);
-    expect(drawn.y).toBeCloseTo(0.2, 2);
+    expect(drawn.y).toBeCloseTo(0.7, 2);
     expect(drawn.width).toBeCloseTo(0.3, 2);
     expect(drawn.height).toBeCloseTo(0.2, 2);
   });
@@ -155,7 +159,7 @@ describe("pointer coordinates", () => {
     const { requests, canvas } = await renderMap();
 
     await userEvent.click(screen.getByRole("button", { name: "Draw rectangle" }));
-    drag(canvas, at(0.213, 0.207), [at(0.487, 0.464)]);
+    drag(canvas, at(0.213, 0.707), [at(0.487, 0.864)]);
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -275,7 +279,7 @@ describe("shape ordering and removal", () => {
       );
     expect(order()).toEqual([testAreaId, testAisleId]);
 
-    await userEvent.click(screen.getByRole("button", { name: /^Aisle A, MAIN-A,/u }));
+    await userEvent.dblClick(screen.getByRole("button", { name: "Aisle A, MAIN-A" }));
     await userEvent.click(await screen.findByRole("button", { name: "Raise" }));
 
     expect(order()).toEqual([testAisleId, testAreaId]);
@@ -284,7 +288,7 @@ describe("shape ordering and removal", () => {
   it("removes the selected shape with the Delete key", async () => {
     const { requests, canvas } = await renderMap();
 
-    await userEvent.click(screen.getByRole("button", { name: /^Aisle A, MAIN-A,/u }));
+    await userEvent.click(screen.getByRole("button", { name: "Aisle A, MAIN-A" }));
     fireEvent.keyDown(canvas, { key: "Delete" });
 
     expect(document.querySelector(`[data-location-id="${testAreaId}"]`)).toBeNull();
@@ -294,6 +298,90 @@ describe("shape ordering and removal", () => {
       expect(saved(requests)).toHaveLength(1);
     });
     expect(saved(requests)[0]?.id).toBe(testAisleId);
+  });
+});
+
+describe("location details", () => {
+  it("opens the details modal from a map double-click", async () => {
+    await renderMap();
+
+    expect(screen.queryByRole("button", { name: "Edit map" })).not.toBeInTheDocument();
+    await userEvent.dblClick(shapeFor(testAreaId));
+
+    expect(await screen.findByRole("dialog", { name: "Aisle A" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Aisle A" })).toBeInTheDocument();
+  });
+
+  it("opens the details modal from the map context menu", async () => {
+    await renderMap();
+
+    fireEvent.contextMenu(shapeFor(testAreaId), { clientX: 120, clientY: 80 });
+    await userEvent.click(await screen.findByRole("menuitem", { name: "View details" }));
+
+    expect(await screen.findByRole("dialog", { name: "Aisle A" })).toBeInTheDocument();
+  });
+});
+
+describe("map labels", () => {
+  it("does not render stock contents and keeps map text unselectable", async () => {
+    const { canvas } = await renderMap();
+
+    expect(canvas.style.userSelect).toBe("none");
+    expect(document.querySelector(`[data-location-label-for="${testAreaId}"]`)).toHaveTextContent(
+      "MAIN-A",
+    );
+    expect(screen.queryByText(/M6 × 30 mm zinc-plated hex bolt/u)).not.toBeInTheDocument();
+  });
+
+  it("moves a covered parent label to the bottom of its area", async () => {
+    const nestedMap = {
+      ...testMap,
+      locations: [
+        {
+          ...testRectangleLocation,
+          geometry: { kind: "Rectangle" as const, x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+        },
+        {
+          ...testPolygonLocation,
+          geometry: { kind: "Rectangle" as const, x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+          derivedParentId: testAreaId,
+          depth: 1,
+          path: "Aisle A › Aisle B",
+        },
+      ],
+    };
+    await renderMap({ [`/maps/${testMapId}`]: nestedMap });
+
+    const parentText = document.querySelector(`[data-location-label-for="${testAreaId}"] text`);
+    expect(Number(parentText?.getAttribute("y"))).toBeGreaterThan(80);
+  });
+
+  it("shows rule violations and blocks saving until areas are fixed", async () => {
+    const invalidMap = {
+      ...testMap,
+      locations: [
+        {
+          ...testRectangleLocation,
+          geometry: { kind: "Rectangle" as const, x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        },
+        {
+          ...testPolygonLocation,
+          geometry: { kind: "Rectangle" as const, x: 0.3, y: 0.3, width: 0.3, height: 0.3 },
+          derivedParentId: null,
+          depth: 0,
+          path: "Aisle B",
+        },
+      ],
+    };
+    const { requests } = await renderMap({ [`/maps/${testMapId}`]: invalidMap });
+
+    expect(await screen.findByText("1 map rule violation")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Expand map rule violations" }));
+    expect(await screen.findByText(/partially overlaps/u)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Cannot save with rule violations")).toBeInTheDocument();
+    expect(saved(requests)).toHaveLength(0);
   });
 });
 

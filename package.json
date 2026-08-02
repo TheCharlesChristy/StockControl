@@ -27,7 +27,7 @@
     "test:integration": "pnpm --filter @stockcontrol/platform-database test:integration && pnpm --filter @stockcontrol/api test:integration",
     "test:e2e": "pnpm --filter @stockcontrol/e2e test:e2e",
     "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build",
-    "services:up": "docker compose up -d --wait",
+    "services:up": "docker compose up -d --wait postgres minio && docker compose run --rm minio-init",
     "services:down": "docker compose down",
     "services:logs": "docker compose logs -f",
     "dev:manager:start": "node ./scripts/dev-server-manager.mjs start",

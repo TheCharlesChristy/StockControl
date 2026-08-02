@@ -265,3 +265,36 @@ export const geometryContains = (outer: MapGeometry, inner: MapGeometry): boolea
   }
   return true;
 };
+
+/**
+ * True when two shapes share area without either one fully containing the
+ * other. Touching edges and corners are deliberately not overlaps.
+ */
+export const geometryPartiallyOverlaps = (left: MapGeometry, right: MapGeometry): boolean => {
+  if (geometryContains(left, right) || geometryContains(right, left)) return false;
+
+  const leftBounds = boundsOf(left);
+  const rightBounds = boundsOf(right);
+  if (
+    Math.min(leftBounds.maxX, rightBounds.maxX) <= Math.max(leftBounds.minX, rightBounds.minX) ||
+    Math.min(leftBounds.maxY, rightBounds.maxY) <= Math.max(leftBounds.minY, rightBounds.minY)
+  )
+    return false;
+
+  const leftPoints = verticesOf(left);
+  const rightPoints = verticesOf(right);
+  for (let leftIndex = 0; leftIndex < leftPoints.length; leftIndex += 1) {
+    const leftStart = leftPoints[leftIndex]!;
+    const leftEnd = leftPoints[(leftIndex + 1) % leftPoints.length]!;
+    for (let rightIndex = 0; rightIndex < rightPoints.length; rightIndex += 1) {
+      const rightStart = rightPoints[rightIndex]!;
+      const rightEnd = rightPoints[(rightIndex + 1) % rightPoints.length]!;
+      if (properlyCrosses(leftStart, leftEnd, rightStart, rightEnd)) return true;
+    }
+  }
+
+  return (
+    leftPoints.some((point) => pointInPolygon(point, rightPoints)) ||
+    rightPoints.some((point) => pointInPolygon(point, leftPoints))
+  );
+};

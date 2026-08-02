@@ -1,7 +1,9 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import PhotoCameraRounded from "@mui/icons-material/PhotoCameraRounded";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -27,7 +29,7 @@ import {
   Typography,
 } from "@mui/material";
 import { userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
-import { useCallback, useState, type FormEvent, type ReactElement } from "react";
+import { useCallback, useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError } from "../api/ApiClient";
@@ -41,7 +43,9 @@ import {
   PageHeader,
   StatTile,
 } from "../components/DataStates";
+import { ItemAvatar } from "../components/ItemAvatar";
 import { StockRequestList } from "../components/StockRequestList";
+import { readImageFile } from "../components/photo-files";
 
 function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError
@@ -67,6 +71,29 @@ function DetailsForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<ApiError | undefined>(undefined);
+
+  const uploadPhoto = (event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file === undefined) return;
+    setSaving(true);
+    setError(undefined);
+    void readImageFile(file)
+      .then((input) => api.uploadProfilePhoto(user.id, input))
+      .then(() => onSaved())
+      .catch((caught: unknown) => setError(asApiError(caught)))
+      .finally(() => setSaving(false));
+  };
+
+  const removePhoto = (): void => {
+    setSaving(true);
+    setError(undefined);
+    void api
+      .deleteProfilePhoto(user.id)
+      .then(() => onSaved())
+      .catch((caught: unknown) => setError(asApiError(caught)))
+      .finally(() => setSaving(false));
+  };
 
   const handleSave = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -98,6 +125,37 @@ function DetailsForm({
             </Alert>
           )}
           {saved && <Alert severity="success">Saved.</Alert>}
+
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Avatar
+              src={user.profilePhotoUrl ?? undefined}
+              alt={`${user.displayName} profile photo`}
+              sx={{ width: 64, height: 64 }}
+            >
+              {user.displayName
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((part) => part.charAt(0).toUpperCase())
+                .join("")}
+            </Avatar>
+            <Stack direction="row" spacing={1}>
+              <Button
+                component="label"
+                variant="outlined"
+                startIcon={<PhotoCameraRounded />}
+                disabled={saving}
+              >
+                Choose photo
+                <input hidden type="file" accept="image/png,image/jpeg" onChange={uploadPhoto} />
+              </Button>
+              {user.profilePhotoUrl !== null && (
+                <Button color="error" onClick={removePhoto} disabled={saving}>
+                  Remove
+                </Button>
+              )}
+            </Stack>
+          </Stack>
 
           <TextField
             required
@@ -171,7 +229,7 @@ export function UserDetailPage(): ReactElement {
   const api = useApi();
   const navigate = useNavigate();
   const { userId = "" } = useParams<{ userId: string }>();
-  const { user: signedInUser } = useAuth();
+  const { user: signedInUser, refresh: refreshSession } = useAuth();
 
   const load = useCallback(
     (signal: AbortSignal) => api.userActivity(userId, signal),
@@ -244,7 +302,10 @@ export function UserDetailPage(): ReactElement {
               key={data.user.id}
               user={data.user}
               isSelf={isSelf}
-              onSaved={activity.reload}
+              onSaved={() => {
+                activity.reload();
+                if (isSelf) void refreshSession();
+              }}
             />
 
             <Paper variant="outlined">
@@ -294,13 +355,20 @@ export function UserDetailPage(): ReactElement {
                             <Chip label={transaction.kind} size="small" variant="outlined" />
                           </TableCell>
                           <TableCell>
-                            <Link
-                              component={RouterLink}
-                              to={`/inventory/${transaction.itemId}`}
-                              underline="hover"
-                            >
-                              {transaction.itemReference}
-                            </Link>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <ItemAvatar
+                                name={transaction.itemName}
+                                photoUrl={transaction.itemPhotoUrl}
+                                size={32}
+                              />
+                              <Link
+                                component={RouterLink}
+                                to={`/inventory/${transaction.itemId}`}
+                                underline="hover"
+                              >
+                                {transaction.itemReference}
+                              </Link>
+                            </Stack>
                           </TableCell>
                           <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                             {formatQuantity(transaction.quantity)} {transaction.unit}
@@ -340,7 +408,14 @@ export function UserDetailPage(): ReactElement {
                       {data.openReservations.map((reservation) => (
                         <TableRow key={reservation.id}>
                           <TableCell>
-                            {reservation.itemReference} — {reservation.itemName}
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <ItemAvatar
+                                name={reservation.itemName}
+                                photoUrl={reservation.itemPhotoUrl}
+                                size={32}
+                              />
+                              {reservation.itemReference} — {reservation.itemName}
+                            </Stack>
                           </TableCell>
                           <TableCell align="right">
                             {formatQuantity(reservation.quantityReserved)}

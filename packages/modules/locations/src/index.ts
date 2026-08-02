@@ -15,6 +15,7 @@ export {
   createPolygonGeometry,
   createRectangleGeometry,
   geometryContains,
+  geometryPartiallyOverlaps,
   pointInPolygon,
   verticesOf,
   type GeometryBounds,

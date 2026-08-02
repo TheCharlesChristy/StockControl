@@ -127,6 +127,7 @@ interface PageHeaderProps {
   readonly eyebrow: string;
   readonly title: string;
   readonly description?: string | undefined;
+  readonly leading?: ReactNode | undefined;
   readonly actions?: ReactNode | undefined;
 }
 
@@ -134,6 +135,7 @@ export function PageHeader({
   eyebrow,
   title,
   description,
+  leading,
   actions,
 }: PageHeaderProps): ReactElement {
   return (
@@ -144,19 +146,22 @@ export function PageHeader({
       justifyContent="space-between"
       sx={{ mb: 3 }}
     >
-      <Box>
-        <Typography variant="overline" color="primary.main">
-          {eyebrow}
-        </Typography>
-        <Typography component="h1" variant="h2" sx={{ mt: 0.25 }}>
-          {title}
-        </Typography>
-        {description !== undefined && (
-          <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 680 }}>
-            {description}
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        {leading}
+        <Box>
+          <Typography variant="overline" color="primary.main">
+            {eyebrow}
           </Typography>
-        )}
-      </Box>
+          <Typography component="h1" variant="h2" sx={{ mt: 0.25 }}>
+            {title}
+          </Typography>
+          {description !== undefined && (
+            <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 680 }}>
+              {description}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
       {/*
        * Wraps rather than forcing every action onto one row: an item with all
        * four stock operations available does not fit a phone otherwise, and a

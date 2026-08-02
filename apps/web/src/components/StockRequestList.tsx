@@ -22,6 +22,7 @@ import { ApiError } from "../api/ApiClient";
 import { useApi } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { formatDateTime, formatQuantity } from "./DataStates";
+import { ItemAvatar } from "./ItemAvatar";
 
 type StatusColour = "default" | "success" | "warning" | "error";
 
@@ -151,13 +152,16 @@ export function StockRequestList({
                     color={STATUS_COLOURS[request.status]}
                     variant="outlined"
                   />
-                  <Link
-                    component={RouterLink}
-                    to={`/inventory/${request.itemId}`}
-                    underline="hover"
-                  >
-                    {request.itemReference} — {request.itemName}
-                  </Link>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <ItemAvatar name={request.itemName} photoUrl={request.itemPhotoUrl} size={32} />
+                    <Link
+                      component={RouterLink}
+                      to={`/inventory/${request.itemId}`}
+                      underline="hover"
+                    >
+                      {request.itemReference} — {request.itemName}
+                    </Link>
+                  </Stack>
                   <Typography component="span" sx={{ fontWeight: 700 }}>
                     {formatQuantity(request.quantity)} {request.unit}
                   </Typography>

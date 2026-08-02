@@ -15,6 +15,7 @@ import { useCallback, useState, type FormEvent, type ReactElement } from "react"
 
 import { ApiError } from "../api/ApiClient";
 import { useApi, useResource } from "../api/ApiContext";
+import { ItemAvatar } from "./ItemAvatar";
 
 interface StockRequestDialogProps {
   readonly item: ItemDetailView;
@@ -75,9 +76,12 @@ export function StockRequestDialog({
       <Stack component="form" onSubmit={handleSubmit}>
         <DialogTitle>Ask for stock</DialogTitle>
         <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            {item.reference} — {item.name}
-          </DialogContentText>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+            <ItemAvatar name={item.name} photoUrl={item.coverPhotoUrl} size={32} />
+            <DialogContentText>
+              {item.reference} — {item.name}
+            </DialogContentText>
+          </Stack>
           <Stack spacing={2}>
             <TextField
               label={`Quantity (${item.unit})`}

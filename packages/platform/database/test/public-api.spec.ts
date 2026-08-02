@@ -16,6 +16,7 @@ describe("database public API", () => {
       databaseRolesForMigration: expect.any(Function),
       loadMigratorDatabaseConfiguration: expect.any(Function),
       loadRuntimeDatabaseConfiguration: expect.any(Function),
+      migrateConfiguredDatabase: expect.any(Function),
       runMigrations: expect.any(Function),
     });
   });

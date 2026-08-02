@@ -2,6 +2,7 @@ import PersonAddRounded from "@mui/icons-material/PersonAddRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -45,6 +46,15 @@ function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError
     ? caught
     : new ApiError(0, "network.unreachable", "Could not reach StockControl.");
+}
+
+function initials(displayName: string): string {
+  return displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
 }
 
 /** Mounted only while open, so its fields need no resetting. */
@@ -309,17 +319,26 @@ export function UsersPage(): ReactElement {
                   return (
                     <TableRow key={row.id} hover>
                       <TableCell>
-                        <Link
-                          component={RouterLink}
-                          to={`/team/${row.id}`}
-                          underline="hover"
-                          sx={{ fontWeight: 600 }}
-                        >
-                          {row.displayName}
-                        </Link>
-                        {isSelf && (
-                          <Chip label="You" size="small" variant="outlined" sx={{ ml: 1 }} />
-                        )}
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Avatar
+                            src={row.profilePhotoUrl ?? undefined}
+                            alt={`${row.displayName} profile photo`}
+                            sx={{ width: 32, height: 32, fontSize: "0.72rem" }}
+                          >
+                            {initials(row.displayName)}
+                          </Avatar>
+                          <Link
+                            component={RouterLink}
+                            to={`/team/${row.id}`}
+                            underline="hover"
+                            sx={{ fontWeight: 600 }}
+                          >
+                            {row.displayName}
+                          </Link>
+                          {isSelf && (
+                            <Chip label="You" size="small" variant="outlined" sx={{ ml: 1 }} />
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell>{row.email}</TableCell>
                       <TableCell>

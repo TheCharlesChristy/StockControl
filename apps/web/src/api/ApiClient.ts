@@ -5,6 +5,7 @@ import type {
   CreateStockRequestRequest,
   CreateUserRequest,
   DashboardResponse,
+  ImageUploadRequest,
   ItemDetailView,
   ItemListResponse,
   JobDetailView,
@@ -177,6 +178,29 @@ export class ApiClient {
       ...(signal === undefined ? {} : { signal }),
     });
 
+    return item;
+  }
+
+  public async uploadItemPhoto(id: string, body: ImageUploadRequest): Promise<ItemDetailView> {
+    const { item } = await this.send<{ item: ItemDetailView }>("POST", `/items/${id}/photos`, {
+      body,
+    });
+    return item;
+  }
+
+  public async deleteItemPhoto(id: string, photoId: string): Promise<ItemDetailView> {
+    const { item } = await this.send<{ item: ItemDetailView }>(
+      "DELETE",
+      `/items/${id}/photos/${photoId}`,
+    );
+    return item;
+  }
+
+  public async setItemPhotoCover(id: string, photoId: string): Promise<ItemDetailView> {
+    const { item } = await this.send<{ item: ItemDetailView }>(
+      "POST",
+      `/items/${id}/photos/${photoId}/cover`,
+    );
     return item;
   }
 
@@ -439,6 +463,18 @@ export class ApiClient {
   public async updateUser(id: string, body: UpdateUserRequest): Promise<UserView> {
     const { user } = await this.send<{ user: UserView }>("PATCH", `/users/${id}`, { body });
 
+    return user;
+  }
+
+  public async uploadProfilePhoto(id: string, body: ImageUploadRequest): Promise<UserView> {
+    const { user } = await this.send<{ user: UserView }>("POST", `/users/${id}/profile-photo`, {
+      body,
+    });
+    return user;
+  }
+
+  public async deleteProfilePhoto(id: string): Promise<UserView> {
+    const { user } = await this.send<{ user: UserView }>("DELETE", `/users/${id}/profile-photo`);
     return user;
   }
 

@@ -4,6 +4,8 @@ import {
   copyGeometry,
   createPolygonGeometry,
   createRectangleGeometry,
+  geometryContains,
+  geometryPartiallyOverlaps,
   type MapGeometry,
 } from "./geometry.js";
 import {
@@ -88,6 +90,26 @@ const cloneLocation = (location: MapLocation): MapLocation => ({
   geometry: copyGeometry(location.geometry),
   searchAliases: [...location.searchAliases],
 });
+
+const assertGeometryRules = (locations: readonly MapLocation[]): void => {
+  const active = locations.filter((location) => location.status === "Active");
+  for (let leftIndex = 0; leftIndex < active.length; leftIndex += 1) {
+    const left = active[leftIndex]!;
+    for (let rightIndex = leftIndex + 1; rightIndex < active.length; rightIndex += 1) {
+      const right = active[rightIndex]!;
+      if (
+        geometryContains(left.geometry, right.geometry) &&
+        geometryContains(right.geometry, left.geometry)
+      )
+        failLocation("InvalidGeometry", "Location areas cannot have identical geometry.");
+      if (geometryPartiallyOverlaps(left.geometry, right.geometry))
+        failLocation(
+          "InvalidGeometry",
+          "Location areas must be separate or one must fully contain the other.",
+        );
+    }
+  }
+};
 
 const aliases = (values: readonly string[]): readonly string[] => {
   if (values.length > 20)
@@ -183,6 +205,7 @@ export class LocationMap {
       failLocation("DuplicateEntity", "Location identities must be unique.");
     if (new Set(locations.map((location) => location.code)).size !== locations.length)
       failLocation("CodeAlreadyUsed", "Location codes must be unique.");
+    assertGeometryRules(locations);
     this.#id = snapshot.id;
     this.#code = snapshot.code;
     this.#name = snapshot.name;
@@ -256,6 +279,7 @@ export class LocationMap {
       searchAliases: aliases(input.searchAliases ?? []),
       status: "Active",
     };
+    assertGeometryRules([...this.#locations.values(), location]);
     this.#locations.set(location.id, location);
     return cloneLocation(location);
   }
@@ -274,6 +298,9 @@ export class LocationMap {
     };
     if (!Number.isSafeInteger(changed.zOrder))
       failLocation("InvalidOperation", "Map z-order is invalid.");
+    assertGeometryRules(
+      [...this.#locations.values()].map((location) => (location.id === id ? changed : location)),
+    );
     this.#locations.set(id, changed);
     return cloneLocation(changed);
   }

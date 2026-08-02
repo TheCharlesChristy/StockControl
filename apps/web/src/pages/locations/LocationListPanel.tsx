@@ -1,15 +1,19 @@
 import AddRounded from "@mui/icons-material/AddRounded";
+import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import FolderRounded from "@mui/icons-material/FolderRounded";
 import Inventory2Rounded from "@mui/icons-material/Inventory2Rounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
   Box,
   Button,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   List,
   ListItemButton,
@@ -27,7 +31,15 @@ import type {
   MapLocationView,
   MapSummaryView,
 } from "@stockcontrol/contracts";
-import { memo, useState, type CSSProperties, type FormEvent, type ReactElement } from "react";
+import {
+  Fragment,
+  memo,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 
 import { panelBorder, treeItemSlotProps } from "./constants";
 
@@ -38,7 +50,7 @@ import { panelBorder, treeItemSlotProps } from "./constants";
 const ListRow = styled(ListItemButton)({
   position: "relative",
   display: "grid",
-  gridTemplateColumns: "24px minmax(0, 1fr)",
+  gridTemplateColumns: "28px 24px minmax(0, 1fr)",
   alignItems: "center",
   gap: 4,
   minHeight: 48,
@@ -53,7 +65,7 @@ const ListRow = styled(ListItemButton)({
   },
 });
 
-const iconSx = { display: "grid", placeItems: "center", color: "primary.main" } as const;
+const iconSx = { display: "grid", placeItems: "center" } as const;
 const textSx = { minWidth: 0, my: 0 } as const;
 const searchResultSx = { minHeight: 44 } as const;
 
@@ -69,13 +81,19 @@ interface LocationListPanelProps {
   readonly onSelectSearchResult: (result: LocationSearchResult) => void;
   readonly onSelectMap: (mapId: string) => void;
   readonly onSelectLocation: (id: string) => void;
+  readonly onOpenDetails: (id: string) => void;
+  readonly onOpenContextMenu: (
+    id: string,
+    position: { readonly top: number; readonly left: number },
+  ) => void;
   readonly onCreateMap: (request: CreateMapRequest) => void;
 }
 
 /**
- * The map's contents as a list. The indentation is the implicit hierarchy —
- * read straight off the shapes — so there is nothing here to edit: no parent
- * picker, no move, no create-node form. A location appears by being drawn.
+ * The map's contents as a list. The indentation and collapsible groups are the
+ * implicit hierarchy — read straight off the shapes — so there is nothing here
+ * to edit: no parent picker, no move, no create-node form. A location appears
+ * by being drawn.
  */
 export const LocationListPanel = memo(function LocationListPanel({
   canEdit,
@@ -89,11 +107,111 @@ export const LocationListPanel = memo(function LocationListPanel({
   onSelectSearchResult,
   onSelectMap,
   onSelectLocation,
+  onOpenDetails,
+  onOpenContextMenu,
   onCreateMap,
 }: LocationListPanelProps): ReactElement {
   const [newMapOpen, setNewMapOpen] = useState(false);
   const [newMapCode, setNewMapCode] = useState("");
   const [newMapName, setNewMapName] = useState("");
+  const [collapsedLocations, setCollapsedLocations] = useState<ReadonlySet<string>>(new Set());
+
+  const { childrenByParent, roots } = useMemo(() => {
+    const locationIds = new Set(locations.map((location) => location.id));
+    const childrenByParent = new Map<string, MapLocationView[]>();
+    const roots: MapLocationView[] = [];
+
+    for (const location of locations) {
+      const parentId = location.derivedParentId;
+      if (parentId === null || !locationIds.has(parentId)) {
+        roots.push(location);
+        continue;
+      }
+      const children = childrenByParent.get(parentId) ?? [];
+      children.push(location);
+      childrenByParent.set(parentId, children);
+    }
+
+    return { childrenByParent, roots };
+  }, [locations]);
+
+  const toggleCollapsed = (id: string): void => {
+    setCollapsedLocations((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const renderLocation = (location: MapLocationView): ReactElement => {
+    const children = childrenByParent.get(location.id) ?? [];
+    const expanded = !collapsedLocations.has(location.id);
+
+    return (
+      <Fragment key={location.id}>
+        <ListRow
+          style={{ "--tree-depth": location.depth } as CSSProperties}
+          selected={selectedLocationId === location.id}
+          aria-current={selectedLocationId === location.id ? "true" : undefined}
+          onClick={() => {
+            onSelectLocation(location.id);
+          }}
+          onDoubleClick={() => {
+            onSelectLocation(location.id);
+            onOpenDetails(location.id);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            onSelectLocation(location.id);
+            onOpenContextMenu(location.id, { top: event.clientY, left: event.clientX });
+          }}
+        >
+          {children.length > 0 ? (
+            <IconButton
+              size="small"
+              aria-label={expanded ? `Collapse ${location.name}` : `Expand ${location.name}`}
+              aria-expanded={expanded}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleCollapsed(location.id);
+              }}
+              sx={{ p: 0.25 }}
+            >
+              {expanded ? (
+                <ExpandMoreRounded fontSize="small" />
+              ) : (
+                <ChevronRightRounded fontSize="small" />
+              )}
+            </IconButton>
+          ) : (
+            <Box aria-hidden="true" />
+          )}
+          <Box sx={{ ...iconSx, color: location.stock.colour }} title={location.stock.text}>
+            {location.stock.itemCount > 0 ? (
+              <Inventory2Rounded fontSize="small" />
+            ) : (
+              <FolderRounded fontSize="small" />
+            )}
+          </Box>
+          <ListItemText
+            primary={location.name}
+            secondary={location.code === "" ? "New — code set on save" : location.code}
+            sx={textSx}
+            slotProps={treeItemSlotProps}
+            title={location.path === "" ? location.name : location.path}
+          />
+        </ListRow>
+        {children.length > 0 && (
+          <Collapse in={expanded} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              {children.map(renderLocation)}
+            </List>
+          </Collapse>
+        )}
+      </Fragment>
+    );
+  };
 
   const submitNewMap = (event: FormEvent): void => {
     event.preventDefault();
@@ -178,32 +296,7 @@ export const LocationListPanel = memo(function LocationListPanel({
           </Typography>
         ) : (
           <List dense disablePadding component="div" aria-label="Locations on this map">
-            {locations.map((location) => (
-              <ListRow
-                key={location.id}
-                style={{ "--tree-depth": location.depth } as CSSProperties}
-                selected={selectedLocationId === location.id}
-                aria-current={selectedLocationId === location.id ? "true" : undefined}
-                onClick={() => {
-                  onSelectLocation(location.id);
-                }}
-              >
-                <Box sx={iconSx}>
-                  {location.stock.itemCount > 0 ? (
-                    <Inventory2Rounded fontSize="small" />
-                  ) : (
-                    <FolderRounded fontSize="small" />
-                  )}
-                </Box>
-                <ListItemText
-                  primary={location.name}
-                  secondary={location.code === "" ? "New — code set on save" : location.code}
-                  sx={textSx}
-                  slotProps={treeItemSlotProps}
-                  title={location.path === "" ? location.name : location.path}
-                />
-              </ListRow>
-            ))}
+            {roots.map(renderLocation)}
           </List>
         )}
       </Box>

@@ -8,6 +8,7 @@ const officeUser: AuthenticatedUser = {
   email: "office@example.com",
   displayName: "Office User",
   role: "Office",
+  profilePhotoUrl: null,
 };
 
 const officeSession: AuthenticatedSession = {

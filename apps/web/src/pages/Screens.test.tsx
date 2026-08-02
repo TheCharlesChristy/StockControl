@@ -7,7 +7,15 @@ import { describe, expect, it } from "vitest";
 import type { ApiClient } from "../api/ApiClient";
 import { StockControlProviders } from "../app/App";
 import type { AuthClient, SignInCredentials } from "../auth/auth-types";
-import { createFakeApiClient, engineerDashboard, testItemDetail, testJob } from "../test/fake-api";
+import {
+  createFakeApiClient,
+  engineerDashboard,
+  testItemDetail,
+  testJob,
+  testMap,
+  testMapId,
+  testRectangleLocation,
+} from "../test/fake-api";
 import { DashboardPage } from "./DashboardPage";
 import { InventoryPage } from "./InventoryPage";
 import { ItemDetailPage } from "./ItemDetailPage";
@@ -23,6 +31,7 @@ function sessionFor(role: UserRole): AuthenticatedSession {
       email: `${role.toLowerCase()}@example.com`,
       displayName: `Sam Field`,
       role,
+      profilePhotoUrl: null,
     },
     issuedAt: "2026-07-30T09:00:00.000Z",
     expiresAt: "2026-07-30T21:00:00.000Z",
@@ -206,6 +215,27 @@ describe("item detail", () => {
     expect(
       await screen.findByRole("img", { name: "EAN-13 barcode 5010000000011" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the item's mapped storage location in a modal", async () => {
+    const map = {
+      ...testMap,
+      locations: [{ ...testRectangleLocation, id: "location-1" }, ...testMap.locations.slice(1)],
+    };
+    renderScreen(<ItemDetailPage />, {
+      ...options,
+      api: createFakeApiClient({ [`/maps/${testMapId}`]: map }),
+    });
+
+    await screen.findByRole("heading", { name: testItemDetail.name });
+    await userEvent.click(screen.getByRole("button", { name: "Show on map" }));
+
+    const dialog = await screen.findByRole("dialog", { name: /Where is ITM-0001/u });
+    expect(
+      within(dialog).getByRole("img", { name: /showing where the item is/u }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("400 ea")).toBeInTheDocument();
+    expect(within(dialog).getByText("Aisle A")).toBeInTheDocument();
   });
 
   it("shows an Engineer only the operations their role allows", async () => {

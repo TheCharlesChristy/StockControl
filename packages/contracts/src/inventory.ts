@@ -58,11 +58,20 @@ export interface ItemSummaryView {
   readonly reservedForYou: string;
   readonly available: string;
   readonly belowThreshold: boolean;
+  readonly coverPhotoUrl: string | null;
+}
+
+export interface ItemPhotoView {
+  readonly id: string;
+  readonly url: string;
+  readonly originalFileName: string;
+  readonly isCover: boolean;
 }
 
 export interface ItemDetailView extends ItemSummaryView {
   readonly balances: readonly LocationBalanceView[];
   readonly recentTransactions: readonly TransactionView[];
+  readonly photos: readonly ItemPhotoView[];
 }
 
 export interface TransactionView {
@@ -71,6 +80,8 @@ export interface TransactionView {
   readonly itemId: string;
   readonly itemReference: string;
   readonly itemName: string;
+  /** The item's primary (starred) photo, when one has been chosen. */
+  readonly itemPhotoUrl: string | null;
   readonly unit: string;
   readonly quantity: string;
   readonly fromLocationCode: string | null;

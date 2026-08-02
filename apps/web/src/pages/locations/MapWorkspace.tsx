@@ -1,6 +1,16 @@
 import AddRounded from "@mui/icons-material/AddRounded";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import MapRounded from "@mui/icons-material/MapRounded";
-import { Box, Button, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  AlertTitle,
+  Box,
+  Button,
+  Collapse,
+  IconButton,
+  Stack,
+  Typography,
+} from "@mui/material";
 import type { MapGeometry, MapView } from "@stockcontrol/contracts";
 import { useCallback, useRef, useState, type ReactElement, type RefObject } from "react";
 
@@ -10,6 +20,7 @@ import { createLiveGeometryStore } from "./live-geometry-store";
 import { MapCanvas } from "./MapCanvas";
 import { MapLegend } from "./MapLegend";
 import { MapToolbar } from "./MapToolbar";
+import type { MapRuleViolation } from "./map-rules";
 import { useMapViewport } from "./use-map-viewport";
 
 interface MapWorkspaceProps {
@@ -24,6 +35,11 @@ interface MapWorkspaceProps {
   readonly onModeChange: (mode: EditorMode) => void;
   readonly onToggleSnap: () => void;
   readonly onSelect: (id: string | null) => void;
+  readonly onOpenDetails: (id: string) => void;
+  readonly onOpenContextMenu: (
+    id: string,
+    position: { readonly top: number; readonly left: number },
+  ) => void;
   readonly onCommitGeometry: (id: string, geometry: MapGeometry) => void;
   readonly onCreateLocation: (geometry: MapGeometry) => void;
   readonly onRemoveLocation: (id: string) => void;
@@ -32,6 +48,7 @@ interface MapWorkspaceProps {
   readonly onUploadFile: (file: File) => void;
   readonly onCreateMap: () => void;
   readonly onProblem: (message: string) => void;
+  readonly ruleViolations: readonly MapRuleViolation[];
 }
 
 const hintSx = { ...floatingPanel, left: 16, bottom: 16, maxWidth: "min(340px, 55%)" } as const;
@@ -52,6 +69,8 @@ export function MapWorkspace({
   onModeChange,
   onToggleSnap,
   onSelect,
+  onOpenDetails,
+  onOpenContextMenu,
   onCommitGeometry,
   onCreateLocation,
   onRemoveLocation,
@@ -60,9 +79,11 @@ export function MapWorkspace({
   onUploadFile,
   onCreateMap,
   onProblem,
+  ruleViolations,
 }: MapWorkspaceProps): ReactElement {
   const viewport = useMapViewport();
   const [store] = useState(createLiveGeometryStore);
+  const [rulesExpanded, setRulesExpanded] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const zoomIn = useCallback(() => {
@@ -85,6 +106,7 @@ export function MapWorkspace({
         minWidth: 0,
         minHeight: { xs: 600, lg: 0 },
         overflow: "hidden",
+        userSelect: "none",
       }}
     >
       <MapToolbar
@@ -176,6 +198,8 @@ export function MapWorkspace({
             viewport={viewport}
             svgRef={svgRef}
             onSelect={onSelect}
+            onOpenDetails={onOpenDetails}
+            onOpenContextMenu={onOpenContextMenu}
             onCommitGeometry={onCommitGeometry}
             onCreateLocation={onCreateLocation}
             onRemoveLocation={onRemoveLocation}
@@ -185,6 +209,53 @@ export function MapWorkspace({
             <Typography variant="caption" color="text.secondary" sx={hintSx}>
               Click to add points. Click the first point or press Enter to finish.
             </Typography>
+          )}
+          {ruleViolations.length > 0 && (
+            <Alert
+              severity="error"
+              sx={{
+                position: "fixed",
+                right: 16,
+                top: { xs: 72, sm: 84 },
+                zIndex: (theme) => theme.zIndex.snackbar,
+                width: "min(360px, calc(100% - 32px))",
+                py: 0.75,
+                px: 1.25,
+              }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                <AlertTitle sx={{ m: 0 }}>
+                  {ruleViolations.length} map rule violation
+                  {ruleViolations.length === 1 ? "" : "s"}
+                </AlertTitle>
+                <IconButton
+                  size="small"
+                  color="inherit"
+                  aria-label={
+                    rulesExpanded ? "Collapse map rule violations" : "Expand map rule violations"
+                  }
+                  onClick={() => setRulesExpanded((expanded) => !expanded)}
+                  sx={{
+                    transform: rulesExpanded ? "rotate(180deg)" : "none",
+                    transition: "transform 150ms ease",
+                  }}
+                >
+                  <ExpandMoreRounded />
+                </IconButton>
+              </Stack>
+              <Collapse in={rulesExpanded} unmountOnExit>
+                <Box component="ul" sx={{ m: "6px 0 0", pl: 2.25 }}>
+                  {ruleViolations.map((violation) => (
+                    <Box
+                      component="li"
+                      key={`${violation.code}-${violation.locationIds.join("-")}`}
+                    >
+                      {violation.shortMessage}
+                    </Box>
+                  ))}
+                </Box>
+              </Collapse>
+            </Alert>
           )}
           <MapLegend />
         </Box>

@@ -55,7 +55,7 @@ export const LocationInspector = memo(function LocationInspector({
           </Typography>
           {location !== null && (
             <>
-              <Typography variant="h3" component="h2" sx={{ mt: 0.25 }}>
+              <Typography id="location-details-title" variant="h3" component="h2" sx={{ mt: 0.25 }}>
                 {location.name}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>

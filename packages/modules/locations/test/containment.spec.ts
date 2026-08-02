@@ -10,6 +10,7 @@ import {
   createPolygonGeometry,
   createRectangleGeometry,
   geometryContains,
+  geometryPartiallyOverlaps,
   pointInPolygon,
   type MapGeometry,
 } from "../src/locations/geometry.js";
@@ -90,6 +91,18 @@ describe("geometryContains", () => {
     expect(pointInPolygon({ x: 0.2, y: 0.5 }, square)).toBe(true);
     expect(pointInPolygon({ x: 0.5, y: 0.5 }, square)).toBe(true);
     expect(pointInPolygon({ x: 0.1, y: 0.5 }, square)).toBe(false);
+  });
+
+  it("detects a partial area overlap but allows touching and containment", () => {
+    expect(
+      geometryPartiallyOverlaps(rectangle(0.1, 0.1, 0.3, 0.3), rectangle(0.3, 0.3, 0.3, 0.3)),
+    ).toBe(true);
+    expect(
+      geometryPartiallyOverlaps(rectangle(0.1, 0.1, 0.3, 0.3), rectangle(0.4, 0.1, 0.2, 0.3)),
+    ).toBe(false);
+    expect(geometryPartiallyOverlaps(rectangle(0, 0, 1, 1), rectangle(0.2, 0.2, 0.2, 0.2))).toBe(
+      false,
+    );
   });
 });
 

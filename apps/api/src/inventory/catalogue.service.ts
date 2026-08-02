@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  ImageUploadRequest,
   ItemDetailView,
   ItemListResponse,
   LocationView,
@@ -22,6 +23,7 @@ import {
   type TransactionQuery,
 } from "../persistence/read-models";
 import { parseQuantity } from "../stock/quantity";
+import type { PhotosService } from "../media/photos.service";
 
 const SCHEMA = "stockcontrol" as const;
 
@@ -53,7 +55,38 @@ export interface ItemEdit {
 }
 
 export class CatalogueService {
-  public constructor(private readonly database: Kysely<StockControlDatabase>) {}
+  public constructor(
+    private readonly database: Kysely<StockControlDatabase>,
+    private readonly photos: PhotosService,
+  ) {}
+
+  public async uploadItemPhoto(
+    itemId: string,
+    actorUserId: string,
+    input: ImageUploadRequest,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    await this.photos.saveItemPhoto(itemId, actorUserId, input);
+    return this.requireDetail(itemId, viewer);
+  }
+
+  public async deleteItemPhoto(
+    itemId: string,
+    photoId: string,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    await this.photos.deleteItemPhoto(itemId, photoId);
+    return this.requireDetail(itemId, viewer);
+  }
+
+  public async setItemPhotoCover(
+    itemId: string,
+    photoId: string,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    await this.photos.setCover(itemId, photoId);
+    return this.requireDetail(itemId, viewer);
+  }
 
   public async listItems(query: ItemQuery): Promise<ItemListResponse> {
     const { rows, total } = await listItems(this.database, query);
@@ -208,6 +241,16 @@ export class CatalogueService {
       .executeTakeFirst();
 
     return `ITM-${String(Number(row?.highest ?? 0) + 1).padStart(4, "0")}`;
+  }
+
+  private async requireDetail(itemId: string, viewer: ItemDetailOptions): Promise<ItemDetailView> {
+    const item = await findItemDetail(this.database, itemId, viewer);
+    if (item === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That item was not found." }),
+      );
+    }
+    return item;
   }
 }
 

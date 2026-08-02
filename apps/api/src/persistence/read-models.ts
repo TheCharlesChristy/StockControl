@@ -1,6 +1,7 @@
 import type {
   DashboardReservationView,
   ItemDetailView,
+  ItemPhotoView,
   ItemSummaryView,
   JobAssigneeView,
   LocationBalanceView,
@@ -69,6 +70,17 @@ interface BalanceRow {
   readonly is_active: boolean;
 }
 
+interface ItemPhotoRow {
+  readonly item_id: string;
+  readonly id: string;
+  readonly original_file_name: string;
+  readonly display_order: number;
+}
+
+function primaryPhotoUrl(itemId: string, photoId: string | null): string | null {
+  return photoId === null ? null : `/api/v1/items/${itemId}/photos/${photoId}`;
+}
+
 async function balancesFor(
   database: Database,
   itemIds: readonly string[],
@@ -100,6 +112,34 @@ async function balancesFor(
     grouped.set(row.item_id, [...(grouped.get(row.item_id) ?? []), row]);
   }
 
+  return grouped;
+}
+
+async function photosFor(
+  database: Database,
+  itemIds: readonly string[],
+): Promise<Map<string, ItemPhotoView[]>> {
+  const grouped = new Map<string, ItemPhotoView[]>();
+  if (itemIds.length === 0) return grouped;
+  const rows = await database
+    .withSchema(SCHEMA)
+    .selectFrom("item_photos")
+    .select(["item_id", "id", "original_file_name", "display_order"])
+    .where("item_id", "in", itemIds)
+    .orderBy("display_order")
+    .orderBy("created_at")
+    .execute();
+  for (const row of rows as readonly ItemPhotoRow[]) {
+    grouped.set(row.item_id, [
+      ...(grouped.get(row.item_id) ?? []),
+      {
+        id: row.id,
+        url: `/api/v1/items/${row.item_id}/photos/${row.id}`,
+        originalFileName: row.original_file_name,
+        isCover: row.display_order === 0,
+      },
+    ]);
+  }
   return grouped;
 }
 
@@ -152,6 +192,7 @@ function summarise(
   balanceRows: readonly BalanceRow[],
   openReserved: Quantity,
   reservedForViewer: Quantity,
+  photos: readonly ItemPhotoView[],
 ): ItemSummaryView {
   const balances: LocationBalance[] = balanceRows.map((row) => ({
     locationId: row.location_id,
@@ -184,6 +225,7 @@ function summarise(
     reservedForYou: formatQuantity(reservedForViewer),
     available: formatQuantity(availability.available),
     belowThreshold: threshold !== null && availability.available < threshold,
+    coverPhotoUrl: photos.find((photo) => photo.isCover)?.url ?? null,
   };
 }
 
@@ -228,10 +270,11 @@ export async function listItems(
     .execute()) as readonly ItemRow[];
 
   const itemIds = rows.map((row) => row.id);
-  const [balances, reserved, reservedForViewer] = await Promise.all([
+  const [balances, reserved, reservedForViewer, photos] = await Promise.all([
     balancesFor(database, itemIds),
     openReservedFor(database, itemIds),
     openReservedFor(database, itemIds, query.viewerUserId),
+    photosFor(database, itemIds),
   ]);
 
   const summaries = rows.map((row) =>
@@ -240,6 +283,7 @@ export async function listItems(
       balances.get(row.id) ?? [],
       reserved.get(row.id) ?? ZERO,
       reservedForViewer.get(row.id) ?? ZERO,
+      photos.get(row.id) ?? [],
     ),
   );
 
@@ -285,7 +329,7 @@ export async function findItemDetail(
     return undefined;
   }
 
-  const [balances, reserved, reservedForViewer, transactions] = await Promise.all([
+  const [balances, reserved, reservedForViewer, transactions, photos] = await Promise.all([
     balancesFor(database, [itemId]),
     openReservedFor(database, [itemId]),
     openReservedFor(database, [itemId], options.viewerUserId),
@@ -295,6 +339,7 @@ export async function findItemDetail(
       offset: 0,
       ...(options.scopeActivityToViewer ? { actorUserId: options.viewerUserId } : {}),
     }),
+    photosFor(database, [itemId]),
   ]);
   const balanceRows = balances.get(itemId) ?? [];
 
@@ -304,9 +349,11 @@ export async function findItemDetail(
       balanceRows,
       reserved.get(itemId) ?? ZERO,
       reservedForViewer.get(itemId) ?? ZERO,
+      photos.get(itemId) ?? [],
     ),
     balances: balanceRows.map(toBalanceView),
     recentTransactions: transactions.rows,
+    photos: photos.get(itemId) ?? [],
   };
 }
 
@@ -378,7 +425,10 @@ export async function listTransactions(
     .innerJoin("users", "users.id", "transactions.actor_user_id")
     .leftJoin("locations as from_location", "from_location.id", "transactions.from_location_id")
     .leftJoin("locations as to_location", "to_location.id", "transactions.to_location_id")
-    .leftJoin("jobs", "jobs.id", "transactions.job_id");
+    .leftJoin("jobs", "jobs.id", "transactions.job_id")
+    .leftJoin("item_photos", (join) =>
+      join.onRef("item_photos.item_id", "=", "items.id").on("item_photos.display_order", "=", 0),
+    );
 
   /*
    * The log is filtered by whichever identifier or search phrase the caller
@@ -428,6 +478,7 @@ export async function listTransactions(
       "transactions.occurred_at as occurred_at",
       "items.reference as item_reference",
       "items.name as item_name",
+      "item_photos.id as item_photo_id",
       "items.unit as unit",
       "from_location.code as from_code",
       "to_location.code as to_code",
@@ -449,6 +500,7 @@ export async function listTransactions(
       itemId: row.item_id,
       itemReference: row.item_reference,
       itemName: row.item_name,
+      itemPhotoUrl: primaryPhotoUrl(row.item_id, row.item_photo_id),
       unit: row.unit,
       quantity: row.quantity,
       fromLocationCode: row.from_code,
@@ -471,6 +523,9 @@ export async function listReservationsForJob(
     .selectFrom("reservations")
     .innerJoin("items", "items.id", "reservations.item_id")
     .innerJoin("users", "users.id", "reservations.created_by_user_id")
+    .leftJoin("item_photos", (join) =>
+      join.onRef("item_photos.item_id", "=", "items.id").on("item_photos.display_order", "=", 0),
+    )
     .select([
       "reservations.id as id",
       "reservations.item_id as item_id",
@@ -480,6 +535,7 @@ export async function listReservationsForJob(
       "reservations.created_at as created_at",
       "items.reference as item_reference",
       "items.name as item_name",
+      "item_photos.id as item_photo_id",
       "items.unit as unit",
       "reservations.created_by_user_id as created_by_user_id",
       "users.display_name as created_by_name",
@@ -493,6 +549,7 @@ export async function listReservationsForJob(
     itemId: row.item_id,
     itemReference: row.item_reference,
     itemName: row.item_name,
+    itemPhotoUrl: primaryPhotoUrl(row.item_id, row.item_photo_id),
     unit: row.unit,
     quantityReserved: row.quantity_reserved,
     quantityCollected: row.quantity_collected,
@@ -527,6 +584,9 @@ export async function listOpenReservations(
     .innerJoin("items", "items.id", "reservations.item_id")
     .innerJoin("jobs", "jobs.id", "reservations.job_id")
     .innerJoin("users", "users.id", "reservations.created_by_user_id")
+    .leftJoin("item_photos", (join) =>
+      join.onRef("item_photos.item_id", "=", "items.id").on("item_photos.display_order", "=", 0),
+    )
     .where("reservations.status", "=", "Open");
 
   if (options.createdByUserId !== undefined) {
@@ -544,6 +604,7 @@ export async function listOpenReservations(
       "reservations.created_by_user_id as created_by_user_id",
       "items.reference as item_reference",
       "items.name as item_name",
+      "item_photos.id as item_photo_id",
       "items.unit as unit",
       "jobs.id as job_id",
       "jobs.number as job_number",
@@ -559,6 +620,7 @@ export async function listOpenReservations(
     itemId: row.item_id,
     itemReference: row.item_reference,
     itemName: row.item_name,
+    itemPhotoUrl: primaryPhotoUrl(row.item_id, row.item_photo_id),
     unit: row.unit,
     quantityReserved: row.quantity_reserved,
     quantityCollected: row.quantity_collected,
@@ -633,7 +695,10 @@ export async function listStockRequests(
     .innerJoin("items", "items.id", "stock_requests.item_id")
     .innerJoin("users as requester", "requester.id", "stock_requests.requested_by_user_id")
     .leftJoin("users as decider", "decider.id", "stock_requests.decided_by_user_id")
-    .leftJoin("jobs", "jobs.id", "stock_requests.job_id");
+    .leftJoin("jobs", "jobs.id", "stock_requests.job_id")
+    .leftJoin("item_photos", (join) =>
+      join.onRef("item_photos.item_id", "=", "items.id").on("item_photos.display_order", "=", 0),
+    );
 
   if (query.id !== undefined) {
     selection = selection.where("stock_requests.id", "=", query.id);
@@ -675,6 +740,7 @@ export async function listStockRequests(
       "stock_requests.decided_at as decided_at",
       "items.reference as item_reference",
       "items.name as item_name",
+      "item_photos.id as item_photo_id",
       "items.unit as unit",
       "jobs.number as job_number",
       "jobs.name as job_name",
@@ -696,6 +762,7 @@ export async function listStockRequests(
       itemId: row.item_id,
       itemReference: row.item_reference,
       itemName: row.item_name,
+      itemPhotoUrl: primaryPhotoUrl(row.item_id, row.item_photo_id),
       unit: row.unit,
       jobId: row.job_id,
       jobNumber: row.job_number,

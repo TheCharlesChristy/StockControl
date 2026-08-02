@@ -20,6 +20,7 @@ function userForRole(role: UserRole): AuthenticatedUser {
     email: `${role.toLowerCase()}@example.com`,
     displayName: `${role} User`,
     role,
+    profilePhotoUrl: null,
   };
 }
 

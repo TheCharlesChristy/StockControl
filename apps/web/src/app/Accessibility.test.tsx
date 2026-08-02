@@ -18,6 +18,7 @@ const adminUser: AuthenticatedUser = {
   email: "admin@example.com",
   displayName: "Accessibility Admin",
   role: "Admin",
+  profilePhotoUrl: null,
 };
 
 const adminSession: AuthenticatedSession = {

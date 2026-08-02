@@ -14,7 +14,13 @@ import {
 } from "../../src/auth/request-context";
 
 const sessionFor = (role: AuthenticatedSession["user"]["role"]): AuthenticatedSession => ({
-  user: { id: `user-${role}`, email: `${role}@example.com`, displayName: role, role },
+  user: {
+    id: `user-${role}`,
+    email: `${role}@example.com`,
+    displayName: role,
+    role,
+    profilePhotoUrl: null,
+  },
   issuedAt: "2026-07-30T09:00:00.000Z",
   expiresAt: "2026-07-30T21:00:00.000Z",
 });

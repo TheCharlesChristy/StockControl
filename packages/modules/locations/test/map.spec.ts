@@ -103,6 +103,23 @@ describe("LocationMap", () => {
     ]);
   });
 
+  it("rejects partially overlapping areas while allowing containment", () => {
+    const map = emptyMap();
+    add(map, 1, "STORE-A", "Aisle 1", createRectangleGeometry(0.1, 0.1, 0.3, 0.3));
+
+    expect(() =>
+      add(map, 2, "STORE-B", "Aisle 2", createRectangleGeometry(0.3, 0.3, 0.3, 0.3)),
+    ).toThrowError(
+      new LocationDomainError(
+        "InvalidGeometry",
+        "Location areas must be separate or one must fully contain the other.",
+      ),
+    );
+    expect(() =>
+      add(map, 3, "STORE-C", "Shelf 1", createRectangleGeometry(0.2, 0.2, 0.1, 0.1)),
+    ).not.toThrow();
+  });
+
   it("re-derives nesting when a shape is dragged out of its container", () => {
     const map = emptyMap();
     add(map, 1, "STORE-A", "Ground floor", createRectangleGeometry(0, 0, 0.6, 0.6));

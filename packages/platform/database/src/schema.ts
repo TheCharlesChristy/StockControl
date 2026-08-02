@@ -113,6 +113,30 @@ export interface FloorPlanDocumentsTable {
   readonly created_at: GeneratedImmutableColumn<Date>;
 }
 
+export interface UserProfilePhotosTable {
+  readonly id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly object_key: ImmutableColumn<string>;
+  readonly original_file_name: string;
+  readonly media_type: "image/png" | "image/jpeg";
+  readonly byte_length: number;
+  readonly sha256: string;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface ItemPhotosTable {
+  readonly id: ImmutableColumn<string>;
+  readonly item_id: ImmutableColumn<string>;
+  readonly object_key: ImmutableColumn<string>;
+  readonly original_file_name: string;
+  readonly media_type: "image/png" | "image/jpeg";
+  readonly byte_length: number;
+  readonly sha256: string;
+  readonly display_order: number;
+  readonly created_by_user_id: ImmutableColumn<string>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
 export interface MapEditEventsTable {
   readonly id: ImmutableColumn<string>;
   readonly map_id: ImmutableColumn<string>;
@@ -208,6 +232,8 @@ export interface StockControlDatabase {
   readonly maps: MapsTable;
   readonly map_edit_events: MapEditEventsTable;
   readonly floor_plan_documents: FloorPlanDocumentsTable;
+  readonly user_profile_photos: UserProfilePhotosTable;
+  readonly item_photos: ItemPhotosTable;
   readonly migration_integrity: MigrationIntegrityTable;
   readonly reservations: ReservationsTable;
   readonly sessions: SessionsTable;

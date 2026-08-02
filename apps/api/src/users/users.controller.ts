@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Req,
+  Res,
+} from "@nestjs/common";
 import type {
+  ImageUploadRequest,
   UserActivityResponse,
   UserListResponse,
   UserResponse,
@@ -8,10 +20,11 @@ import type {
 import { userRoles, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
+import type { FastifyReply } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
-import { requireCapability } from "../auth/request-context";
-import { bodyOf, readBoolean, readText } from "../inventory/request-parsing";
+import { currentUser, requireCapability } from "../auth/request-context";
+import { bodyOf, readBoolean, readText, requireText } from "../inventory/request-parsing";
 import type { UsersService } from "./users.service";
 
 function readRole(value: string): UserRole | undefined {
@@ -21,6 +34,52 @@ function readRole(value: string): UserRole | undefined {
 @Controller("users")
 export class UsersController {
   public constructor(@Inject(API_TOKENS.usersService) private readonly users: UsersService) {}
+
+  @Get(":id/profile-photo")
+  public async profilePhoto(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    this.requirePhotoAccess(request, id);
+    const asset = await this.users.profilePhoto(id);
+    return reply
+      .type(asset.mediaType)
+      .header("content-disposition", `inline; filename="${asset.fileName.replaceAll('"', "")}"`)
+      .header("cache-control", "private, max-age=60")
+      .send(asset.bytes);
+  }
+
+  @Post(":id/profile-photo")
+  public async saveProfilePhoto(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Body() rawBody: unknown,
+  ): Promise<UserResponse> {
+    this.requirePhotoAccess(request, id);
+    const body = bodyOf(rawBody);
+    const mediaType = body.mediaType;
+    if (mediaType !== "image/png" && mediaType !== "image/jpeg") {
+      throw new ApplicationFailureException(
+        validationFailed({ mediaType: ["Use image/png or image/jpeg."] }),
+      );
+    }
+    const input: ImageUploadRequest = {
+      originalFileName: requireText(body, "originalFileName", "an image filename"),
+      mediaType,
+      contentBase64: requireText(body, "contentBase64", "image bytes"),
+    };
+    return { user: await this.users.saveProfilePhoto(id, input) };
+  }
+
+  @Delete(":id/profile-photo")
+  public async deleteProfilePhoto(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+  ): Promise<UserResponse> {
+    this.requirePhotoAccess(request, id);
+    return { user: await this.users.deleteProfilePhoto(id) };
+  }
 
   /*
    * Listing people is a read, not user management: Office needs it to filter a
@@ -115,5 +174,9 @@ export class UsersController {
     await this.users.remove(id);
 
     return { deleted: true };
+  }
+
+  private requirePhotoAccess(request: FastifyRequest, userId: string): void {
+    if (currentUser(request).id !== userId) requireCapability(request, "manageUsers");
   }
 }

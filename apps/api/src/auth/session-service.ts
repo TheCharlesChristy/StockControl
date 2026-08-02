@@ -39,7 +39,16 @@ export class SessionService {
     const user = await this.database
       .withSchema(SCHEMA)
       .selectFrom("users")
-      .select(["id", "email", "display_name", "role", "password_hash", "is_active"])
+      .leftJoin("user_profile_photos", "user_profile_photos.user_id", "users.id")
+      .select([
+        "users.id as id",
+        "users.email as email",
+        "users.display_name as display_name",
+        "users.role as role",
+        "users.password_hash as password_hash",
+        "users.is_active as is_active",
+        "user_profile_photos.id as profile_photo_id",
+      ])
       .where("email", "=", normalisedEmail)
       .executeTakeFirst();
 
@@ -78,6 +87,10 @@ export class SessionService {
           email: user.email,
           displayName: user.display_name,
           role: user.role,
+          profilePhotoUrl:
+            user.profile_photo_id === null
+              ? null
+              : `/api/v1/users/${user.id}/profile-photo?v=${user.profile_photo_id}`,
         },
         issuedAt: issuedAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
@@ -90,6 +103,7 @@ export class SessionService {
       .withSchema(SCHEMA)
       .selectFrom("sessions")
       .innerJoin("users", "users.id", "sessions.user_id")
+      .leftJoin("user_profile_photos", "user_profile_photos.user_id", "users.id")
       .select([
         "sessions.issued_at as issued_at",
         "sessions.expires_at as expires_at",
@@ -98,6 +112,7 @@ export class SessionService {
         "users.display_name as display_name",
         "users.role as role",
         "users.is_active as is_active",
+        "user_profile_photos.id as profile_photo_id",
       ])
       .where("sessions.id", "=", sessionId)
       .executeTakeFirst();
@@ -112,6 +127,10 @@ export class SessionService {
         email: row.email,
         displayName: row.display_name,
         role: row.role,
+        profilePhotoUrl:
+          row.profile_photo_id === null
+            ? null
+            : `/api/v1/users/${row.user_id}/profile-photo?v=${row.profile_photo_id}`,
       },
       issuedAt: row.issued_at.toISOString(),
       expiresAt: row.expires_at.toISOString(),

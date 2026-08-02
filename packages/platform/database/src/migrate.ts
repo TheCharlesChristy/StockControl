@@ -1,31 +1,19 @@
-import { loadMigrationDatabaseRoles, loadMigratorDatabaseConfiguration } from "./configuration";
-import { createMigratorDatabase } from "./connection";
-import { DatabaseMigrationError, runMigrations } from "./migrations/runner";
+import { migrateConfiguredDatabase } from "./migrations/service";
+import { DatabaseMigrationError } from "./migrations/runner";
 
 const migrate = async (): Promise<void> => {
-  const migratorConfiguration = loadMigratorDatabaseConfiguration();
-  const { runtimeRole } = loadMigrationDatabaseRoles(
-    process.env,
-    migratorConfiguration.connectionString,
+  const result = await migrateConfiguredDatabase(process.env);
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "database.migration.complete",
+      results: result.results.map(({ direction, migrationName, status }) => ({
+        direction,
+        migrationName,
+        status,
+      })),
+    })}\n`,
   );
-  const database = createMigratorDatabase(migratorConfiguration);
-
-  try {
-    const result = await runMigrations(database, { runtimeRole });
-
-    process.stdout.write(
-      `${JSON.stringify({
-        event: "database.migration.complete",
-        results: result.results.map(({ direction, migrationName, status }) => ({
-          direction,
-          migrationName,
-          status,
-        })),
-      })}\n`,
-    );
-  } finally {
-    await database.destroy();
-  }
 };
 
 void migrate().catch((error: unknown) => {

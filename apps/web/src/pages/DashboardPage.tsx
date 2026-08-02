@@ -37,6 +37,7 @@ import {
   transactionKindLabels,
 } from "../components/DataStates";
 import { InventoryTable } from "../components/InventoryTable";
+import { ItemAvatar } from "../components/ItemAvatar";
 import { StockRequestList } from "../components/StockRequestList";
 
 interface PanelProps {
@@ -91,9 +92,16 @@ function ReservationList({
         <ListItem key={reservation.id} divider>
           <ListItemText
             primary={
-              <Link component={RouterLink} to={`/jobs/${reservation.jobId}`} underline="hover">
-                {reservation.itemReference} — {reservation.itemName}
-              </Link>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <ItemAvatar
+                  name={reservation.itemName}
+                  photoUrl={reservation.itemPhotoUrl}
+                  size={32}
+                />
+                <Link component={RouterLink} to={`/jobs/${reservation.jobId}`} underline="hover">
+                  {reservation.itemReference} — {reservation.itemName}
+                </Link>
+              </Stack>
             }
             secondary={`${formatQuantity(reservation.quantityOutstanding)} ${reservation.unit} remaining to collect for ${reservation.jobNumber} ${reservation.jobName}${
               showOwner ? ` · ${reservation.createdByName}` : ""
@@ -276,9 +284,12 @@ function OfficeDashboard({
               <ListItem key={item.id} divider>
                 <ListItemText
                   primary={
-                    <Link component={RouterLink} to={`/inventory/${item.id}`} underline="hover">
-                      {item.reference} — {item.name}
-                    </Link>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <ItemAvatar name={item.name} photoUrl={item.coverPhotoUrl} size={32} />
+                      <Link component={RouterLink} to={`/inventory/${item.id}`} underline="hover">
+                        {item.reference} — {item.name}
+                      </Link>
+                    </Stack>
                   }
                   secondary={`${formatQuantity(item.available)} ${item.unit} ready to use, minimum ${formatQuantity(item.lowStockThreshold ?? "0")}`}
                 />
@@ -399,6 +410,11 @@ function OfficeDashboard({
                         label={transactionKindLabels[transaction.kind]}
                         size="small"
                         variant="outlined"
+                      />
+                      <ItemAvatar
+                        name={transaction.itemName}
+                        photoUrl={transaction.itemPhotoUrl}
+                        size={28}
                       />
                       <Link
                         component={RouterLink}

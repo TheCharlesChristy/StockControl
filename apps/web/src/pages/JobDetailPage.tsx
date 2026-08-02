@@ -40,6 +40,7 @@ import {
   StatTile,
   transactionKindLabels,
 } from "../components/DataStates";
+import { ItemAvatar } from "../components/ItemAvatar";
 
 function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError
@@ -118,15 +119,18 @@ function ReserveDialog({
               isOptionEqualToValue={(option, value) => option.id === value.id}
               renderOption={(props, option) => (
                 <li {...props} key={option.id}>
-                  <Box>
-                    <Typography component="span" sx={{ fontWeight: 700 }}>
-                      {option.reference}
-                    </Typography>{" "}
-                    {option.name}
-                    <Typography variant="body2" color="text.secondary">
-                      {formatQuantity(option.available)} {option.unit} available
-                    </Typography>
-                  </Box>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <ItemAvatar name={option.name} photoUrl={option.coverPhotoUrl} size={32} />
+                    <Box>
+                      <Typography component="span" sx={{ fontWeight: 700 }}>
+                        {option.reference}
+                      </Typography>{" "}
+                      {option.name}
+                      <Typography variant="body2" color="text.secondary">
+                        {formatQuantity(option.available)} {option.unit} available
+                      </Typography>
+                    </Box>
+                  </Stack>
                 </li>
               )}
               renderInput={(params) => (
@@ -215,11 +219,18 @@ function CollectDialog({
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            <Typography variant="body2" color="text.secondary">
-              {reservation.itemReference} — {reservation.itemName}.{" "}
-              {formatQuantity(reservation.quantityOutstanding)} {reservation.unit} remaining to
-              collect.
-            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <ItemAvatar
+                name={reservation.itemName}
+                photoUrl={reservation.itemPhotoUrl}
+                size={32}
+              />
+              <Typography variant="body2" color="text.secondary">
+                {reservation.itemReference} — {reservation.itemName}.{" "}
+                {formatQuantity(reservation.quantityOutstanding)} {reservation.unit} remaining to
+                collect.
+              </Typography>
+            </Stack>
             {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">
                 {error.message}
@@ -605,16 +616,25 @@ export function JobDetailPage(): ReactElement {
                       {data.reservations.map((reservation) => (
                         <TableRow key={reservation.id}>
                           <TableCell>
-                            <Link
-                              component={RouterLink}
-                              to={`/inventory/${reservation.itemId}`}
-                              underline="hover"
-                            >
-                              {reservation.itemReference}
-                            </Link>
-                            <Typography variant="body2" color="text.secondary">
-                              {reservation.itemName}
-                            </Typography>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <ItemAvatar
+                                name={reservation.itemName}
+                                photoUrl={reservation.itemPhotoUrl}
+                                size={32}
+                              />
+                              <Box>
+                                <Link
+                                  component={RouterLink}
+                                  to={`/inventory/${reservation.itemId}`}
+                                  underline="hover"
+                                >
+                                  {reservation.itemReference}
+                                </Link>
+                                <Typography variant="body2" color="text.secondary">
+                                  {reservation.itemName}
+                                </Typography>
+                              </Box>
+                            </Stack>
                           </TableCell>
                           {/*
                            * With the unit, because "127 · 50.8 · 76.2" on its
@@ -737,7 +757,21 @@ export function JobDetailPage(): ReactElement {
                               variant="outlined"
                             />
                           </TableCell>
-                          <TableCell>{transaction.itemReference}</TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <ItemAvatar
+                                name={transaction.itemName}
+                                photoUrl={transaction.itemPhotoUrl}
+                                size={32}
+                              />
+                              <Box>
+                                <Typography>{transaction.itemReference}</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {transaction.itemName}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          </TableCell>
                           <TableCell align="right">
                             {formatQuantity(transaction.quantity)} {transaction.unit}
                           </TableCell>

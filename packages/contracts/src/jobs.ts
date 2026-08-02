@@ -32,6 +32,8 @@ export interface ReservationView {
   readonly itemId: string;
   readonly itemReference: string;
   readonly itemName: string;
+  /** The item's primary (starred) photo, when one has been chosen. */
+  readonly itemPhotoUrl: string | null;
   readonly unit: string;
   readonly quantityReserved: string;
   readonly quantityCollected: string;

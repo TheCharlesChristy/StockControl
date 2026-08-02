@@ -34,6 +34,7 @@ import { Link as RouterLink } from "react-router-dom";
 import { useApi, useResource } from "../api/ApiContext";
 import { downloadCsv, fetchAllRows, toCsv } from "../csv";
 import { EmptyState, ErrorState, formatQuantity, LoadingRows } from "./DataStates";
+import { ItemAvatar } from "./ItemAvatar";
 
 const PAGE_SIZE = 25;
 
@@ -92,13 +93,18 @@ function ItemRow({ item, showReservedForYou, columnCount }: ItemRowProps): React
           </Link>
         </TableCell>
         <TableCell sx={{ minWidth: { xs: 0, sm: 220 } }}>
-          {item.name}
-          {!item.isActive && (
-            <Chip label="Archived" size="small" variant="outlined" sx={{ ml: 1 }} />
-          )}
-          {item.belowThreshold && (
-            <Chip label="Low" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
-          )}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <ItemAvatar name={item.name} photoUrl={item.coverPhotoUrl} size={36} />
+            <Box>
+              {item.name}
+              {!item.isActive && (
+                <Chip label="Archived" size="small" variant="outlined" sx={{ ml: 1 }} />
+              )}
+              {item.belowThreshold && (
+                <Chip label="Low" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
+              )}
+            </Box>
+          </Stack>
         </TableCell>
         <TableCell align="right" sx={{ display: { xs: "none", sm: "table-cell" } }}>
           {formatQuantity(item.onHand)}

@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => {
     envDir: workspaceRoot,
     plugins: [react()],
     resolve: {
+      // Keep React and ReactDOM on a single module identity in the dev server.
+      // This is especially important with pnpm's symlinked workspace packages:
+      // MUI icons otherwise can resolve a second React copy and fail with the
+      // browser's "Invalid hook call" error when an icon is rendered.
+      dedupe: ["react", "react-dom"],
       alias: {
         "@stockcontrol/contracts": path.resolve(workspaceRoot, "packages/contracts/src/index.ts"),
         "@stockcontrol/module-locations": path.resolve(

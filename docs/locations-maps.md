@@ -93,7 +93,8 @@ holds stock, and it has no map, no geometry and no parent.
 ## Local floor plans
 
 Compose starts PostgreSQL and a private MinIO instance on ports `5432`, `9000`,
-and `9001`. Accepted floor-plan media types are PNG and JPEG, with the limit in
+and `9001`. The private bucket is shared with user profile and item photos.
+Accepted floor-plan media types are PNG and JPEG, with the limit in
 `FLOOR_PLAN_MAX_BYTES` (10 MiB by default). PostgreSQL stores only document
 metadata and an opaque document ID. Admins upload through
 `POST /api/v1/maps/:mapId/background`; the API verifies the image signature,

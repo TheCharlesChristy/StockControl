@@ -43,6 +43,7 @@ export const testItem: ItemSummaryView = {
   reservedForYou: "30.000",
   available: "350.000",
   belowThreshold: false,
+  coverPhotoUrl: null,
 };
 
 export const testTransaction: TransactionView = {
@@ -51,6 +52,7 @@ export const testTransaction: TransactionView = {
   itemId: testItem.id,
   itemReference: testItem.reference,
   itemName: testItem.name,
+  itemPhotoUrl: null,
   unit: "ea",
   quantity: "420.000",
   fromLocationCode: null,
@@ -81,6 +83,7 @@ export const testItemDetail: ItemDetailView = {
     },
   ],
   recentTransactions: [testTransaction],
+  photos: [],
 };
 
 export const testJob: JobDetailView = {
@@ -100,6 +103,7 @@ export const testJob: JobDetailView = {
       itemId: testItem.id,
       itemReference: testItem.reference,
       itemName: testItem.name,
+      itemPhotoUrl: null,
       unit: "ea",
       quantityReserved: "50.000",
       quantityCollected: "20.000",
@@ -128,6 +132,7 @@ export const testStockRequest: StockRequestView = {
   itemId: testItem.id,
   itemReference: testItem.reference,
   itemName: testItem.name,
+  itemPhotoUrl: null,
   unit: "ea",
   jobId: "job-1",
   jobNumber: "J-1001",
@@ -209,6 +214,7 @@ const users: UserListResponse = {
       role: "Admin",
       isActive: true,
       createdAt: "2026-07-01T09:00:00.000Z",
+      profilePhotoUrl: null,
     },
   ],
 };

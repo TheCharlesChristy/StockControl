@@ -1,5 +1,18 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from "@nestjs/common";
 import type {
+  ImageUploadRequest,
   ItemDetailView,
   ItemListResponse,
   LocationListResponse,
@@ -8,10 +21,11 @@ import type {
 } from "@stockcontrol/contracts";
 import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
 import { canViewAllActivity, currentUser, requireCapability } from "../auth/request-context";
+import type { PhotosService } from "../media/photos.service";
 import type { ItemDetailOptions } from "../persistence/read-models";
 import type { CatalogueService } from "./catalogue.service";
 import {
@@ -42,7 +56,58 @@ export class InventoryController {
   public constructor(
     @Inject(API_TOKENS.stockService) private readonly stock: StockService,
     @Inject(API_TOKENS.catalogueService) private readonly catalogue: CatalogueService,
+    @Inject(API_TOKENS.photosService) private readonly photos: PhotosService,
   ) {}
+
+  @Get("items/:itemId/photos/:photoId")
+  public async itemPhoto(
+    @Req() request: FastifyRequest,
+    @Param("itemId") itemId: string,
+    @Param("photoId") photoId: string,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    requireCapability(request, "view");
+    const asset = await this.photos.itemPhoto(itemId, photoId);
+    return reply
+      .type(asset.mediaType)
+      .header("content-disposition", `inline; filename="${asset.fileName.replaceAll('"', "")}"`)
+      .header("cache-control", "private, max-age=60")
+      .send(asset.bytes);
+  }
+
+  @Post("items/:id/photos")
+  public async uploadItemPhoto(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Body() rawBody: unknown,
+  ): Promise<{ readonly item: ItemDetailView }> {
+    const actor = requireCapability(request, "manageCatalogue");
+    const body = bodyOf(rawBody);
+    const input = imageUploadFrom(body);
+    return {
+      item: await this.catalogue.uploadItemPhoto(id, actor.id, input, viewerOf(request)),
+    };
+  }
+
+  @Delete("items/:id/photos/:photoId")
+  public async deleteItemPhoto(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Param("photoId") photoId: string,
+  ): Promise<{ readonly item: ItemDetailView }> {
+    requireCapability(request, "manageCatalogue");
+    return { item: await this.catalogue.deleteItemPhoto(id, photoId, viewerOf(request)) };
+  }
+
+  @Post("items/:id/photos/:photoId/cover")
+  public async setItemPhotoCover(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Param("photoId") photoId: string,
+  ): Promise<{ readonly item: ItemDetailView }> {
+    requireCapability(request, "manageCatalogue");
+    return { item: await this.catalogue.setItemPhotoCover(id, photoId, viewerOf(request)) };
+  }
 
   @Get("items")
   public async listItems(
@@ -262,4 +327,18 @@ export class InventoryController {
       to: parseTimestamp(to, "to"),
     });
   }
+}
+
+function imageUploadFrom(body: Readonly<Record<string, unknown>>): ImageUploadRequest {
+  const mediaType = body.mediaType;
+  if (mediaType !== "image/png" && mediaType !== "image/jpeg") {
+    throw new ApplicationFailureException(
+      validationFailed({ mediaType: ["Use image/png or image/jpeg."] }),
+    );
+  }
+  return {
+    originalFileName: requireText(body, "originalFileName", "an image filename"),
+    mediaType,
+    contentBase64: requireText(body, "contentBase64", "image bytes"),
+  };
 }

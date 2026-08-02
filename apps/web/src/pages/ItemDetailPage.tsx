@@ -1,6 +1,10 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
+import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
 import MoreHorizRounded from "@mui/icons-material/MoreHorizRounded";
+import PhotoCameraRounded from "@mui/icons-material/PhotoCameraRounded";
 import PrintRounded from "@mui/icons-material/PrintRounded";
+import StarBorderRounded from "@mui/icons-material/StarBorderRounded";
+import StarRounded from "@mui/icons-material/StarRounded";
 import {
   Alert,
   Box,
@@ -24,8 +28,8 @@ import {
   TableRow,
   Typography,
 } from "@mui/material";
-import type { ItemDetailView, LocationView } from "@stockcontrol/contracts";
-import { useCallback, useState, type ReactElement } from "react";
+import type { ItemDetailView, ItemPhotoView, LocationView } from "@stockcontrol/contracts";
+import { useCallback, useState, type ChangeEvent, type ReactElement } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
 import { useApi, useResource } from "../api/ApiContext";
@@ -43,9 +47,168 @@ import {
   transactionKindLabels,
 } from "../components/DataStates";
 import { ItemQrCode } from "../components/ItemQrCode";
+import { ItemAvatar } from "../components/ItemAvatar";
 import { isValidEan13, ItemBarcode } from "../components/ItemBarcode";
+import { readImageFile } from "../components/photo-files";
 import { StockOperationDialog, type StockOperation } from "../components/StockOperationDialog";
 import { StockRequestDialog } from "../components/StockRequestDialog";
+import { ItemLocationButton, ItemLocationDialog } from "./ItemLocationDialog";
+
+function ItemPhotoGallery({
+  item,
+  canManage,
+  onChanged,
+}: {
+  readonly item: ItemDetailView;
+  readonly canManage: boolean;
+  readonly onChanged: () => void;
+}): ReactElement {
+  const api = useApi();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  const upload = (event: ChangeEvent<HTMLInputElement>): void => {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = "";
+    if (files.length === 0) return;
+    setBusy(true);
+    setError(undefined);
+    void (async (): Promise<void> => {
+      const failures: string[] = [];
+      for (const file of files) {
+        try {
+          const input = await readImageFile(file);
+          await api.uploadItemPhoto(item.id, input);
+        } catch (caught: unknown) {
+          failures.push(
+            caught instanceof ApiError
+              ? caught.message
+              : caught instanceof Error
+                ? caught.message
+                : `${file.name} could not be uploaded.`,
+          );
+        }
+      }
+      if (failures.length > 0) setError(failures.join(" "));
+      onChanged();
+    })().finally(() => setBusy(false));
+  };
+
+  const remove = (photo: ItemPhotoView): void => {
+    setBusy(true);
+    setError(undefined);
+    void api
+      .deleteItemPhoto(item.id, photo.id)
+      .then(onChanged)
+      .catch((caught: unknown) =>
+        setError(caught instanceof ApiError ? caught.message : "Photo could not be removed."),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  const setCover = (photo: ItemPhotoView): void => {
+    setBusy(true);
+    setError(undefined);
+    void api
+      .setItemPhotoCover(item.id, photo.id)
+      .then(onChanged)
+      .catch((caught: unknown) =>
+        setError(caught instanceof ApiError ? caught.message : "Cover photo could not be changed."),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5 }}>
+      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5}>
+        <Box>
+          <Typography variant="h3" component="h2">
+            Photos
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {item.photos.length === 0
+              ? "No photos yet."
+              : `${String(item.photos.length)} of 10 photos`}
+          </Typography>
+        </Box>
+        {canManage && item.photos.length < 10 && (
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<PhotoCameraRounded />}
+            disabled={busy}
+          >
+            Add photos
+            <input hidden type="file" multiple accept="image/png,image/jpeg" onChange={upload} />
+          </Button>
+        )}
+      </Stack>
+      {error !== undefined && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      )}
+      {item.photos.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" useFlexGap gap={2} sx={{ mt: 2 }}>
+          {item.photos.map((photo) => (
+            <Paper
+              key={photo.id}
+              variant="outlined"
+              sx={{ width: { xs: "100%", sm: 190 }, overflow: "hidden" }}
+            >
+              <Box
+                component="img"
+                src={photo.url}
+                alt={`${item.name} — ${photo.originalFileName}`}
+                sx={{
+                  display: "block",
+                  width: "100%",
+                  height: 145,
+                  objectFit: "cover",
+                  bgcolor: "action.hover",
+                }}
+              />
+              <Stack spacing={0.75} sx={{ p: 1.25 }}>
+                <Typography variant="caption" noWrap title={photo.originalFileName}>
+                  {photo.originalFileName}
+                </Typography>
+                {photo.isCover ? (
+                  <Typography
+                    variant="caption"
+                    color="primary.main"
+                    sx={{ fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 0.5 }}
+                  >
+                    <StarRounded fontSize="inherit" /> Primary photo
+                  </Typography>
+                ) : canManage ? (
+                  <Button
+                    size="small"
+                    startIcon={<StarBorderRounded />}
+                    onClick={() => setCover(photo)}
+                    disabled={busy}
+                  >
+                    Set as primary
+                  </Button>
+                ) : null}
+                {canManage && (
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<DeleteOutlineRounded />}
+                    onClick={() => remove(photo)}
+                    disabled={busy}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      )}
+    </Paper>
+  );
+}
 
 export function ItemDetailPage(): ReactElement {
   const api = useApi();
@@ -63,6 +226,7 @@ export function ItemDetailPage(): ReactElement {
   const [confirmingArchive, setConfirmingArchive] = useState(false);
   const [moreActionsAnchor, setMoreActionsAnchor] = useState<HTMLElement | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [locationMapOpen, setLocationMapOpen] = useState(false);
 
   const loadItem = useCallback((signal: AbortSignal) => api.getItem(itemId, signal), [api, itemId]);
   const loadLocations = useCallback((signal: AbortSignal) => api.listLocations(signal), [api]);
@@ -127,6 +291,7 @@ export function ItemDetailPage(): ReactElement {
           <PageHeader
             eyebrow={data.reference}
             title={data.name}
+            leading={<ItemAvatar name={data.name} photoUrl={data.coverPhotoUrl} size={56} />}
             description={[
               data.barcode === null ? undefined : `Barcode ${data.barcode}`,
               data.partNumber === null ? undefined : `Part ${data.partNumber}`,
@@ -144,6 +309,7 @@ export function ItemDetailPage(): ReactElement {
                 justifyContent={{ xs: "flex-start", sm: "flex-end" }}
                 className="no-print"
               >
+                <ItemLocationButton onClick={() => setLocationMapOpen(true)} />
                 {canManageStock && (
                   <Button variant="contained" onClick={() => setOperation("receive")}>
                     Receive
@@ -244,6 +410,7 @@ export function ItemDetailPage(): ReactElement {
           )}
 
           <Stack spacing={3}>
+            <ItemPhotoGallery item={data} canManage={canManageCatalogue} onChanged={item.reload} />
             {/*
              * Five figures that only make sense in relation to each other, so
              * each says what it counts. Every one carries the unit: a row where
@@ -475,6 +642,13 @@ export function ItemDetailPage(): ReactElement {
               onCompleted={handleCompleted}
             />
           )}
+
+          <ItemLocationDialog
+            open={locationMapOpen}
+            item={data}
+            api={api}
+            onClose={() => setLocationMapOpen(false)}
+          />
 
           {requesting && (
             <StockRequestDialog

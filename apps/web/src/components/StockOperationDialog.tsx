@@ -16,6 +16,7 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import { ApiError } from "../api/ApiClient";
 import { useApi } from "../api/ApiContext";
 import { formatQuantity } from "./DataStates";
+import { ItemAvatar } from "./ItemAvatar";
 
 export type StockOperation = "receive" | "issue" | "transfer" | "adjust";
 
@@ -169,9 +170,12 @@ export function StockOperationDialog({
       <form onSubmit={handleSubmit} noValidate>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            <Typography variant="body2" color="text.secondary">
-              {item.reference} — {item.name}
-            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <ItemAvatar name={item.name} photoUrl={item.coverPhotoUrl} size={32} />
+              <Typography variant="body2" color="text.secondary">
+                {item.reference} — {item.name}
+              </Typography>
+            </Stack>
 
             {error !== undefined && !error.hasFieldErrors && (
               <Alert severity={error.isPermissionDenied ? "warning" : "error"} role="alert">

@@ -7,6 +7,7 @@ export interface AuthenticatedUser {
   readonly email: string;
   readonly displayName: string;
   readonly role: UserRole;
+  readonly profilePhotoUrl: string | null;
 }
 
 export interface AuthenticatedSession {
@@ -40,7 +41,8 @@ export function isAuthenticatedUser(value: unknown): value is AuthenticatedUser 
     typeof value["id"] === "string" &&
     typeof value["email"] === "string" &&
     typeof value["displayName"] === "string" &&
-    isUserRole(value["role"])
+    isUserRole(value["role"]) &&
+    (typeof value["profilePhotoUrl"] === "string" || value["profilePhotoUrl"] === null)
   );
 }
 

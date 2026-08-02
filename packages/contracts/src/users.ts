@@ -10,7 +10,10 @@ export interface UserView {
   readonly role: UserRole;
   readonly isActive: boolean;
   readonly createdAt: string;
+  readonly profilePhotoUrl: string | null;
 }
+
+export type { ImageMediaType, ImageUploadRequest } from "./media";
 
 export interface UserListResponse {
   readonly users: readonly UserView[];
