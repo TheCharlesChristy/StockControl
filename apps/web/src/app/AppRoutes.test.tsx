@@ -251,6 +251,12 @@ describe("StockControl application routes", () => {
     expect(screen.queryByText("£184k")).not.toBeInTheDocument();
   });
 
+  it("shows issue reporting only after the API confirms it is configured", async () => {
+    renderRoute("/dashboard", new FakeAuthClient(userForRole("Admin")));
+
+    expect(await screen.findByRole("button", { name: "Report an issue" })).toBeInTheDocument();
+  });
+
   it("updates the document title and focuses main content after navigation", async () => {
     const user = userEvent.setup();
     renderRoute("/dashboard", new FakeAuthClient(userForRole("Admin")));

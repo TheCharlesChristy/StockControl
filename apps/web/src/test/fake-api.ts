@@ -383,6 +383,9 @@ export function createFakeApiClient(
     if (path === "/dashboard") {
       return Promise.resolve(jsonResponse(officeDashboard));
     }
+    if (path === "/issues/configuration") {
+      return Promise.resolve(jsonResponse({ enabled: true }));
+    }
     if (path === "/stock-requests") {
       return Promise.resolve(jsonResponse(stockRequests));
     }

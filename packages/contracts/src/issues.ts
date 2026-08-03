@@ -8,3 +8,7 @@ export interface ReportIssueRequest {
 export interface ReportIssueResponse {
   readonly issueUrl: string;
 }
+
+export interface IssueReportingConfigurationResponse {
+  readonly enabled: boolean;
+}

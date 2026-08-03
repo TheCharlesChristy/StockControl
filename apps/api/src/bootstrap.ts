@@ -12,10 +12,7 @@ import {
   registerCorrelationIdHook,
   type StructuredLogger,
 } from "@stockcontrol/platform";
-import {
-  migrateConfiguredDatabase,
-  type DatabaseEnvironment,
-} from "@stockcontrol/platform-database";
+import type { DatabaseEnvironment } from "@stockcontrol/platform-database";
 
 import { AppModule } from "./app.module";
 import { SYSTEM_TOKENS } from "./system/system.tokens";
@@ -74,7 +71,6 @@ export const startApi = async (
   environment: ApiListenerEnvironment = process.env,
 ): Promise<NestFastifyApplication> => {
   const { host, port } = resolveApiListenerConfiguration(environment);
-  await migrateConfiguredDatabase(environment);
   const app = await createApiApplication();
   const logger = app.get<StructuredLogger>(SYSTEM_TOKENS.logger);
 

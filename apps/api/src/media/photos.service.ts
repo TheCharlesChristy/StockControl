@@ -6,7 +6,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
-import { decodeImage, digestFor } from "./image-validation";
+import { decodeImage, digestFor, type DecodedImage } from "./image-validation";
 import { S3PrivateObjectStorage, type PrivateObjectStorage } from "./media-storage";
 
 const SCHEMA = "stockcontrol" as const;
@@ -263,7 +263,7 @@ export class PhotosService {
     });
   }
 
-  private decode(input: ImageUploadRequest) {
+  private decode(input: ImageUploadRequest): DecodedImage {
     try {
       return decodeImage(input, this.maxBytes);
     } catch (error) {

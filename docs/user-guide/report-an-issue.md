@@ -2,8 +2,9 @@
 
 ## Who can use this feature?
 
-Every signed-in user can report an issue from the top bar. The report automatically includes the page
-you were viewing so the team can identify the context.
+When the installation's administrator has configured GitHub issue reporting, every signed-in user
+can report an issue from the top bar. The control is hidden when the integration is not configured.
+The report automatically includes the page you were viewing so the team can identify the context.
 
 ## Submit a report
 

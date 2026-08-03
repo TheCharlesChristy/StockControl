@@ -32,7 +32,7 @@ again.
 ## Stock-rule refusals
 
 - You cannot take more stock than the selected location holds.
-- You cannot reserve more than the item’s Ready to use/Available quantity.
+- You cannot reserve more than the item’s **Ready to use** quantity.
 - A transfer must have different valid source and destination stores.
 - An adjustment sets the complete new count; it does not add to the old count.
 - A refused operation writes no partial change.

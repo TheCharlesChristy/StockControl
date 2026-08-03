@@ -22,16 +22,16 @@ reservations. Office and Admin users can assign people, release reservations, an
 Remove an assignee from the same panel. Assignment changes what appears on that person’s Overview;
 it does not move stock.
 
-## Reserve stock — all roles
+## Reserve for a job — all roles
 
 1. On an open job, select **Reserve for this job**.
 2. Search for and select an **Item**.
 3. Enter **Quantity**.
 4. Select **Reserve for job**.
 
-Reservation reduces the item’s Ready to use/Available quantity, but does not move stock yet. The
-quantity must not exceed the item’s current available stock. An over-reservation is refused with
-the available figure and writes nothing.
+Reservation reduces the item’s **Ready to use** quantity, but does not move stock yet. The quantity
+must not exceed the item’s current ready-to-use stock. An over-reservation is refused with that
+figure and writes nothing.
 
 ## Collect stock to site — all roles
 

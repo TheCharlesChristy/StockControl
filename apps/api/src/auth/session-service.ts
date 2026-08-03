@@ -1,16 +1,51 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import type { AuthenticatedSession, UserRole } from "@stockcontrol/contracts";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
-import { verifyPassword } from "./password";
+import { DUMMY_PASSWORD_HASH, verifyPassword } from "./password";
 
 export const SESSION_COOKIE = "stockcontrol.session";
 export const SESSION_HOURS = 12;
 
 const SCHEMA: typeof STOCKCONTROL_SCHEMA = "stockcontrol";
 const MILLISECONDS_PER_HOUR = 3_600_000;
+const SESSION_TOKEN_BYTES = 32;
+
+const sessionKey = (token: string): string | null => {
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(token, "base64url");
+  } catch {
+    return null;
+  }
+
+  /* Reject UUIDs, truncated values, and non-canonical base64url spellings. */
+  if (decoded.length !== SESSION_TOKEN_BYTES || decoded.toString("base64url") !== token) {
+    return null;
+  }
+
+  const digest = createHash("sha256").update(decoded).digest("hex").slice(0, 32);
+  return [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    digest.slice(12, 16),
+    digest.slice(16, 20),
+    digest.slice(20),
+  ].join("-");
+};
+
+const createSessionIdentity = (): { readonly key: string; readonly token: string } => {
+  const token = randomBytes(SESSION_TOKEN_BYTES).toString("base64url");
+  const key = sessionKey(token);
+
+  if (key === null) {
+    throw new Error("Failed to create a session identity.");
+  }
+
+  return { key, token };
+};
 
 export interface CurrentUser {
   readonly id: string;
@@ -26,7 +61,8 @@ export interface SignInOutcome {
 
 /**
  * Password sign-in with a database-backed session, per requirements section
- * 5.1. There is no MFA, no invitation, and no password-reset path in the demo.
+ * 5.1. There is no MFA, invitation, or self-service password-reset path in the
+ * MVP; operator Admin recovery is a separate private CLI.
  */
 export class SessionService {
   public constructor(
@@ -57,7 +93,7 @@ export class SessionService {
      * response time does not distinguish "no such account" from "wrong
      * password".
      */
-    const storedHash = user?.password_hash ?? "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAA";
+    const storedHash = user?.password_hash ?? DUMMY_PASSWORD_HASH;
     const passwordMatches = await verifyPassword(password, storedHash);
 
     if (user === undefined || !user.is_active || !passwordMatches) {
@@ -66,13 +102,13 @@ export class SessionService {
 
     const issuedAt = this.now();
     const expiresAt = new Date(issuedAt.getTime() + SESSION_HOURS * MILLISECONDS_PER_HOUR);
-    const sessionId = randomUUID();
+    const identity = createSessionIdentity();
 
     await this.database
       .withSchema(SCHEMA)
       .insertInto("sessions")
       .values({
-        id: sessionId,
+        id: identity.key,
         user_id: user.id,
         issued_at: issuedAt,
         expires_at: expiresAt,
@@ -80,7 +116,7 @@ export class SessionService {
       .execute();
 
     return {
-      sessionId,
+      sessionId: identity.token,
       session: {
         user: {
           id: user.id,
@@ -99,6 +135,11 @@ export class SessionService {
   }
 
   public async resolve(sessionId: string): Promise<AuthenticatedSession | null> {
+    const key = sessionKey(sessionId);
+    if (key === null) {
+      return null;
+    }
+
     const row = await this.database
       .withSchema(SCHEMA)
       .selectFrom("sessions")
@@ -114,7 +155,7 @@ export class SessionService {
         "users.is_active as is_active",
         "user_profile_photos.id as profile_photo_id",
       ])
-      .where("sessions.id", "=", sessionId)
+      .where("sessions.id", "=", key)
       .executeTakeFirst();
 
     if (row === undefined || !row.is_active || row.expires_at.getTime() <= this.now().getTime()) {
@@ -138,11 +179,12 @@ export class SessionService {
   }
 
   public async signOut(sessionId: string): Promise<void> {
-    await this.database
-      .withSchema(SCHEMA)
-      .deleteFrom("sessions")
-      .where("id", "=", sessionId)
-      .execute();
+    const key = sessionKey(sessionId);
+    if (key === null) {
+      return;
+    }
+
+    await this.database.withSchema(SCHEMA).deleteFrom("sessions").where("id", "=", key).execute();
   }
 
   /** Disabling a user must end their active sessions, not just block new ones. */

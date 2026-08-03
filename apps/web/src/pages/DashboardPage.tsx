@@ -245,7 +245,7 @@ function OfficeDashboard({
   const [mineOnly, setMineOnly] = useState(false);
   const reservations = mineOnly ? data.myReservations : data.openReservations;
   /*
-   * Only roles that hold the capability get Approve and Turn down. Reaching
+   * Only roles that hold the capability get Approve and Reject. Reaching
    * this component already implies the role, but the guard belongs on the
    * capability rather than on which branch rendered us.
    */

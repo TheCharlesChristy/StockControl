@@ -22,8 +22,9 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
 import { ImagePreview } from "../components/ImagePreview";
@@ -45,6 +46,7 @@ function initials(displayName: string): string {
 }
 
 export function AppShell(): ReactElement | null {
+  const api = useApi();
   const { user, signOut } = useAuth();
   const theme = useTheme();
   const desktopNavigation = useMediaQuery(theme.breakpoints.up("md"));
@@ -52,6 +54,12 @@ export function AppShell(): ReactElement | null {
   const navigate = useNavigate();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
+  const loadIssueReporting = useCallback(
+    (signal: AbortSignal) => api.issueReportingConfiguration(signal),
+    [api],
+  );
+  const issueReporting = useResource(loadIssueReporting);
+  const issueReportingEnabled = issueReporting.data?.enabled === true;
 
   if (user === null) {
     return null;
@@ -192,21 +200,21 @@ export function AppShell(): ReactElement | null {
           }}
         >
           <ImagePreview src={user.profilePhotoUrl} alt={`${user.displayName} profile photo`}>
-          <Avatar
-            src={user.profilePhotoUrl ?? undefined}
-            alt={`${user.displayName} profile photo`}
-            sx={{
-              width: 38,
-              height: 38,
-              color: "primary.dark",
-              bgcolor: "primary.light",
-              fontSize: "0.85rem",
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            {initials(user.displayName)}
-          </Avatar>
+            <Avatar
+              src={user.profilePhotoUrl ?? undefined}
+              alt={`${user.displayName} profile photo`}
+              sx={{
+                width: 38,
+                height: 38,
+                color: "primary.dark",
+                bgcolor: "primary.light",
+                fontSize: "0.85rem",
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              {initials(user.displayName)}
+            </Avatar>
           </ImagePreview>
           {/* Named so the two lines are announced as one fact, not two stray strings. */}
           <Box role="group" aria-label="Signed in as" sx={{ minWidth: 0, flex: 1 }}>
@@ -301,24 +309,26 @@ export function AppShell(): ReactElement | null {
           </Box>
           <Stack direction="row" spacing={{ xs: 0.75, sm: 1.5 }} alignItems="center">
             <PageHelp path={location.pathname} role={user.role} />
-            <Button
-              variant="outlined"
-              color="primary"
-              size="small"
-              aria-label="Report an issue"
-              startIcon={<BugReportRounded fontSize="small" />}
-              onClick={() => setReportIssueOpen(true)}
-              sx={{
-                minWidth: { xs: 40, sm: 0 },
-                minHeight: 40,
-                px: { xs: 1, sm: 1.5 },
-                "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.75 } },
-              }}
-            >
-              <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                Report an issue
-              </Box>
-            </Button>
+            {issueReportingEnabled && (
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                aria-label="Report an issue"
+                startIcon={<BugReportRounded fontSize="small" />}
+                onClick={() => setReportIssueOpen(true)}
+                sx={{
+                  minWidth: { xs: 40, sm: 0 },
+                  minHeight: 40,
+                  px: { xs: 1, sm: 1.5 },
+                  "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.75 } },
+                }}
+              >
+                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                  Report an issue
+                </Box>
+              </Button>
+            )}
             <Chip
               label={user.role}
               color={user.role === "Admin" ? "secondary" : "primary"}
@@ -387,7 +397,7 @@ export function AppShell(): ReactElement | null {
       </Box>
 
       {!isLocationWorkspace && <ScanFab />}
-      {reportIssueOpen && (
+      {issueReportingEnabled && reportIssueOpen && (
         <ReportIssueDialog page={location.pathname} onClose={() => setReportIssueOpen(false)} />
       )}
     </Box>

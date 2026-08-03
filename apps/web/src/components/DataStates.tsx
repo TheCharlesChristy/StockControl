@@ -9,9 +9,9 @@ import type { ApiError } from "../api/ApiClient";
 
 /**
  * What each kind of movement is called on screen. The stored kind is `Issue`,
- * but every button that performs one says "Take out", so the history says the
- * same thing — one movement should not have two names depending on which page
- * you are looking at. Every screen that shows a transaction reads from here.
+ * but the button that performs one says "Take from store", so the history uses
+ * the same language — one movement should not have two names depending on
+ * which page you are looking at. Every transaction screen reads from here.
  */
 export const transactionKindLabels: Readonly<Record<TransactionKind, string>> = {
   Receive: "Receive",

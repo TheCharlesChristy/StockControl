@@ -183,20 +183,21 @@ export function ItemLocationDialog({
   onClose,
 }: ItemLocationDialogProps): ReactElement {
   const [maps, setMaps] = useState<readonly MapView[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
     void api
       .listMaps(controller.signal)
       .then((summaries) =>
         Promise.all(summaries.map((summary) => api.getMap(summary.id, controller.signal))),
       )
-      .then((loadedMaps) => setMaps(loadedMaps))
+      .then((loadedMaps) => {
+        setMaps(loadedMaps);
+        setError(null);
+      })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
         setError(

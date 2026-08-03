@@ -28,7 +28,14 @@ describe("password hashing", () => {
   it("records its parameters alongside the hash so they can be raised later", async () => {
     const hash = await hashPassword("parameterised");
 
-    expect(hash.split("$").slice(0, 4)).toEqual(["scrypt", "16384", "8", "1"]);
+    expect(hash.split("$").slice(0, 4)).toEqual(["scrypt", "32768", "8", "1"]);
+  });
+
+  it("continues to verify hashes made with the previous approved cost", async () => {
+    const legacyHash =
+      "scrypt$16384$8$1$AQEBAQEBAQEBAQEBAQEBAQ$_uWn0D28eVGrQbxygFGdjwQt6Ct0r719BPhBzpKuXAg";
+
+    await expect(verifyPassword("legacy-password", legacyHash)).resolves.toBe(true);
   });
 
   it("normalises equivalent Unicode forms", async () => {
@@ -43,6 +50,10 @@ describe("password hashing", () => {
     ["argon2$16384$8$1$c2FsdA$aGFzaA", "a different algorithm"],
     ["scrypt$16384$8$1$c2FsdA", "too few fields"],
     ["scrypt$16384$8$1$c2FsdA$", "an empty key"],
+    [
+      "scrypt$1048576$8$1$AQEBAQEBAQEBAQEBAQEBAQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "an unapproved work factor",
+    ],
   ])("rejects %s stored hash (%s)", async (stored) => {
     await expect(verifyPassword("anything", stored)).resolves.toBe(false);
   });

@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# This file is sourced by the nginx image entrypoint before its envsubst step.
+# Keep the accepted values deliberately narrow because they are rendered into
+# nginx configuration rather than passed to a child process as arguments.
+
+API_HOST="${API_HOST:-api.railway.internal}"
+API_PORT="${API_PORT:-3000}"
+
+case "$API_HOST" in
+  "" | *[!A-Za-z0-9.-]*)
+    echo "Invalid API_HOST; expected a DNS hostname." >&2
+    exit 1
+    ;;
+esac
+
+case "$API_PORT" in
+  "" | *[!0-9]*)
+    echo "Invalid API_PORT; expected a TCP port." >&2
+    exit 1
+    ;;
+esac
+
+if [ "$API_PORT" -lt 1 ] || [ "$API_PORT" -gt 65535 ]; then
+  echo "Invalid API_PORT; expected a value from 1 to 65535." >&2
+  exit 1
+fi
+
+resolver_address="$(awk '/^nameserver[[:space:]]+/ { print $2; exit }' /etc/resolv.conf)"
+if [ -z "$resolver_address" ]; then
+  echo "Unable to find a DNS resolver in /etc/resolv.conf." >&2
+  exit 1
+fi
+
+case "$resolver_address" in
+  *:*) NGINX_RESOLVER="[$resolver_address]" ;;
+  *) NGINX_RESOLVER="$resolver_address" ;;
+esac
+
+export API_HOST API_PORT NGINX_RESOLVER

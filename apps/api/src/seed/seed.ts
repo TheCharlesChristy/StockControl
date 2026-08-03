@@ -13,6 +13,7 @@ import { deriveContainment } from "@stockcontrol/module-locations";
 import { hashPassword } from "../auth/password";
 import { formatQuantity } from "../stock/quantity";
 import { seedContainers, seedMaps, seedPlacements } from "./map-layout";
+import { assertDemoSeedAllowed } from "./production-guard";
 import { buildDemoWorld } from "./simulate";
 
 /**
@@ -55,6 +56,7 @@ async function insertInChunks<Row>(
 }
 
 const seed = async (): Promise<void> => {
+  assertDemoSeedAllowed(process.env);
   const database = createMigratorDatabase(loadMigratorDatabaseConfiguration());
   const schema = database.withSchema(STOCKCONTROL_SCHEMA);
 

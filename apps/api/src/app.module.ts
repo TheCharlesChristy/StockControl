@@ -27,7 +27,9 @@ import type { Kysely } from "kysely";
 import { API_TOKENS } from "./api.tokens";
 import { AuthController } from "./auth/auth.controller";
 import { AuthenticationGuard } from "./auth/auth.guard";
+import { loadPublicAppOrigin, RequestOriginGuard } from "./auth/request-origin.guard";
 import { SessionService } from "./auth/session-service";
+import { SignInRateLimiter } from "./auth/sign-in-rate-limiter";
 import { DashboardController } from "./dashboard/dashboard.controller";
 import { DashboardService } from "./dashboard/dashboard.service";
 import { DatabaseLifecycle } from "./database/database-lifecycle";
@@ -42,6 +44,7 @@ import { StockRequestsController } from "./requests/requests.controller";
 import { StockRequestsService } from "./requests/requests.service";
 import { SystemController } from "./system/system.controller";
 import { SYSTEM_TOKENS } from "./system/system.tokens";
+import { resolveLogLevels } from "./system/log-level";
 import { UsersController } from "./users/users.controller";
 import { UsersService } from "./users/users.service";
 import { LocationsController } from "./locations/locations.controller";
@@ -57,7 +60,11 @@ const providers: Provider[] = [
   },
   {
     provide: SYSTEM_TOKENS.logger,
-    useFactory: (context: CorrelationContext) => new StructuredLogger(context, "stockcontrol-api"),
+    useFactory: (context: CorrelationContext) => {
+      const logger = new StructuredLogger(context, "stockcontrol-api");
+      logger.setLogLevels(resolveLogLevels(process.env["LOG_LEVEL"]));
+      return logger;
+    },
     inject: [SYSTEM_TOKENS.correlationContext],
   },
   {
@@ -111,6 +118,10 @@ const providers: Provider[] = [
     inject: [SYSTEM_TOKENS.database],
   },
   {
+    provide: API_TOKENS.signInRateLimiter,
+    useFactory: () => new SignInRateLimiter(),
+  },
+  {
     provide: API_TOKENS.stockService,
     useFactory: (database: Database) => new StockService(database),
     inject: [SYSTEM_TOKENS.database],
@@ -156,6 +167,14 @@ const providers: Provider[] = [
     provide: API_TOKENS.photosService,
     useFactory: (database: Database) => new PhotosService(database),
     inject: [SYSTEM_TOKENS.database],
+  },
+  {
+    /*
+     * Run the browser-origin check before authentication. Sign-in and sign-out
+     * are public routes, but they still mutate authentication state.
+     */
+    provide: APP_GUARD,
+    useFactory: () => new RequestOriginGuard(loadPublicAppOrigin()),
   },
   {
     /*

@@ -1,0 +1,53 @@
+map $http_x_forwarded_proto $stockcontrol_forwarded_proto {
+    default $scheme;
+    ~*^https$ https;
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Ten-megabyte images become roughly 13.4 MiB when encoded in JSON. Keep
+    # the edge limit aligned with the API's 16 MiB Fastify body limit.
+    client_max_body_size 16m;
+
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:" always;
+    add_header Permissions-Policy "camera=(self), geolocation=(), microphone=()" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+
+    location = /health {
+        access_log off;
+        add_header Content-Type text/plain;
+        add_header Cache-Control "no-store";
+        return 200 "ok\n";
+    }
+
+    # Use the resolver supplied by the container's /etc/resolv.conf. Keeping
+    # proxy_pass variable-based makes nginx re-resolve Railway private DNS as
+    # API deployments move between hosts.
+    resolver ${NGINX_RESOLVER} valid=30s;
+
+    location /api/ {
+        set $api_upstream http://${API_HOST}:${API_PORT};
+        proxy_pass $api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $stockcontrol_forwarded_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

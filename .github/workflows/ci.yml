@@ -39,11 +39,73 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Railway service configuration
+        run: >-
+          node -e
+          "for (const path of ['infra/railway/web.railway.json', 'infra/railway/api.railway.json', 'infra/railway/bootstrap.railway.json', 'infra/railway/migrate.railway.json']) JSON.parse(require('node:fs').readFileSync(path, 'utf8'))"
+
       - name: Check formatting, lint, types, and the production build
         run: pnpm run quality
 
       - name: Run unit tests
         run: pnpm run test
+
+  container-images:
+    name: container image (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - api
+          - web
+
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the selected final runtime image
+        run: >-
+          docker build
+          --build-arg RAILWAY_GIT_COMMIT_SHA="${GITHUB_SHA}"
+          --build-arg RUNTIME_TARGET="${{ matrix.runtime }}"
+          --tag "stockcontrol-${{ matrix.runtime }}:ci"
+          .
+
+      - name: Verify the image contract
+        env:
+          IMAGE: stockcontrol-${{ matrix.runtime }}:ci
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          runtime_user="$(docker image inspect --format '{{.Config.User}}' "$IMAGE")"
+          test -n "$runtime_user"
+          test "$runtime_user" != "0"
+          test "$runtime_user" != "root"
+
+          revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")"
+          test "$revision" = "$GITHUB_SHA"
+
+          if [ "$RUNTIME" = api ]; then
+            docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+              'test -f apps/api/dist/main.js && test -f apps/api/dist/reset-admin-password.js && test -f apps/api/dist/setup-first-admin.js && test -f packages/platform/database/dist/bootstrap-roles.js && test -f packages/platform/database/dist/migrate.js'
+          fi
+
+      - name: Smoke test the web runtime
+        if: matrix.runtime == 'web'
+        run: |
+          container_id="$(docker run --detach --publish 18080:8080 stockcontrol-web:ci)"
+          trap 'docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+
+          curl --fail --silent --show-error --retry 20 --retry-all-errors \
+            --retry-delay 1 http://127.0.0.1:18080/health
+          curl --fail --silent --show-error http://127.0.0.1:18080/a/client/route \
+            | grep --quiet '<div id="root"></div>'
+          curl --fail --silent --show-error --head http://127.0.0.1:18080/ \
+            | grep --ignore-case --quiet '^Content-Security-Policy:'
+          docker exec "$container_id" nginx -T 2>&1 \
+            | grep --quiet 'client_max_body_size 16m;'
 
   # Proves the stock rules hold against a real database, including the
   # concurrent double collection that section 9 names specifically.

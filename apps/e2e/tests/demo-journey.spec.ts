@@ -75,10 +75,15 @@ async function createItemAndOpen(page: Page, name: string): Promise<string> {
 /** Runs one of the four direct operations from the item detail page. */
 async function runOperation(
   page: Page,
-  operation: { readonly open: string; readonly submit: string },
+  operation: { readonly open: string; readonly submit: string; readonly fromMenu?: boolean },
   fill: (dialog: Locator) => Promise<void>,
 ): Promise<void> {
-  await page.getByRole("button", { name: operation.open, exact: true }).click();
+  if (operation.fromMenu === true) {
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: operation.open, exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: operation.open, exact: true }).click();
+  }
 
   const dialog = page.getByRole("dialog");
   await fill(dialog);
@@ -153,7 +158,7 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
   const itemUrl = page.url();
 
   await expect(page.getByText("No stock is held anywhere for this item yet.")).toBeVisible();
-  await expect(stat(page, "On hand")).toHaveText("0 each");
+  await expect(stat(page, "Total in stock")).toHaveText("0 each");
 
   /* Receive 40 into a store: on hand and available both become 40. */
   await runOperation(page, { open: "Receive", submit: "Receive" }, async (dialog) => {
@@ -161,9 +166,9 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
     await dialog.getByLabel("Quantity").fill("40");
   });
 
-  await expect(stat(page, "On hand")).toHaveText("40 each");
+  await expect(stat(page, "Total in stock")).toHaveText("40 each");
   await expect(stat(page, "In stores")).toHaveText("40 each");
-  await expect(stat(page, "Available")).toHaveText("40 each");
+  await expect(stat(page, "Ready to use")).toHaveText("40 each");
 
   /* Reserve 15 against a job: availability drops, on hand does not move. */
   await page.goto("/jobs");
@@ -171,12 +176,12 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
   await page.waitForURL(/\/jobs\/[0-9a-f-]+$/);
   const jobUrl = page.url();
 
-  await page.getByRole("button", { name: "Reserve stock" }).click();
+  await page.getByRole("button", { name: "Reserve for this job" }).click();
   const reserveDialog = page.getByRole("dialog");
   await reserveDialog.getByLabel("Item").fill(reference);
   await page.getByRole("option").first().click();
   await reserveDialog.getByLabel("Quantity").fill("15");
-  await reserveDialog.getByRole("button", { name: "Reserve", exact: true }).click();
+  await reserveDialog.getByRole("button", { name: "Reserve for job", exact: true }).click();
   await expect(reserveDialog).toBeHidden();
 
   const reservationRow = page
@@ -186,18 +191,18 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
   await expect(reservationRow).toContainText("Open");
 
   await page.goto(itemUrl);
-  await expect(stat(page, "On hand")).toHaveText("40 each");
-  await expect(stat(page, "Reserved")).toHaveText("15 each");
-  await expect(stat(page, "Available")).toHaveText("25 each");
+  await expect(stat(page, "Total in stock")).toHaveText("40 each");
+  await expect(stat(page, "Committed to jobs")).toHaveText("15 each");
+  await expect(stat(page, "Ready to use")).toHaveText("25 each");
 
   /* Collect 6 of the 15: the remaining 9 stays reserved. */
   await page.goto(jobUrl);
-  await reservationRow.getByRole("button", { name: "Collect" }).click();
+  await reservationRow.getByRole("button", { name: "Collect to site" }).click();
 
   const collectDialog = page.getByRole("dialog");
-  await chooseOption(page, collectDialog, "Collect from");
+  await chooseOption(page, collectDialog, "Take from store");
   await collectDialog.getByLabel("Quantity").fill("6");
-  await collectDialog.getByRole("button", { name: "Collect", exact: true }).click();
+  await collectDialog.getByRole("button", { name: "Collect to site", exact: true }).click();
   await expect(collectDialog).toBeHidden();
 
   /* Reserved, collected, outstanding — and still open on the remainder. */
@@ -215,11 +220,11 @@ test("the demo journey: create, receive, reserve, collect, and account for it", 
    * reservation shrank by the same amount.
    */
   await page.goto(itemUrl);
-  await expect(stat(page, "On hand")).toHaveText("40 each");
+  await expect(stat(page, "Total in stock")).toHaveText("40 each");
   await expect(stat(page, "In stores")).toHaveText("34 each");
   await expect(stat(page, "At job sites")).toHaveText("6 each");
-  await expect(stat(page, "Reserved")).toHaveText("9 each");
-  await expect(stat(page, "Available")).toHaveText("25 each");
+  await expect(stat(page, "Committed to jobs")).toHaveText("9 each");
+  await expect(stat(page, "Ready to use")).toHaveText("25 each");
 
   /* Every one of those changes is in the log, against the person who made it. */
   const actor = await signedInName(page);
@@ -250,25 +255,33 @@ test("transferring keeps the total, and an adjustment records its reason", async
     await dialog.getByLabel("Quantity").fill("40");
   });
 
-  await runOperation(page, { open: "Transfer", submit: "Transfer" }, async (dialog) => {
-    await chooseOption(page, dialog, "From location");
-    await chooseOption(page, dialog, "To location");
-    await dialog.getByLabel("Quantity").fill("10");
-  });
+  await runOperation(
+    page,
+    { open: "Transfer between stores", submit: "Transfer", fromMenu: true },
+    async (dialog) => {
+      await chooseOption(page, dialog, "From location");
+      await chooseOption(page, dialog, "To location");
+      await dialog.getByLabel("Quantity").fill("10");
+    },
+  );
 
   /* Two locations now, and not one unit more or less than before. */
-  await expect(stat(page, "On hand")).toHaveText("40 each");
+  await expect(stat(page, "Total in stock")).toHaveText("40 each");
   await expect(
     page.getByRole("table", { name: "Stock by location" }).locator("tbody tr"),
   ).toHaveCount(2);
 
-  await runOperation(page, { open: "Adjust", submit: "Save new count" }, async (dialog) => {
-    await chooseOption(page, dialog, "Location");
-    await dialog.getByLabel("Total counted").fill("25");
-    await dialog.getByLabel("Reason").fill("Cycle count during the demo");
-  });
+  await runOperation(
+    page,
+    { open: "Correct a counted quantity", submit: "Save new count", fromMenu: true },
+    async (dialog) => {
+      await chooseOption(page, dialog, "Location");
+      await dialog.getByLabel("Total counted").fill("25");
+      await dialog.getByLabel("Reason").fill("Cycle count during the demo");
+    },
+  );
 
-  await expect(stat(page, "On hand")).toHaveText("35 each");
+  await expect(stat(page, "Total in stock")).toHaveText("35 each");
   await expect(
     page
       .getByRole("table", { name: "Recent transactions" })
@@ -284,12 +297,12 @@ test("an over-reservation is refused with the quantity actually available", asyn
   await page.getByRole("table", { name: "Jobs" }).getByRole("link").first().click();
   await page.waitForURL(/\/jobs\/[0-9a-f-]+$/);
 
-  await page.getByRole("button", { name: "Reserve stock" }).click();
+  await page.getByRole("button", { name: "Reserve for this job" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Item").fill("ITM-0001");
   await page.getByRole("option").first().click();
   await dialog.getByLabel("Quantity").fill("999999");
-  await dialog.getByRole("button", { name: "Reserve", exact: true }).click();
+  await dialog.getByRole("button", { name: "Reserve for job", exact: true }).click();
 
   await expect(dialog.getByRole("alert")).toContainText("Cannot reserve");
   await expect(dialog.getByRole("alert")).toContainText("available");
@@ -307,18 +320,18 @@ test("an over-issue is refused with what is actually on the shelf", async ({ pag
     await dialog.getByLabel("Quantity").fill("12");
   });
 
-  await page.getByRole("button", { name: "Take out", exact: true }).click();
+  await page.getByRole("button", { name: "Take from store", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await chooseOption(page, dialog, "Location");
   await dialog.getByLabel("Quantity").fill("40");
-  await dialog.getByRole("button", { name: "Take out", exact: true }).click();
+  await dialog.getByRole("button", { name: "Take from store", exact: true }).click();
 
   await expect(dialog.getByRole("alert")).toContainText("Cannot issue 40");
   await expect(dialog.getByRole("alert")).toContainText("12");
 
   /* Refused means refused: nothing was taken. */
   await dialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(stat(page, "On hand")).toHaveText("12 each");
+  await expect(stat(page, "Total in stock")).toHaveText("12 each");
 });
 
 /* Acceptance items 2 and 7: a phone-sized visitor scanning a label cold. */
@@ -350,7 +363,7 @@ test("a scanned item opens after signing in, on a phone", async ({ page, context
   await expect(page.getByRole("img", { name: /QR code linking to/ })).toBeVisible();
 
   /* An Engineer who arrives by camera still only gets an Engineer's controls. */
-  await expect(page.getByRole("button", { name: "Take out", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take from store", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
 });
 
@@ -370,7 +383,7 @@ test("role decides which sections and controls are offered", async ({ page }) =>
   await expect(page.getByRole("link", { name: "Transactions" })).toBeVisible();
 
   await page.getByRole("table", { name: "Inventory" }).getByRole("link").first().click();
-  await expect(page.getByRole("button", { name: "Take out" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take from store" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Request stock" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Receive" })).toHaveCount(0);
 });
@@ -425,13 +438,13 @@ test("an Engineer requests stock and the Office decides it", async ({ page }) =>
 
   const request = page.locator("li").filter({ hasText: note }).first();
   await expect(request).toBeVisible();
-  await request.getByRole("button", { name: "Turn down" }).click();
+  await request.getByRole("button", { name: "Reject" }).click();
 
   const decision = page.getByRole("dialog");
   await decision
-    .getByRole("textbox", { name: "Why is this being turned down?" })
+    .getByRole("textbox", { name: "Why reject this request?" })
     .fill("Plenty in the main store already.");
-  await decision.getByRole("button", { name: "Turn down" }).click();
+  await decision.getByRole("button", { name: "Reject" }).click();
 
   await expect(decision).toHaveCount(0);
 });
@@ -476,14 +489,14 @@ test("the transaction log accounts for activity with its actor", async ({ page }
   const log = page.getByRole("table", { name: "Transaction log" });
   await expect(log).toBeVisible();
   await expect(log.locator("tbody tr").first()).toContainText(
-    /Receive|Take out|Transfer|Collect|Adjust/,
+    /Receive|Taken from store|Transfer|Collected to site|Adjust/,
   );
 
   /* The filter takes the reference people read off a label, not an internal id. */
   await page.getByLabel("Item", { exact: true }).fill("ITM-0001");
   await expect(log.locator("tbody tr").first()).toBeVisible();
   await expect(log.locator("tbody tr").first()).toContainText(
-    /Receive|Take out|Transfer|Collect|Adjust/,
+    /Receive|Taken from store|Transfer|Collected to site|Adjust/,
   );
 });
 
@@ -500,7 +513,7 @@ test("the inventory table stays usable on a phone", async ({ page }) => {
   await expect(page.getByRole("table", { name: "Inventory" })).toBeVisible();
 
   expect(await noSidewaysScroll(page), "the page itself must not scroll sideways").toBe(false);
-  await expect(page.getByRole("columnheader", { name: "Available" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Ready to use" })).toBeVisible();
 });
 
 /*
@@ -590,13 +603,18 @@ test("an admin nests a location by drawing it inside another, with no parent to 
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
 
-  const inspector = page.getByRole("complementary", { name: "Location details" });
+  const locationList = page.getByLabel("Locations on this map");
+  const newLocation = locationList.getByRole("button", { name: /New location/u });
+  await expect(newLocation).toBeVisible();
+  await newLocation.dblclick();
+
+  const inspector = page.getByRole("dialog");
   await inspector.getByLabel("Location name").fill("E2E nested bay");
   await expect(inspector.getByTestId("breadcrumb")).toHaveText(
     "Aisle A › Main store, aisle A, bay 1 › E2E nested bay",
   );
 
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await inspector.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Map saved")).toBeVisible();
 
   /*
@@ -620,6 +638,9 @@ test("an admin nests a location by drawing it inside another, with no parent to 
   expect(persisted?.path).toBe("Aisle A › Main store, aisle A, bay 1 › E2E nested bay");
   expect(persisted?.depth).toBe(2);
 
+  await inspector.getByRole("button", { name: "Close location details" }).click();
+  await expect(inspector).toBeHidden();
+
   /*
    * Move it out of the bay and it stops being inside anything, with nothing
    * asked and nothing set. Nudging moves whatever is selected, so this does not
@@ -633,7 +654,9 @@ test("an admin nests a location by drawing it inside another, with no parent to 
     await page.keyboard.press("Shift+ArrowDown");
   }
 
-  await expect(inspector.getByTestId("breadcrumb")).toHaveText("E2E nested bay");
+  await locationList.getByRole("button", { name: /E2E nested bay/u }).dblclick();
+  const movedInspector = page.getByRole("dialog");
+  await expect(movedInspector.getByTestId("breadcrumb")).toHaveText("E2E nested bay");
 
   /* Leave the seeded map as it was found. */
   const removed = await page.request.delete(`/api/v1/locations/${persisted?.id ?? ""}`);

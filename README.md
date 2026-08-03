@@ -1,8 +1,9 @@
 # StockControl
 
 StockControl is an inventory-management application for small businesses with substantial stock
-holdings. This repository holds a **demonstrable MVP that runs on one laptop**: you can see what
-stock exists and where, move it, commit it to a job, and account for every change.
+holdings. This repository holds a **demonstrable MVP that runs locally and as a small Railway
+production installation**: you can see what stock exists and where, move it, commit it to a job,
+and account for every change.
 
 The baseline it is built to is [`docs/product-requirements-full.md`](docs/product-requirements-full.md), with the map-driven location model described in [`docs/architecture/0009-map-driven-locations.md`](docs/architecture/0009-map-driven-locations.md).
 
@@ -23,12 +24,15 @@ pnpm dev                      # API on :3000, web on :5173
 
 Then open <http://localhost:5173> and sign in.
 
-The API checks the database migration state and applies pending migrations before it binds its
-listener. If migration integrity fails, the API exits without serving requests so a stale or
-incompatible schema cannot surface as runtime 500 responses.
+Database migration is an explicit setup/release step. The API starts with only its restricted
+runtime database identity and never applies schema changes while binding its listener.
 
 You need **Node.js 24**, **pnpm 11**, and **Docker with Compose**. MinIO is used only as a private local
 object store for floor-plan assets and is never exposed through a permanent public URL.
+
+For a customer production MVP, follow the
+[`infra/railway/` deployment runbook](infra/railway/README.md). Production setup does not use the
+demo seed or demo passwords below.
 
 ### Sign in
 
@@ -52,7 +56,7 @@ transactions next to it rather than being an invented number.
 The application is shaped around the role signed in, not switched on and off by hiding buttons.
 
 - **Engineer** — Overview, Jobs and Transactions. Their Overview _is_ the stock list: a collapsible
-  table showing what is on hand, what is reserved, and how much of that is reserved for them, plus
+  table showing what is in stock, what is committed, and how much is committed for them, plus
   the jobs they are assigned to with the stock on each site, their own reservations and their own
   requests. Their transaction lists — the log, and an item's history — are narrowed to their own
   actions by the server, not by the browser.
@@ -92,16 +96,16 @@ Roughly fifteen minutes, following the same path the automated journey takes.
 
 1. **Sign in** as `office.desk@example.com`. The dashboard shows what is below its low-stock
    threshold, the requests waiting on a decision, the jobs coming up, and what is reserved.
-2. **Inventory.** Search for `cable`. Expand a row to see which locations hold it. The columns are
-   on hand, reserved, and available — available counts stores only, never stock already dropped at a
-   job site.
+2. **Inventory.** Search for `cable`. Expand a row to see which locations hold it. **Ready to use**
+   counts store stock after open job commitments, never stock already dropped at a job site.
 3. **Open an item.** Press **New item** first if you would rather build one from scratch. Press
-   **Receive**, put 40 into a store, and watch on hand and available both move to 40.
-4. **Commit it to a job.** Open a job, **Reserve stock**, take 15 of the item you just received. Back
-   on the item, available has dropped to 25 while on hand is still 40 — nothing has moved yet.
-5. **Hand part of it over.** **Collect** 6 of the 15. The reservation now reads 15 reserved, 6
-   collected, 9 outstanding, and it stays open. On the item, 6 have moved to the job site, 34 remain
-   in stores, and available is still 25.
+   **Receive**, put 40 into a store, and watch **Total in stock** and **Ready to use** both move to 40.
+4. **Commit it to a job.** Open a job, choose **Reserve for this job**, and commit 15 of the item you
+   just received. Back on the item, **Ready to use** has dropped to 25 while **Total in stock** is
+   still 40 — nothing has moved yet.
+5. **Hand part of it over.** Choose **Collect to site** for 6 of the 15. The reservation now reads 15
+   committed, 6 at site, 9 remaining, and it stays open. On the item, 6 have moved to the job site,
+   34 remain in stores, and **Ready to use** is still 25.
 6. **Try to break it.** Reserve 999999 of anything, or issue more than a location holds. Both are
    refused with the figure that is actually there, and nothing partial is written.
 7. **Scan the label.** Point a phone camera at the QR code on the item page. It opens that item. If
@@ -128,7 +132,8 @@ pnpm test:e2e          # the demo journey above, in a browser
 
 `test:integration` and `test:e2e` need the database running. `test:e2e` needs it seeded.
 
-CI runs the same four in [one workflow](.github/workflows/ci.yml).
+CI runs the same four and builds/smoke-checks the production API and web images in
+[one workflow](.github/workflows/ci.yml).
 
 ## Where things are
 
@@ -151,9 +156,9 @@ single database transaction. There is no second path that changes stock.
 ## Scope
 
 This baseline was reduced from a full commercial product specification, and the source tree was
-trimmed to match. Purchasing, costing, stocktakes, serialized assets, notifications, and cloud
-deployment are deliberately absent — [requirements section 10](docs/product-requirements.md) lists
-them. The v1.0 specification, its playbook, and its traceability matrix are preserved in
+trimmed to match. Purchasing, costing, stocktakes, serialized assets, and notifications are
+deliberately absent — the [minimal-MVP requirements](docs/product-requirements-minimal-mvp.md) list
+the boundary. The v1.0 specification, its playbook, and its traceability matrix are preserved in
 [`docs/archive/`](docs/archive/README.md) for when scope is added back.
 
 - Build order: [`docs/next-work-packet-prompt.md`](docs/next-work-packet-prompt.md) — the location map
@@ -161,5 +166,5 @@ them. The v1.0 specification, its playbook, and its traceability matrix are pres
 - What was removed and what remains optional:
   [`docs/demo-mvp-removal-candidates.md`](docs/demo-mvp-removal-candidates.md).
 
-`infra/` and the `Dockerfile` are left over from the full product and are not part of the demo.
-Nothing here builds or validates them.
+The root `Dockerfile` and [`infra/railway/`](infra/railway/README.md) define the supported production
+MVP deployment. The AWS Terraform/Ansible material remains a legacy reference only.

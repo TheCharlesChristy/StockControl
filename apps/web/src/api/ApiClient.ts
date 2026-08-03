@@ -6,6 +6,7 @@ import type {
   CreateUserRequest,
   DashboardResponse,
   ImageUploadRequest,
+  IssueReportingConfigurationResponse,
   ItemDetailView,
   ItemListResponse,
   JobDetailView,
@@ -422,6 +423,14 @@ export class ApiClient {
 
   public reportIssue(body: ReportIssueRequest): Promise<ReportIssueResponse> {
     return this.send("POST", "/issues", { body });
+  }
+
+  public issueReportingConfiguration(
+    signal?: AbortSignal,
+  ): Promise<IssueReportingConfigurationResponse> {
+    return this.send("GET", "/issues/configuration", {
+      ...(signal === undefined ? {} : { signal }),
+    });
   }
 
   public async approveStockRequest(

@@ -27,7 +27,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
+import { passwordPolicy, userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
 import { useCallback, useState, type FormEvent, type ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -144,10 +144,16 @@ function CreateUserDialog({
               onChange={(event) => setPassword(event.target.value)}
               disabled={submitting}
               autoComplete="new-password"
+              slotProps={{
+                htmlInput: {
+                  minLength: passwordPolicy.minimumCharacters,
+                  maxLength: passwordPolicy.maximumCharacters,
+                },
+              }}
               error={error?.fieldError("password") !== undefined}
               helperText={
                 error?.fieldError("password") ??
-                "At least 10 characters. Tell them what it is — the demo sends no email."
+                "Use 15–128 characters. Passphrases are welcome; share it securely."
               }
             />
           </Stack>

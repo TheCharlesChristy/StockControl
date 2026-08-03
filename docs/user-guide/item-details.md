@@ -10,7 +10,7 @@ The summary tiles separate the important quantities:
 - **Total in stock** — all locations.
 - **In stores** — stock available in store locations before reservations.
 - **At job sites** — stock already collected to jobs.
-- **Reserved** — stock committed to open reservations.
+- **Committed to jobs** — stock committed to open reservations.
 - **Ready to use** — store stock minus open reservations.
 - Engineers also see **Committed for you** where relevant.
 
@@ -83,7 +83,7 @@ then use the photo controls to set a **Primary photo** or remove a photo. The pr
 where the item is referenced elsewhere in the app.
 
 Select **Archive item** to take an item out of normal use while keeping its history. Archived items
-cannot be received, taken out, or reserved and are labelled as Archived in lists.
+cannot be received, taken from a store, or reserved and are labelled as Archived in lists.
 
 ## Labels and history
 

@@ -16,6 +16,7 @@
   ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
+    "bootstrap:roles:prod": "node dist/bootstrap-roles.js",
     "clean": "tsc -b tsconfig.build.json --clean",
     "migrate": "node --env-file-if-exists=../../../.env --import tsx src/migrate.ts",
     "migrate:prod": "node dist/migrate.js",

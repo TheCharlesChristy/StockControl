@@ -7,6 +7,16 @@ import { IssuesService } from "../src/issues/issues.service";
 const reporter = { displayName: "Olivia Desk", role: "Office" as const };
 
 describe("IssuesService", () => {
+  it("reports whether issue submission has been configured", () => {
+    expect(new IssuesService({}).isConfigured()).toBe(false);
+    expect(
+      new IssuesService({
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_TOKEN: "token",
+      }).isConfigured(),
+    ).toBe(true);
+  });
+
   it("creates a GitHub issue with the report context", async () => {
     const fetchImplementation = vi.fn(
       (input: string | URL, init?: RequestInit): Promise<Response> => {

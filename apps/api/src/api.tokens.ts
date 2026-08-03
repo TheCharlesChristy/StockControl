@@ -4,6 +4,7 @@ export const API_TOKENS = {
   dashboardService: Symbol("dashboard.service"),
   jobsService: Symbol("jobs.service"),
   issuesService: Symbol("issues.service"),
+  signInRateLimiter: Symbol("auth.sign-in-rate-limiter"),
   sessionService: Symbol("auth.session-service"),
   stockRequestsService: Symbol("requests.stock-requests-service"),
   stockService: Symbol("inventory.stock-service"),

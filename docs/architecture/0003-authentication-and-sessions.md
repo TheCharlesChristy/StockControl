@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Demo MVP: live in reduced form — password plus database-backed session only; MFA, invitations, resets, rate limiting, and recent-authentication are deferred by [demo requirements v2.0](../product-requirements.md) section 10
+- Production MVP exception (2026-08-03): password-only authentication is approved for the first small Railway installation. It enforces 15-to-128-character passwords, strengthened scrypt hashing, opaque session tokens stored only as hashes, exact-origin checks, and sign-in throttling. Application MFA, invitations, self-service/email password resets, recent-authentication, and durable security-event storage remain follow-up work. A narrowly scoped operator Admin recovery command is implemented for this MVP and atomically revokes that Admin's sessions; this ADR records the target design.
 - Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 9.2, 9.3, and 12.3
 
 ## Context

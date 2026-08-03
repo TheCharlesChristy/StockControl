@@ -7,15 +7,10 @@ const { destroyDatabase } = vi.hoisted(() => ({
   destroyDatabase: vi.fn(() => Promise.resolve()),
 }));
 
-const { migrateConfiguredDatabase } = vi.hoisted(() => ({
-  migrateConfiguredDatabase: vi.fn(() => Promise.resolve({ results: [] })),
-}));
-
 vi.mock("@stockcontrol/platform-database", () => ({
   createRuntimeDatabase: vi.fn(() => ({
     destroy: destroyDatabase,
   })),
-  migrateConfiguredDatabase,
   loadRuntimeDatabaseConfiguration: vi.fn(() => ({
     applicationName: "stockcontrol-api-bootstrap-test",
     connectionString: "postgresql://test:test@localhost:5432/test",
@@ -131,7 +126,6 @@ describe("API listener configuration", () => {
 describe("API process lifecycle", () => {
   beforeEach(() => {
     destroyDatabase.mockClear();
-    migrateConfiguredDatabase.mockReset().mockResolvedValue({ results: [] });
   });
 
   it("starts on a requested loopback port and releases resources on close", async () => {
@@ -143,11 +137,6 @@ describe("API process lifecycle", () => {
 
     try {
       expect(await app.getUrl()).toBe(`http://127.0.0.1:${port}`);
-      expect(migrateConfiguredDatabase).toHaveBeenCalledWith({
-        HOST: "127.0.0.1",
-        PORT: String(port),
-      });
-
       const response = await app.getHttpAdapter().getInstance().inject({
         method: "GET",
         url: "/api/v1/health/live",
@@ -159,21 +148,6 @@ describe("API process lifecycle", () => {
     }
 
     expect(destroyDatabase).toHaveBeenCalledOnce();
-  });
-
-  it("does not create or bind the API when migration validation fails", async () => {
-    const port = await acquireEphemeralPort();
-    const failure = new Error("Migration integrity validation failed.");
-    migrateConfiguredDatabase.mockRejectedValueOnce(failure);
-
-    await expect(
-      startApi({
-        HOST: "127.0.0.1",
-        PORT: String(port),
-      }),
-    ).rejects.toBe(failure);
-
-    expect(destroyDatabase).not.toHaveBeenCalled();
   });
 
   it("closes application and database resources when the listener cannot bind", async () => {

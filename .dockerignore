@@ -28,6 +28,9 @@ infra/**
 !infra/ansible/
 !infra/ansible/files/
 !infra/ansible/files/web-nginx.conf
+!infra/railway/
+!infra/railway/15-stockcontrol-runtime.envsh
+!infra/railway/web-nginx.conf.template
 node_modules
 playwright-report
 scripts

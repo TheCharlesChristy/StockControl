@@ -45,6 +45,11 @@ export const createRuntimeDatabase = (
   options: DatabaseConnectionFactoryOptions = {},
 ): Kysely<StockControlDatabase> => createDatabaseConnection(configuration, options);
 
+export const createAdminDatabase = (
+  configuration: DatabaseConnectionConfiguration,
+  options: DatabaseConnectionFactoryOptions = {},
+): Kysely<StockControlDatabase> => createDatabaseConnection(configuration, options);
+
 export const createMigratorDatabase = (
   configuration: DatabaseConnectionConfiguration,
   options: DatabaseConnectionFactoryOptions = {},

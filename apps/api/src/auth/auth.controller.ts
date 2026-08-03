@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Header, Inject, Post, Req, Res } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+} from "@nestjs/common";
 import {
   authenticationRequired,
   capabilitiesForRole,
@@ -14,6 +25,7 @@ import { readSessionCookie } from "./auth.guard";
 import { Public } from "./public.decorator";
 import { sessionOf } from "./request-context";
 import { SESSION_COOKIE, SESSION_HOURS, type SessionService } from "./session-service";
+import type { SignInRateLimiter } from "./sign-in-rate-limiter";
 
 interface SessionWithCapabilities extends SessionResponse {
   readonly capabilities: readonly string[];
@@ -24,6 +36,8 @@ export class AuthController {
   public constructor(
     @Inject(API_TOKENS.sessionService)
     private readonly sessions: SessionService,
+    @Inject(API_TOKENS.signInRateLimiter)
+    private readonly signInRateLimiter: SignInRateLimiter,
   ) {}
 
   @Get("session")
@@ -46,6 +60,7 @@ export class AuthController {
   @Header("cache-control", "no-store")
   public async signIn(
     @Body() rawBody: unknown,
+    @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<SessionWithCapabilities> {
     const body = bodyOf(rawBody);
@@ -61,9 +76,19 @@ export class AuthController {
       );
     }
 
+    const rateLimit = this.signInRateLimiter.check(email, request.ip);
+    if (!rateLimit.allowed) {
+      reply.header("retry-after", String(rateLimit.retryAfterSeconds ?? 1));
+      throw new HttpException(
+        "Too many sign-in attempts. Try again later.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const outcome = await this.sessions.signIn(email, password);
 
     if (outcome === null) {
+      this.signInRateLimiter.recordFailure(email, request.ip);
       /*
        * One message for a wrong password, an unknown account and a disabled
        * account: the client is not told which.
@@ -72,6 +97,8 @@ export class AuthController {
         authenticationRequired({ detail: "Those sign-in details were not recognised." }),
       );
     }
+
+    this.signInRateLimiter.recordSuccess(email);
 
     reply.setCookie(SESSION_COOKIE, outcome.sessionId, {
       httpOnly: true,

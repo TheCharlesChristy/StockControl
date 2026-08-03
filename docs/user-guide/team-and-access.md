@@ -15,7 +15,7 @@ date, and whether the account is active. Select a person’s name to open [User 
 1. Select **New user**.
 2. Enter **Work email** and **Name**.
 3. Choose a **Role**.
-4. Set an **Initial password** of at least ten characters.
+4. Set an **Initial password** of 15–128 characters. A unique passphrase is a good choice.
 5. Select **Create user**.
 
 Tell the person their initial password securely. StockControl does not send an invitation or password

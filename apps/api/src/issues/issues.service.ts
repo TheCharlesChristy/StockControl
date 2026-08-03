@@ -66,6 +66,10 @@ export class IssuesService {
     private readonly fetchImplementation: FetchImplementation = globalThis.fetch.bind(globalThis),
   ) {}
 
+  public isConfigured(): boolean {
+    return configurationFrom(this.environment) !== undefined;
+  }
+
   public async create(input: CreateIssueInput): Promise<ReportIssueResponse> {
     const title = input.title.trim();
     const description = input.description.trim();

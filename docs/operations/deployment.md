@@ -1,5 +1,10 @@
 # Customer installation deployment
 
+> This runbook governs the AWS/Lightsail target baseline, not the approved
+> small Railway production MVP. For Railway, use
+> [`infra/railway/README.md`](../../infra/railway/README.md) and its recorded
+> exceptions.
+
 ## Purpose
 
 Provision and accept one isolated StockControl installation. This runbook does

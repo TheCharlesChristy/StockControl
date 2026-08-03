@@ -1,17 +1,18 @@
 # Infrastructure foundation
 
-This directory is a reviewed starting point for one isolated StockControl
-customer installation:
+This directory contains the supported Railway production-MVP deployment and
+the legacy AWS installation material:
 
-- `terraform/` provisions the non-secret AWS resources.
-- `ansible/` configures the Lightsail host after provisioning.
+- `railway/` contains the current per-service configuration and deployment
+  runbook.
+- `terraform/` and `ansible/` preserve the earlier Lightsail design for
+  reference; they are not the production-MVP deployment path.
 
-The templates do not contain credentials, private keys, customer data, or real
-domains. They are not a push-button production deployment: an operator must
-complete the prerequisites, supply immutable application image digests, inject
-secrets from an approved encrypted store, and follow the deployment runbook.
+No infrastructure file contains credentials, private keys, customer data or
+real domains. Start with [`railway/README.md`](railway/README.md) for a new
+installation.
 
-## Order of operations
+## Legacy AWS order of operations
 
 1. Create a remote encrypted Terraform state backend outside this repository.
 2. Review and apply the Terraform plan with customer-specific non-secret

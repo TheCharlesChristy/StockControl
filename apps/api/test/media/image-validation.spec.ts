@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { ImageUploadRequest } from "@stockcontrol/contracts";
+
 import { decodeImage, digestFor } from "../../src/media/image-validation";
 
 function png(width = 1, height = 1): Buffer {
@@ -25,7 +27,11 @@ function jpeg(width = 1, height = 1): Buffer {
   return bytes;
 }
 
-const upload = (bytes: Buffer, mediaType: "image/png" | "image/jpeg", fileName = "photo.png") => ({
+const upload = (
+  bytes: Buffer,
+  mediaType: "image/png" | "image/jpeg",
+  fileName = "photo.png",
+): ImageUploadRequest => ({
   originalFileName: fileName,
   mediaType,
   contentBase64: bytes.toString("base64"),

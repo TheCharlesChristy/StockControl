@@ -6,14 +6,19 @@ import type {
   UserRole,
   UserView,
 } from "@stockcontrol/contracts";
-import { resourceUnavailable, userRoles, validationFailed } from "@stockcontrol/contracts";
+import {
+  passwordPolicyErrors,
+  resourceUnavailable,
+  userRoles,
+  validationFailed,
+} from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely } from "kysely";
 
 import { hashPassword } from "../auth/password";
 import type { SessionService } from "../auth/session-service";
-import type { PhotosService } from "../media/photos.service";
+import type { PhotoAsset, PhotosService } from "../media/photos.service";
 import {
   listOpenReservations,
   listStockRequests,
@@ -21,7 +26,6 @@ import {
 } from "../persistence/read-models";
 
 const SCHEMA = "stockcontrol" as const;
-const MINIMUM_PASSWORD_CHARACTERS = 10;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 export interface NewUser {
@@ -75,8 +79,9 @@ export class UsersService {
     if (!userRoles.includes(role as UserRole)) {
       errors["role"] = ["Choose Engineer, Office or Admin."];
     }
-    if (password.length < MINIMUM_PASSWORD_CHARACTERS) {
-      errors["password"] = [`Use at least ${String(MINIMUM_PASSWORD_CHARACTERS)} characters.`];
+    const passwordErrors = passwordPolicyErrors(password);
+    if (passwordErrors.length > 0) {
+      errors["password"] = passwordErrors;
     }
 
     if (Object.keys(errors).length > 0) {
@@ -111,7 +116,7 @@ export class UsersService {
     return this.require(id);
   }
 
-  public profilePhoto(userId: string) {
+  public profilePhoto(userId: string): Promise<PhotoAsset> {
     return this.photos.profilePhoto(userId);
   }
 

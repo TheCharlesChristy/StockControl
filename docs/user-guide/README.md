@@ -54,14 +54,13 @@ use the account and password supplied by your StockControl administrator.
 
 ## Stock figures in plain language
 
-- **Total in stock** or **On hand** is the item quantity across every location.
+- **Total in stock** is the item quantity across every location.
 - **In stores** is stock currently held in store locations.
 - **At job sites** is stock already collected to job-site locations.
-- **Committed to jobs** or **Reserved** is stock promised to open job reservations but not yet fully
-  collected.
+- **Committed to jobs** is stock promised to open job reservations but not yet fully collected.
 - **Committed for you** is the part of the reserved quantity associated with your own activity.
-- **Ready to use** or **Available** is store stock minus open reservations. Stock at a job site is
-  never counted as ready to use.
+- **Ready to use** is store stock minus open reservations. Stock at a job site is never counted as
+  ready to use.
 
 Stock quantities cannot go below zero. A reservation or issue that is too large is refused without
 writing a partial change. Transactions cannot be edited or deleted; correct a mistake with a new

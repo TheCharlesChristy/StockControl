@@ -1,4 +1,9 @@
-import { createHash, createHmac } from "node:crypto";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 import type { ImageMediaType } from "@stockcontrol/contracts";
 
@@ -18,34 +23,99 @@ interface S3Configuration {
   readonly region: string;
   readonly accessKey: string;
   readonly secretKey: string;
+  readonly urlStyle: "path" | "virtual";
 }
 
-const sha256 = (value: Buffer | string): string => createHash("sha256").update(value).digest("hex");
-const hmac = (key: Buffer | string, value: string): Buffer =>
-  createHmac("sha256", key).update(value).digest();
+const CONFIGURATION_VARIABLES = [
+  "FLOOR_PLAN_S3_ENDPOINT",
+  "FLOOR_PLAN_S3_BUCKET",
+  "FLOOR_PLAN_S3_REGION",
+  "FLOOR_PLAN_S3_ACCESS_KEY",
+  "FLOOR_PLAN_S3_SECRET_KEY",
+] as const;
 
-const encodedPath = (key: string): string =>
-  key
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
+const configuredValue = (environment: NodeJS.ProcessEnv, name: string): string | undefined => {
+  const value = environment[name]?.trim();
+  return value === "" ? undefined : value;
+};
+
+const requiredConfiguredValue = (environment: NodeJS.ProcessEnv, name: string): string => {
+  const value = configuredValue(environment, name);
+  if (value === undefined) {
+    throw new Error(`Private image storage configuration is incomplete. Set ${name}.`);
+  }
+  return value;
+};
 
 const configurationFrom = (environment: NodeJS.ProcessEnv): S3Configuration | undefined => {
-  const endpoint = environment.FLOOR_PLAN_S3_ENDPOINT?.trim();
-  const bucket = environment.FLOOR_PLAN_S3_BUCKET?.trim();
-  const region = environment.FLOOR_PLAN_S3_REGION?.trim() || "us-east-1";
-  const accessKey = environment.FLOOR_PLAN_S3_ACCESS_KEY?.trim();
-  const secretKey = environment.FLOOR_PLAN_S3_SECRET_KEY?.trim();
-  if (!endpoint || !bucket || !accessKey || !secretKey) return undefined;
-  return { endpoint, bucket, region, accessKey, secretKey };
+  const values = CONFIGURATION_VARIABLES.map(
+    (name) => [name, configuredValue(environment, name)] as const,
+  );
+  const urlStyle = configuredValue(environment, "FLOOR_PLAN_S3_URL_STYLE");
+  const hasConfiguration =
+    values.some(([, value]) => value !== undefined) || urlStyle !== undefined;
+  if (!hasConfiguration) return undefined;
+
+  const missing = values.filter(([, value]) => value === undefined).map(([name]) => name);
+  if (missing.length > 0) {
+    throw new Error(
+      `Private image storage configuration is incomplete. Set ${missing.join(", ")}.`,
+    );
+  }
+  if (urlStyle !== undefined && urlStyle !== "path" && urlStyle !== "virtual") {
+    throw new Error('FLOOR_PLAN_S3_URL_STYLE must be either "path" or "virtual".');
+  }
+
+  const endpoint = requiredConfiguredValue(environment, "FLOOR_PLAN_S3_ENDPOINT");
+  const bucket = requiredConfiguredValue(environment, "FLOOR_PLAN_S3_BUCKET");
+  const region = requiredConfiguredValue(environment, "FLOOR_PLAN_S3_REGION");
+  const accessKey = requiredConfiguredValue(environment, "FLOOR_PLAN_S3_ACCESS_KEY");
+  const secretKey = requiredConfiguredValue(environment, "FLOOR_PLAN_S3_SECRET_KEY");
+  let parsedEndpoint: URL;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch {
+    throw new Error("FLOOR_PLAN_S3_ENDPOINT must be a valid HTTP or HTTPS URL.");
+  }
+  if (parsedEndpoint.protocol !== "http:" && parsedEndpoint.protocol !== "https:") {
+    throw new Error("FLOOR_PLAN_S3_ENDPOINT must be a valid HTTP or HTTPS URL.");
+  }
+
+  return {
+    endpoint: parsedEndpoint.toString(),
+    bucket,
+    region,
+    accessKey,
+    secretKey,
+    // Path style preserves compatibility with the existing local MinIO setup.
+    urlStyle: urlStyle ?? "path",
+  };
 };
 
 /** S3-compatible private storage shared by floor plans and application photos. */
 export class S3PrivateObjectStorage implements PrivateObjectStorage {
-  private readonly configuration: S3Configuration | undefined;
+  private readonly bucket: string | undefined;
+  private readonly client: S3Client | undefined;
 
   public constructor(environment: NodeJS.ProcessEnv = process.env) {
-    this.configuration = configurationFrom(environment);
+    const configuration = configurationFrom(environment);
+    if (configuration === undefined) {
+      if (environment.NODE_ENV === "production") {
+        throw new Error("Private image storage must be configured in production.");
+      }
+      return;
+    }
+
+    this.bucket = configuration.bucket;
+    this.client = new S3Client({
+      endpoint: configuration.endpoint,
+      region: configuration.region,
+      credentials: {
+        accessKeyId: configuration.accessKey,
+        secretAccessKey: configuration.secretKey,
+      },
+      forcePathStyle: configuration.urlStyle === "path",
+    });
   }
 
   public async putObject(input: {
@@ -53,79 +123,40 @@ export class S3PrivateObjectStorage implements PrivateObjectStorage {
     readonly bytes: Buffer;
     readonly mediaType: ImageMediaType;
   }): Promise<void> {
-    await this.request("PUT", input.key, input.bytes, input.mediaType);
+    const { bucket, client } = this.configuredStorage();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: input.key,
+        Body: input.bytes,
+        ContentType: input.mediaType,
+      }),
+    );
   }
 
   public async getObject(
     key: string,
   ): Promise<{ readonly bytes: Buffer; readonly mediaType: string }> {
-    const response = await this.request("GET", key);
+    const { bucket, client } = this.configuredStorage();
+    const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (response.Body === undefined) {
+      throw new Error("Private image storage returned an object without content.");
+    }
     return {
-      bytes: Buffer.from(await response.arrayBuffer()),
-      mediaType: response.headers.get("content-type") ?? "application/octet-stream",
+      bytes: Buffer.from(await response.Body.transformToByteArray()),
+      mediaType: response.ContentType ?? "application/octet-stream",
     };
   }
 
   public async deleteObject(key: string): Promise<void> {
-    await this.request("DELETE", key);
+    const { bucket, client } = this.configuredStorage();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 
-  private async request(
-    method: "DELETE" | "GET" | "PUT",
-    key: string,
-    body?: Buffer,
-    mediaType?: string,
-  ): Promise<Response> {
-    const configuration = this.configuration;
-    if (configuration === undefined) throw new Error("Private image storage is not configured.");
-
-    const endpoint = new URL(configuration.endpoint);
-    const basePath = endpoint.pathname.replace(/\/$/u, "");
-    endpoint.pathname = `${basePath}/${encodeURIComponent(configuration.bucket)}/${encodedPath(key)}`;
-    endpoint.search = "";
-
-    const payloadHash = sha256(body ?? Buffer.alloc(0));
-    const amzDate = new Date()
-      .toISOString()
-      .replaceAll(/[-:]/gu, "")
-      .replace(/\.\d{3}Z$/u, "Z");
-    const shortDate = amzDate.slice(0, 8);
-    const scope = `${shortDate}/${configuration.region}/s3/aws4_request`;
-    const headers: Record<string, string> = {
-      host: endpoint.host,
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-      ...(mediaType === undefined ? {} : { "content-type": mediaType }),
-    };
-    const canonicalHeaders = Object.keys(headers)
-      .sort()
-      .map((name) => `${name}:${headers[name]!.trim()}\n`)
-      .join("");
-    const signedHeaders = Object.keys(headers).sort().join(";");
-    const canonicalRequest = [
-      method,
-      endpoint.pathname,
-      "",
-      canonicalHeaders,
-      signedHeaders,
-      payloadHash,
-    ].join("\n");
-    const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256(canonicalRequest)].join("\n");
-    const signingKey = hmac(
-      hmac(hmac(hmac(`AWS4${configuration.secretKey}`, shortDate), configuration.region), "s3"),
-      "aws4_request",
-    );
-    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
-    const authorization = `AWS4-HMAC-SHA256 Credential=${configuration.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-    const response = await fetch(endpoint, {
-      method,
-      headers: { ...headers, authorization },
-      ...(body === undefined ? {} : { body }),
-    });
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 400);
-      throw new Error(`Private image storage returned ${String(response.status)}: ${detail}`);
+  private configuredStorage(): { readonly bucket: string; readonly client: S3Client } {
+    if (this.bucket === undefined || this.client === undefined) {
+      throw new Error("Private image storage is not configured.");
     }
-    return response;
+    return { bucket: this.bucket, client: this.client };
   }
 }

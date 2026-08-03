@@ -2,6 +2,30 @@ export const userRoles = ["Engineer", "Office", "Admin"] as const;
 
 export type UserRole = (typeof userRoles)[number];
 
+/**
+ * A length-first password policy keeps the rule understandable while allowing
+ * passphrases, spaces, Unicode and password-manager output without arbitrary
+ * composition requirements.
+ */
+export const passwordPolicy = Object.freeze({
+  minimumCharacters: 15,
+  maximumCharacters: 128,
+});
+
+export const passwordPolicyErrors = (password: string): readonly string[] => {
+  const characterCount = [...password.normalize("NFKC")].length;
+
+  if (characterCount < passwordPolicy.minimumCharacters) {
+    return [`Use at least ${String(passwordPolicy.minimumCharacters)} characters.`];
+  }
+
+  if (characterCount > passwordPolicy.maximumCharacters) {
+    return [`Use no more than ${String(passwordPolicy.maximumCharacters)} characters.`];
+  }
+
+  return [];
+};
+
 export interface AuthenticatedUser {
   readonly id: string;
   readonly email: string;

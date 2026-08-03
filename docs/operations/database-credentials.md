@@ -1,5 +1,10 @@
 # PostgreSQL credential rotation
 
+> This runbook governs the AWS/Lightsail target baseline, not the approved
+> small Railway production MVP. For Railway, use
+> [`infra/railway/README.md`](../../infra/railway/README.md) and its recorded
+> exceptions.
+
 Use this runbook only for an existing customer installation. A new empty
 PostgreSQL volume creates its roles from the bootstrap environment; PostgreSQL
 does not re-run that bootstrap when the volume already contains data.
