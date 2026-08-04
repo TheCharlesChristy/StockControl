@@ -27,6 +27,7 @@ import type { Kysely } from "kysely";
 import { API_TOKENS } from "./api.tokens";
 import { AuthController } from "./auth/auth.controller";
 import { AuthenticationGuard } from "./auth/auth.guard";
+import { ExpiredSessionSweeper } from "./auth/expired-session-sweeper";
 import { loadPublicAppOrigin, RequestOriginGuard } from "./auth/request-origin.guard";
 import { SessionService } from "./auth/session-service";
 import { SignInRateLimiter } from "./auth/sign-in-rate-limiter";
@@ -122,6 +123,21 @@ const providers: Provider[] = [
     useFactory: () => new SignInRateLimiter(),
   },
   {
+    /*
+     * Resolved once at startup so the origin is validated while the process is
+     * still starting, and so the guard and the cookie cannot disagree about
+     * which origin this deployment serves.
+     */
+    provide: API_TOKENS.publicAppOrigin,
+    useFactory: () => loadPublicAppOrigin(),
+  },
+  {
+    provide: API_TOKENS.expiredSessionSweeper,
+    useFactory: (sessions: SessionService, logger: StructuredLogger) =>
+      new ExpiredSessionSweeper(sessions, logger),
+    inject: [API_TOKENS.sessionService, SYSTEM_TOKENS.logger],
+  },
+  {
     provide: API_TOKENS.stockService,
     useFactory: (database: Database) => new StockService(database),
     inject: [SYSTEM_TOKENS.database],
@@ -174,7 +190,8 @@ const providers: Provider[] = [
      * are public routes, but they still mutate authentication state.
      */
     provide: APP_GUARD,
-    useFactory: () => new RequestOriginGuard(loadPublicAppOrigin()),
+    useFactory: (allowedOrigin: string | null) => new RequestOriginGuard(allowedOrigin),
+    inject: [API_TOKENS.publicAppOrigin],
   },
   {
     /*

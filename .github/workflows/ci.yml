@@ -112,6 +112,20 @@ jobs:
             | grep --quiet '<div id="root"></div>'
           curl --fail --silent --show-error --head http://127.0.0.1:18080/ \
             | grep --ignore-case --quiet '^Content-Security-Policy:'
+
+          # nginx replaces rather than merges an inherited add_header set, so a
+          # location with headers of its own silently loses the security set.
+          # Assert it on the one location that has them, not only on the root.
+          for header in Content-Security-Policy X-Content-Type-Options \
+                        X-Frame-Options Strict-Transport-Security; do
+            curl --fail --silent --show-error --head http://127.0.0.1:18080/health \
+              | grep --ignore-case --quiet "^${header}:" \
+              || { echo "::error::/health is missing ${header}"; exit 1; }
+          done
+
+          curl --fail --silent --show-error --head http://127.0.0.1:18080/ \
+            | grep --ignore-case --quiet '^Strict-Transport-Security:.*includeSubDomains'
+
           docker exec "$container_id" nginx -T 2>&1 \
             | grep --quiet 'client_max_body_size 16m;'
 

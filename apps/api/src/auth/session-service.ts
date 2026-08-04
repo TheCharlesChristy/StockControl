@@ -7,6 +7,15 @@ import type { Kysely } from "kysely";
 import { DUMMY_PASSWORD_HASH, verifyPassword } from "./password";
 
 export const SESSION_COOKIE = "stockcontrol.session";
+
+/*
+ * `__Host-` is enforced by the browser rather than by us: it refuses the cookie
+ * unless it is Secure, path-scoped to `/`, and carries no Domain, which stops a
+ * neighbouring subdomain from writing a session cookie this API would read.
+ * Only an HTTPS deployment can use it, so the plain name remains for local
+ * development and is still accepted here while existing sessions age out.
+ */
+export const SECURE_SESSION_COOKIE = `__Host-${SESSION_COOKIE}`;
 export const SESSION_HOURS = 12;
 
 const SCHEMA: typeof STOCKCONTROL_SCHEMA = "stockcontrol";

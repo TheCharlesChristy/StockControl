@@ -24,7 +24,12 @@ import { bodyOf } from "../inventory/request-parsing";
 import { readSessionCookie } from "./auth.guard";
 import { Public } from "./public.decorator";
 import { sessionOf } from "./request-context";
-import { SESSION_COOKIE, SESSION_HOURS, type SessionService } from "./session-service";
+import {
+  SECURE_SESSION_COOKIE,
+  SESSION_COOKIE,
+  SESSION_HOURS,
+  type SessionService,
+} from "./session-service";
 import type { SignInRateLimiter } from "./sign-in-rate-limiter";
 
 interface SessionWithCapabilities extends SessionResponse {
@@ -38,7 +43,20 @@ export class AuthController {
     private readonly sessions: SessionService,
     @Inject(API_TOKENS.signInRateLimiter)
     private readonly signInRateLimiter: SignInRateLimiter,
+    /*
+     * The validated public origin, not NODE_ENV. The scheme the browser will
+     * actually use is the thing that decides whether a Secure cookie can be
+     * sent at all, and it is already checked at startup — production is
+     * required to be https there, so this cannot silently be false in a
+     * deployment that needs it true.
+     */
+    @Inject(API_TOKENS.publicAppOrigin)
+    private readonly publicAppOrigin: string | null,
   ) {}
+
+  private get cookieIsSecure(): boolean {
+    return this.publicAppOrigin?.startsWith("https://") ?? false;
+  }
 
   @Get("session")
   @Public()
@@ -100,11 +118,13 @@ export class AuthController {
 
     this.signInRateLimiter.recordSuccess(email);
 
-    reply.setCookie(SESSION_COOKIE, outcome.sessionId, {
+    const secure = this.cookieIsSecure;
+
+    reply.setCookie(secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE, outcome.sessionId, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      secure: process.env["NODE_ENV"] === "production",
+      secure,
       maxAge: SESSION_HOURS * 3_600,
     });
 
@@ -127,7 +147,9 @@ export class AuthController {
       await this.sessions.signOut(sessionId);
     }
 
+    /* Both names, so signing out also clears a cookie issued before the rename. */
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    reply.clearCookie(SECURE_SESSION_COOKIE, { path: "/", secure: this.cookieIsSecure });
     return { signedOut: true };
   }
 }

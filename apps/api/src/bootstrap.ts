@@ -10,6 +10,7 @@ import {
   type CorrelationContext,
   ProblemDetailsExceptionFilter,
   registerCorrelationIdHook,
+  registerSecurityHeadersHook,
   type StructuredLogger,
 } from "@stockcontrol/platform";
 import type { DatabaseEnvironment } from "@stockcontrol/platform-database";
@@ -58,6 +59,7 @@ export const createApiApplication = async (): Promise<NestFastifyApplication> =>
 
   await fastify.register(fastifyCookie);
   registerCorrelationIdHook(fastify, context);
+  registerSecurityHeadersHook(fastify);
   app.setGlobalPrefix(API_V1_PREFIX);
   app.useLogger(logger);
   app.useGlobalFilters(new ProblemDetailsExceptionFilter(context, logger));

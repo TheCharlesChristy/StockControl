@@ -5,7 +5,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
 
 import { attachSession } from "./request-context";
-import { SESSION_COOKIE, type SessionService } from "./session-service";
+import { SECURE_SESSION_COOKIE, SESSION_COOKIE, type SessionService } from "./session-service";
 
 export const PUBLIC_ROUTE = "stockcontrol:public-route";
 
@@ -17,10 +17,15 @@ interface MaybeCookies {
   readonly cookies?: Readonly<Record<string, string | undefined>> | undefined;
 }
 
+/**
+ * Prefers the host-locked cookie and falls back to the plain name, so a
+ * deployment that starts issuing `__Host-` cookies does not sign out everyone
+ * holding a session issued under the old name.
+ */
 export function readSessionCookie(request: FastifyRequest): string | undefined {
   const { cookies } = request as unknown as MaybeCookies;
 
-  return cookies?.[SESSION_COOKIE];
+  return cookies?.[SECURE_SESSION_COOKIE] ?? cookies?.[SESSION_COOKIE];
 }
 
 /**

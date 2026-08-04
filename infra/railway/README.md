@@ -107,8 +107,18 @@ FLOOR_PLAN_S3_SECRET_KEY=${{media.SECRET_ACCESS_KEY}}
 FLOOR_PLAN_S3_URL_STYLE=virtual
 ```
 
+`DATABASE_URL` must use the Postgres service's **private** hostname. With
+`NODE_ENV=production` the API refuses to start on a public database host unless
+the URL also carries `sslmode=require` (or `verify-full`), because that traffic
+would otherwise cross the internet carrying the role's password in the clear.
+The same rule applies to `DATABASE_MIGRATOR_URL` on the `migrate` service. If a
+recovery step genuinely needs the public TCP proxy, append the `sslmode`
+parameter rather than removing the check.
+
 `PUBLIC_APP_ORIGIN` is one origin with scheme and no trailing slash. Update it
-when replacing a temporary Railway domain with the customer domain. Production
+when replacing a temporary Railway domain with the customer domain. It also
+decides the session cookie: an `https` origin makes the cookie `Secure` and
+host-locked with the `__Host-` prefix. Production
 unsafe requests with a missing or different `Origin` are rejected.
 
 The five Bucket connection variables are an all-or-none set. `virtual` is
@@ -174,8 +184,11 @@ fixed local-development names and passwords.
    successful, completed deployment.
 3. Deploy `api` from the same commit and wait for
    `/api/v1/health/ready` to pass.
-4. Deploy `web`. Its Railway health check calls the API readiness endpoint
-   through Nginx, proving both private DNS and the proxy path before activation.
+4. Deploy `web`. Its Railway health check is Nginx's own `/health`, so the web
+   service reports on the web service. Prove the proxy path separately with the
+   readiness check in step 6 — a health check that reached through to the API
+   would mark `web` unhealthy whenever `api` restarts, which is precisely the
+   window this release order creates.
 5. Open an interactive shell in the API deployment (right-click `api` and copy
    Railway's SSH command), then run:
 
