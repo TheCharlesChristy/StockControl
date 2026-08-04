@@ -90,6 +90,69 @@ describe("database configuration", () => {
     ).toThrow("DATABASE_URL must include a database role.");
   });
 
+  /*
+   * A connection string is the one place a deployment can quietly stop being
+   * private: repointing it at a managed provider's public proxy during an
+   * incident puts the role's password on the open internet. Production is
+   * therefore required to say plainly that it wants TLS, in the same way it is
+   * required to state its public origin rather than have one inferred.
+   */
+  describe("transport security in production", () => {
+    const production = { NODE_ENV: "production" };
+
+    it.each([
+      "postgresql://runtime_role:secret@postgres.railway.internal:5432/stockcontrol",
+      "postgresql://runtime_role:secret@localhost:5432/stockcontrol",
+      "postgresql://runtime_role:secret@127.0.0.1:5432/stockcontrol",
+    ])("accepts the private host %s without an sslmode", (url) => {
+      expect(() =>
+        loadRuntimeDatabaseConfiguration({ ...production, DATABASE_URL: url }),
+      ).not.toThrow();
+    });
+
+    it.each(["require", "verify-ca", "verify-full"])("accepts a public host with %s", (mode) => {
+      expect(() =>
+        loadRuntimeDatabaseConfiguration({
+          ...production,
+          DATABASE_URL: `postgresql://runtime_role:secret@db.example.com:5432/stockcontrol?sslmode=${mode}`,
+        }),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ["no sslmode at all", ""],
+      ["sslmode=disable", "?sslmode=disable"],
+      ["sslmode=prefer, which silently falls back", "?sslmode=prefer"],
+      ["sslmode=allow, which silently falls back", "?sslmode=allow"],
+    ])("rejects a public host with %s", (_description, query) => {
+      expect(() =>
+        loadRuntimeDatabaseConfiguration({
+          ...production,
+          DATABASE_URL: `postgresql://runtime_role:secret@db.example.com:5432/stockcontrol${query}`,
+        }),
+      ).toThrow(DatabaseConfigurationError);
+    });
+
+    it("holds the migrator to the same rule", () => {
+      expect(() =>
+        loadMigratorDatabaseConfiguration({
+          ...production,
+          DATABASE_MIGRATOR_URL:
+            "postgresql://migration_role:secret@db.example.com:5432/stockcontrol",
+        }),
+      ).toThrow("DATABASE_MIGRATOR_URL reaches a public host");
+    });
+
+    it("leaves development and test free to use a plain local connection", () => {
+      expect(() =>
+        loadRuntimeDatabaseConfiguration({
+          NODE_ENV: "test",
+          DATABASE_URL: "postgresql://runtime_role:secret@db.example.com:5432/stockcontrol",
+        }),
+      ).not.toThrow();
+    });
+  });
+
   it.each(["0", "-1", "1.5", "many"])("rejects invalid pool size %s", (poolSize) => {
     expect(() =>
       loadRuntimeDatabaseConfiguration({

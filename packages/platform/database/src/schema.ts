@@ -41,6 +41,9 @@ export interface UsersTable {
   readonly display_name: string;
   readonly role: UserRole;
   readonly password_hash: string;
+  /** True while the current password was chosen by somebody other than the user. */
+  readonly must_change_password: Generated<boolean>;
+  readonly password_changed_at: Date | null;
   readonly is_active: Generated<boolean>;
   readonly created_at: GeneratedImmutableColumn<Date>;
   readonly updated_at: Generated<Date>;

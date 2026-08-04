@@ -19,7 +19,7 @@
     ]
   },
   "deploy": {
-    "healthcheckPath": "/api/v1/health/ready",
+    "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ALWAYS",
     "multiRegionConfig": {

@@ -25,7 +25,54 @@ export interface CreateIssueInput {
   readonly title: string;
   readonly description: string;
   readonly page: string;
-  readonly reporter: Pick<CurrentUser, "displayName" | "role">;
+  readonly reporter: Pick<CurrentUser, "id" | "displayName" | "role">;
+}
+
+const REPORTS_PER_WINDOW = 5;
+const REPORT_WINDOW_MILLISECONDS = 60 * 60 * 1_000;
+const MAX_TRACKED_REPORTERS = 1_000;
+
+/**
+ * A bounded per-reporter throttle. This endpoint spends the installation's
+ * GitHub credential and writes to a repository the whole world can read, so an
+ * account that is merely signed in must not be able to file without limit —
+ * whether that is somebody leaning on the button or somebody who has taken a
+ * session. The key is the user id from the session, which the caller cannot
+ * choose.
+ */
+class ReportThrottle {
+  private readonly windows = new Map<string, { count: number; readonly expiresAt: number }>();
+
+  public constructor(private readonly now: () => number = Date.now) {}
+
+  public allow(userId: string): boolean {
+    const now = this.now();
+
+    for (const [key, window] of this.windows) {
+      if (window.expiresAt <= now) {
+        this.windows.delete(key);
+      }
+    }
+
+    const current = this.windows.get(userId);
+
+    if (current === undefined) {
+      if (this.windows.size >= MAX_TRACKED_REPORTERS) {
+        const oldest = this.windows.keys().next().value;
+        if (oldest !== undefined) this.windows.delete(oldest);
+      }
+
+      this.windows.set(userId, { count: 1, expiresAt: now + REPORT_WINDOW_MILLISECONDS });
+      return true;
+    }
+
+    if (current.count >= REPORTS_PER_WINDOW) {
+      return false;
+    }
+
+    current.count += 1;
+    return true;
+  }
 }
 
 function configurationFrom(environment: NodeJS.ProcessEnv): GitHubConfiguration | undefined {
@@ -54,6 +101,27 @@ function issueUrlFrom(value: unknown): string | undefined {
   }
 }
 
+/**
+ * Wraps reporter-supplied text in a fence long enough that the text cannot end
+ * it. Everything here is written by whoever is signed in and read by a
+ * maintainer in GitHub's issue view, where bare Markdown would let a reporter
+ * forge headings, embed images that phone home on open, or plant a link that
+ * does not say where it goes.
+ */
+function fencedBlock(value: string): string {
+  const longestRun = [...value.matchAll(/`+/gu)].reduce(
+    (longest, [run]) => Math.max(longest, run.length),
+    0,
+  );
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+
+  return `${fence}text\n${value}\n${fence}`;
+}
+
+function reporterLabel(reporter: CreateIssueInput["reporter"]): string {
+  return `${reporter.displayName} (${reporter.role})`;
+}
+
 function externalServiceFailure(detail: string): ApplicationFailureException {
   return new ApplicationFailureException(
     resourceUnavailable({ code: "issues.github_unavailable", detail }),
@@ -64,6 +132,7 @@ export class IssuesService {
   public constructor(
     private readonly environment: NodeJS.ProcessEnv = process.env,
     private readonly fetchImplementation: FetchImplementation = globalThis.fetch.bind(globalThis),
+    private readonly throttle: ReportThrottle = new ReportThrottle(),
   ) {}
 
   public isConfigured(): boolean {
@@ -106,15 +175,31 @@ export class IssuesService {
       );
     }
 
+    /*
+     * Checked after validation so a malformed attempt does not consume the
+     * reporter's allowance, and before the request so a throttled one never
+     * reaches GitHub.
+     */
+    if (!this.throttle.allow(input.reporter.id)) {
+      throw new ApplicationFailureException(
+        validationFailed({
+          description: [
+            `You can report up to ${String(REPORTS_PER_WINDOW)} issues an hour. Add detail to an existing report instead.`,
+          ],
+        }),
+      );
+    }
+
     const [owner, repository] = configuration.repository.split("/");
     const endpoint = `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(repository!)}/issues`;
     const body = [
       "## Description",
-      description,
+      "",
+      fencedBlock(description),
       "",
       "## Context",
-      `- Page: \`${page || "/"}\``,
-      `- Reported by: ${input.reporter.displayName} (${input.reporter.role})`,
+      "",
+      fencedBlock(`Page:        ${page || "/"}\nReported by: ${reporterLabel(input.reporter)}`),
       "",
       "_Submitted from StockControl._",
     ].join("\n");

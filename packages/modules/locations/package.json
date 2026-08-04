@@ -21,10 +21,12 @@
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --configLoader runner",
-    "test:unit": "vitest run --configLoader runner"
+    "test:unit": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --configLoader runner"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

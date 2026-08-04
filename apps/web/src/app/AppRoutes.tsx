@@ -2,7 +2,7 @@ import { Suspense, lazy, type ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { RequireAuthentication, SignedOutOnly } from "../auth/RouteGuards";
+import { CHANGE_PASSWORD_PATH, RequireAuthentication, SignedOutOnly } from "../auth/RouteGuards";
 import { AccessDeniedPage, ErrorPage, LoadingPage, NotFoundPage } from "../components/RouteStates";
 import { AppShell } from "../layout/AppShell";
 import { canAccessNavigationItem, navigationItems } from "../navigation";
@@ -12,6 +12,7 @@ import { ItemDetailPage } from "../pages/ItemDetailPage";
 import { JobDetailPage } from "../pages/JobDetailPage";
 import { JobsPage } from "../pages/JobsPage";
 import { RequestsPage } from "../pages/RequestsPage";
+import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
@@ -96,6 +97,7 @@ export function AppRoutes(): ReactElement {
             />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path={CHANGE_PASSWORD_PATH} element={<ChangePasswordPage />} />
             <Route
               path="/locations"
               element={

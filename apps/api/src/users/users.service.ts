@@ -100,6 +100,8 @@ export class UsersService {
           display_name: displayName,
           role: role as UserRole,
           password_hash: await hashPassword(password),
+          /* An Admin chose this password, so its owner has to replace it. */
+          must_change_password: true,
           is_active: true,
         })
         .execute();
@@ -129,6 +131,28 @@ export class UsersService {
   public async deleteProfilePhoto(userId: string): Promise<UserView> {
     await this.require(userId);
     await this.photos.deleteProfilePhoto(userId);
+    return this.require(userId);
+  }
+
+  /**
+   * An Admin setting a password for somebody who cannot sign in.
+   *
+   * The account is marked as holding a password its owner did not choose, and
+   * every session it had is ended — both because the person may be locked out
+   * precisely because somebody else has the account, and because the Admin now
+   * knows the password and should not be able to keep using it.
+   */
+  public async resetPassword(userId: string, newPassword: string): Promise<UserView> {
+    await this.require(userId);
+    const passwordErrors = passwordPolicyErrors(newPassword);
+
+    if (passwordErrors.length > 0) {
+      throw new ApplicationFailureException(validationFailed({ newPassword: passwordErrors }));
+    }
+
+    await this.sessions.setPassword(userId, await hashPassword(newPassword), true);
+    await this.sessions.revokeAllForUser(userId);
+
     return this.require(userId);
   }
 

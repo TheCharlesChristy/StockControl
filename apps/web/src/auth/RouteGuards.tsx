@@ -8,8 +8,10 @@ interface SignedOutOnlyProps {
   readonly children: ReactNode;
 }
 
+export const CHANGE_PASSWORD_PATH = "/change-password";
+
 export function RequireAuthentication(): ReactElement {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const location = useLocation();
 
   if (status === "checking") {
@@ -24,6 +26,16 @@ export function RequireAuthentication(): ReactElement {
         state={{ from: `${location.pathname}${location.search}${location.hash}` }}
       />
     );
+  }
+
+  /*
+   * An account whose password was chosen by somebody else goes nowhere until it
+   * has one of its own. This is a convenience, not the control: the server does
+   * not let the browser decide anything, and a user who skipped this screen
+   * would simply be using a password their Admin also knows.
+   */
+  if (user?.mustChangePassword === true && location.pathname !== CHANGE_PASSWORD_PATH) {
+    return <Navigate to={CHANGE_PASSWORD_PATH} replace />;
   }
 
   return <Outlet />;

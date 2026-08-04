@@ -96,6 +96,7 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 PUBLIC_APP_ORIGIN=https://<the exact web domain>
+TRUSTED_PROXY_HOPS=1
 DATABASE_URL=<private URL for stockcontrol_app>
 DATABASE_POOL_MAX=5
 LOG_LEVEL=info
@@ -107,8 +108,25 @@ FLOOR_PLAN_S3_SECRET_KEY=${{media.SECRET_ACCESS_KEY}}
 FLOOR_PLAN_S3_URL_STYLE=virtual
 ```
 
+`TRUSTED_PROXY_HOPS` is how many reverse proxies stand between the browser and
+the API — one, the `web` Nginx service, in the shape above. It decides which
+`X-Forwarded-For` entry becomes the client address, and that address keys the
+per-source sign-in throttle, so an over-generous value lets a caller choose its
+own throttle bucket by sending the header itself. Change it only when the
+deployment really does gain a hop.
+
+`DATABASE_URL` must use the Postgres service's **private** hostname. With
+`NODE_ENV=production` the API refuses to start on a public database host unless
+the URL also carries `sslmode=require` (or `verify-full`), because that traffic
+would otherwise cross the internet carrying the role's password in the clear.
+The same rule applies to `DATABASE_MIGRATOR_URL` on the `migrate` service. If a
+recovery step genuinely needs the public TCP proxy, append the `sslmode`
+parameter rather than removing the check.
+
 `PUBLIC_APP_ORIGIN` is one origin with scheme and no trailing slash. Update it
-when replacing a temporary Railway domain with the customer domain. Production
+when replacing a temporary Railway domain with the customer domain. It also
+decides the session cookie: an `https` origin makes the cookie `Secure` and
+host-locked with the `__Host-` prefix. Production
 unsafe requests with a missing or different `Origin` are rejected.
 
 The five Bucket connection variables are an all-or-none set. `virtual` is
@@ -174,8 +192,11 @@ fixed local-development names and passwords.
    successful, completed deployment.
 3. Deploy `api` from the same commit and wait for
    `/api/v1/health/ready` to pass.
-4. Deploy `web`. Its Railway health check calls the API readiness endpoint
-   through Nginx, proving both private DNS and the proxy path before activation.
+4. Deploy `web`. Its Railway health check is Nginx's own `/health`, so the web
+   service reports on the web service. Prove the proxy path separately with the
+   readiness check in step 6 — a health check that reached through to the API
+   would mark `web` unhealthy whenever `api` restarts, which is precisely the
+   window this release order creates.
 5. Open an interactive shell in the API deployment (right-click `api` and copy
    Railway's SSH command), then run:
 
@@ -186,6 +207,15 @@ fixed local-development names and passwords.
    Enter and confirm the password at the hidden terminal prompts. Production
    passwords must contain 15 to 128 Unicode characters. The setup refuses to
    run if any user already exists and never prints the password.
+
+   This is the one account whose password nobody else has ever known, which is
+   why it is not marked for a forced change. Every account created afterwards
+   is: the Admin types the first password, so the application requires its owner
+   to replace it before they can do anything else.
+
+   If this installation already had accounts before the password-management
+   release, reset each one from **Team -> the person -> Reset password**. Until
+   you do, those accounts are still using a password an Admin chose and knows.
 
 6. Sign in as the Admin and complete the smoke checks below.
 7. Add the customer domain to `web`, wait for managed TLS, change

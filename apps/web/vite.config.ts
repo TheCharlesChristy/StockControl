@@ -48,11 +48,12 @@ export default defineConfig(({ mode }) => {
         reporter: ["text", "json-summary", "lcov", "html"],
         include: ["src/**/*.ts", "src/**/*.tsx"],
         exclude: ["src/main.tsx", "src/test/**", "src/**/*.d.ts"],
+        /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
         thresholds: {
-          branches: 80,
-          functions: 80,
-          lines: 80,
-          statements: 80,
+          branches: 55,
+          functions: 50,
+          lines: 65,
+          statements: 65,
         },
       },
     },

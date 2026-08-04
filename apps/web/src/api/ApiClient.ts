@@ -1,4 +1,6 @@
 import type {
+  ChangePasswordRequest,
+  ResetPasswordRequest,
   CreateItemRequest,
   CreateJobRequest,
   CreateMapRequest,
@@ -495,6 +497,18 @@ export class ApiClient {
 
   public async deleteUser(id: string): Promise<void> {
     await this.send("DELETE", `/users/${id}`);
+  }
+
+  /** Changing your own password. Signs out every other session on success. */
+  public async changePassword(body: ChangePasswordRequest): Promise<void> {
+    await this.send("POST", "/auth/password", { body });
+  }
+
+  /** An Admin setting a password for somebody who cannot sign in. */
+  public async resetUserPassword(id: string, body: ResetPasswordRequest): Promise<UserView> {
+    const { user } = await this.send<{ user: UserView }>("POST", `/users/${id}/password`, { body });
+
+    return user;
   }
 
   public userActivity(id: string, signal?: AbortSignal): Promise<UserActivityResponse> {

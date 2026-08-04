@@ -86,9 +86,54 @@ const parsePostgresUrl = (connectionString: string, variableName: string): URL =
   return parsedUrl;
 };
 
+/*
+ * Hosts that are only reachable from inside the deployment's own private
+ * network. Traffic to these never crosses a network the operator does not
+ * control, which is the property TLS would otherwise have to provide.
+ */
+const isPrivateDatabaseHost = (hostname: string): boolean => {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
+
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.endsWith(".railway.internal") ||
+    host.endsWith(".internal")
+  );
+};
+
+const ENCRYPTED_SSL_MODES = new Set(["require", "verify-ca", "verify-full"]);
+
+/**
+ * Production must not reach a database over an unencrypted public connection.
+ * Following `loadPublicAppOrigin`, production gets no inferred fallback: either
+ * the host is private, or the URL says plainly that it wants TLS. Repointing a
+ * connection string at a public proxy during an incident is exactly when this
+ * would otherwise go unnoticed, and it puts the role's password on the wire.
+ */
+const assertConnectionIsEncrypted = (
+  parsedUrl: URL,
+  variableName: string,
+  environment: DatabaseEnvironment,
+): void => {
+  if (environment.NODE_ENV !== "production" || isPrivateDatabaseHost(parsedUrl.hostname)) {
+    return;
+  }
+
+  const sslMode = parsedUrl.searchParams.get("sslmode")?.trim().toLowerCase();
+
+  if (sslMode === undefined || !ENCRYPTED_SSL_MODES.has(sslMode)) {
+    throw new DatabaseConfigurationError(
+      `${variableName} reaches a public host, so it must request TLS: add sslmode=require (or verify-full) to the connection URL.`,
+    );
+  }
+};
+
 const readConnectionString = (environment: DatabaseEnvironment, variableName: string): string => {
   const connectionString = readRequiredValue(environment, variableName);
-  parsePostgresUrl(connectionString, variableName);
+  const parsedUrl = parsePostgresUrl(connectionString, variableName);
+  assertConnectionIsEncrypted(parsedUrl, variableName, environment);
   return connectionString;
 };
 

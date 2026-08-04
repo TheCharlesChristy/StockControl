@@ -1,11 +1,14 @@
 import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import LockResetRounded from "@mui/icons-material/LockResetRounded";
 import PhotoCameraRounded from "@mui/icons-material/PhotoCameraRounded";
-import { Alert, Avatar, Box, Button, Paper, Stack, Typography } from "@mui/material";
+import { Alert, Avatar, Box, Button, Divider, Paper, Stack, Typography } from "@mui/material";
 import { useState, type ChangeEvent, type ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { ApiError } from "../api/ApiClient";
 import { useApi } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
+import { CHANGE_PASSWORD_PATH } from "../auth/RouteGuards";
 import { PageHeader } from "../components/DataStates";
 import { ImagePreview } from "../components/ImagePreview";
 import { readImageFile } from "../components/photo-files";
@@ -137,6 +140,24 @@ export function ProfilePage(): ReactElement {
             {error}
           </Alert>
         )}
+        <Divider sx={{ my: 3 }} />
+        <Stack spacing={1} alignItems="flex-start">
+          <Typography variant="h4" component="h3">
+            Password
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Changing it signs out every other device you are signed in on.
+          </Typography>
+          <Button
+            component={RouterLink}
+            to={CHANGE_PASSWORD_PATH}
+            variant="outlined"
+            startIcon={<LockResetRounded />}
+            sx={{ mt: 1 }}
+          >
+            Change password
+          </Button>
+        </Stack>
       </Paper>
     </Box>
   );

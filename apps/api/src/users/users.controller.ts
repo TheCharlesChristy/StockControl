@@ -158,6 +158,33 @@ export class UsersController {
     };
   }
 
+  /**
+   * Resetting somebody else's password. Admin only, and never your own: an
+   * Admin changing their own password uses `/auth/password` and proves they
+   * hold the current one, so this route cannot be used to skip that check.
+   */
+  @Post(":id/password")
+  public async resetPassword(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Body() rawBody: unknown,
+  ): Promise<UserResponse> {
+    const actor = requireCapability(request, "manageUsers");
+
+    if (actor.id === id) {
+      throw new ApplicationFailureException(
+        validationFailed({
+          newPassword: ["Change your own password from your profile, with your current one."],
+        }),
+      );
+    }
+
+    const body = bodyOf(rawBody);
+    const newPassword = typeof body["newPassword"] === "string" ? body["newPassword"] : "";
+
+    return { user: await this.users.resetPassword(id, newPassword) };
+  }
+
   @Delete(":id")
   public async remove(
     @Req() request: FastifyRequest,

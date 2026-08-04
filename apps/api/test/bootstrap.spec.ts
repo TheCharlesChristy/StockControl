@@ -32,7 +32,11 @@ vi.mock("@stockcontrol/platform-database", () => ({
   },
 }));
 
-import { resolveApiListenerConfiguration, startApi } from "../src/bootstrap";
+import {
+  resolveApiListenerConfiguration,
+  resolveTrustedProxyHops,
+  startApi,
+} from "../src/bootstrap";
 
 const acquireEphemeralPort = async (): Promise<number> => {
   const reservation = createServer();
@@ -119,6 +123,37 @@ describe("API listener configuration", () => {
   ])("rejects a %s port", (_description, port) => {
     expect(() => resolveApiListenerConfiguration({ PORT: port })).toThrow(
       `Invalid PORT value: ${port}`,
+    );
+  });
+});
+
+/*
+ * `request.ip` keys the per-source sign-in throttle, so what the API is willing
+ * to believe about X-Forwarded-For is a security setting, not a formatting one.
+ * A hop count is bounded by the deployment's shape; a trusted-subnet list on a
+ * platform whose private network is entirely unique-local is not, because it
+ * walks the chain to the leftmost entry — the one the caller wrote.
+ */
+describe("trusted proxy hops", () => {
+  it("defaults to the single Nginx service in front of the API", () => {
+    expect(resolveTrustedProxyHops({})).toBe(1);
+  });
+
+  it.each(['""', '"   "'])("falls back from the blank value %s", (value) => {
+    expect(resolveTrustedProxyHops({ TRUSTED_PROXY_HOPS: value.slice(1, -1) })).toBe(1);
+  });
+
+  it("accepts an explicit count for a deployment with more proxies", () => {
+    expect(resolveTrustedProxyHops({ TRUSTED_PROXY_HOPS: " 2 " })).toBe(2);
+  });
+
+  it("accepts zero, for an API exposed with nothing in front of it", () => {
+    expect(resolveTrustedProxyHops({ TRUSTED_PROXY_HOPS: "0" })).toBe(0);
+  });
+
+  it.each(["-1", "1.5", "many", "11"])("rejects the invalid count %s", (value) => {
+    expect(() => resolveTrustedProxyHops({ TRUSTED_PROXY_HOPS: value })).toThrow(
+      `Invalid TRUSTED_PROXY_HOPS value: ${value}`,
     );
   });
 });

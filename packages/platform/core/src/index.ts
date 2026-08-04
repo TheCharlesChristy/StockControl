@@ -3,6 +3,7 @@ export * from "./health/readiness-registry";
 export * from "./http/application-failure-exception";
 export * from "./http/correlation-hook";
 export * from "./http/problem-details-exception-filter";
+export * from "./http/security-headers-hook";
 export * from "./observability/correlation-context";
 export * from "./observability/structured-logger";
 export * from "./system/environment-version-provider";

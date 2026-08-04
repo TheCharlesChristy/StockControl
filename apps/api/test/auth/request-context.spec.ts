@@ -20,6 +20,7 @@ const sessionFor = (role: AuthenticatedSession["user"]["role"]): AuthenticatedSe
     displayName: role,
     role,
     profilePhotoUrl: null,
+    mustChangePassword: false,
   },
   issuedAt: "2026-07-30T09:00:00.000Z",
   expiresAt: "2026-07-30T21:00:00.000Z",
@@ -116,6 +117,30 @@ describe("readSessionCookie", () => {
     } as unknown as FastifyRequest;
 
     expect(readSessionCookie(request)).toBe("session-id");
+  });
+
+  it("reads the host-locked cookie an HTTPS deployment issues", () => {
+    const request = {
+      cookies: { "__Host-stockcontrol.session": "host-locked" },
+    } as unknown as FastifyRequest;
+
+    expect(readSessionCookie(request)).toBe("host-locked");
+  });
+
+  /*
+   * Both names are present for as long as it takes the pre-rename sessions to
+   * expire. The host-locked one is the one this deployment issued, so it wins;
+   * the other cannot have been set by anything this API would trust more.
+   */
+  it("prefers the host-locked cookie while both are present", () => {
+    const request = {
+      cookies: {
+        "__Host-stockcontrol.session": "host-locked",
+        "stockcontrol.session": "legacy",
+      },
+    } as unknown as FastifyRequest;
+
+    expect(readSessionCookie(request)).toBe("host-locked");
   });
 });
 
