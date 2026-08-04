@@ -5,6 +5,12 @@ on:
     branches:
       - main
       - develop
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
 
 permissions:
   contents: read
