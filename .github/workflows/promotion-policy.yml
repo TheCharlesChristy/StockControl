@@ -1,0 +1,37 @@
+name: promotion-policy
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  promotion-policy:
+    name: promotion-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Require same-repository develop source
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPOSITORY" != "$TARGET_REPOSITORY" ]; then
+            echo "::error::Production promotions must originate from this repository."
+            exit 1
+          fi
+
+          if [ "$HEAD_BRANCH" != "develop" ]; then
+            echo "::error::Pull requests into main must originate from develop."
+            exit 1
+          fi
