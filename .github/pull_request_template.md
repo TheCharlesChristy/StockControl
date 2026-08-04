@@ -1,4 +1,4 @@
-## What changed and why
+# What changed and why
 
 <!-- The problem, then the change. A reviewer should not have to read the diff
      to find out what you were trying to do. -->
