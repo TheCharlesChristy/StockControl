@@ -20,5 +20,12 @@ minimumReleaseAgeExclude:
 overrides:
   "@remix-run/router": 1.23.2
   "@nestjs/platform-fastify@11.1.28>find-my-way": 9.7.0
+  # GHSA-7p8r-x3mc-p8w7: host confusion via a backslash authority introducer.
+  # Fastify reaches both major lines transitively (ajv pins 3.x, fast-json-
+  # stringify pins 4.x), so both need pinning to stay on the patched release.
+  "fast-uri@<3.1.5": ^3.1.5
+  "fast-uri@>=4.0.0 <4.1.2": ^4.1.2
+  # GHSA for unbounded intermediate arrays; reached only through eslint.
+  "brace-expansion@>=4.0.0 <5.0.9": ^5.0.9
 
 strictPeerDependencies: true

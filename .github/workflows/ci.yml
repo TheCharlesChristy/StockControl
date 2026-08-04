@@ -39,6 +39,12 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      # The dependency risk register names this as its verification step. Run it
+      # here so an accepted exception has to be recorded deliberately rather than
+      # arriving unnoticed with a lockfile change.
+      - name: Audit dependencies for high-severity advisories
+        run: pnpm audit --audit-level high
+
       - name: Validate Railway service configuration
         run: >-
           node -e
@@ -47,8 +53,10 @@ jobs:
       - name: Check formatting, lint, types, and the production build
         run: pnpm run quality
 
-      - name: Run unit tests
-        run: pnpm run test
+      # Coverage rather than a bare test run: every package declares thresholds
+      # in its vitest config, and this is what makes them binding.
+      - name: Run unit tests with coverage thresholds
+        run: pnpm run test:coverage
 
   container-images:
     name: container image (${{ matrix.runtime }})

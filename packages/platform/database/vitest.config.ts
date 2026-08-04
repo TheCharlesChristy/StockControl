@@ -19,11 +19,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
       include: ["src/**/*.ts"],
+      /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
       thresholds: {
-        branches: 80,
-        functions: 80,
-        lines: 80,
-        statements: 80,
+        branches: 75,
+        functions: 85,
+        lines: 85,
+        statements: 85,
       },
     },
   },

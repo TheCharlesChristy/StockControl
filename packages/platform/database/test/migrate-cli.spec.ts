@@ -157,4 +157,38 @@ describe("database migration CLI", () => {
     });
     expect(String(stderr.mock.calls[0]?.[0])).not.toContain("DATABASE_RUNTIME_ROLE");
   });
+
+  /*
+   * pg puts the whole connection string in the message when it cannot reach the
+   * server, so this is the case that decides whether a failed release publishes
+   * the migrator password to the deploy log.
+   */
+  it("keeps the migrator password out of a connection failure log", async () => {
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue(
+      new Error(
+        "connect ECONNREFUSED postgresql://stockcontrol_migrator:hunter2@db.internal:5432/stockcontrol",
+      ),
+    );
+
+    await executeCli();
+    await vi.waitFor(() => expect(stderr).toHaveBeenCalledOnce());
+
+    const line = String(stderr.mock.calls[0]?.[0]);
+    expect(line).not.toContain("hunter2");
+    expect(line).not.toContain("stockcontrol_migrator");
+    expect(Object.keys(JSON.parse(line) as Record<string, unknown>)).toEqual([
+      "level",
+      "event",
+      "error",
+    ]);
+  });
+
+  it("fails the release with a non-zero exit code", async () => {
+    cliMocks.migrateConfiguredDatabase.mockRejectedValue(new Error("migration failed"));
+
+    await executeCli();
+    await vi.waitFor(() => expect(stderr).toHaveBeenCalledOnce());
+
+    expect(process.exitCode).toBe(1);
+  });
 });
