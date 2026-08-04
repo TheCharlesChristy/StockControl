@@ -9,6 +9,12 @@ on:
     branches:
       - main
       - develop
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
@@ -23,6 +29,7 @@ concurrency:
 jobs:
   analyse:
     name: codeql (${{ matrix.language }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
