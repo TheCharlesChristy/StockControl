@@ -96,6 +96,7 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 PUBLIC_APP_ORIGIN=https://<the exact web domain>
+TRUSTED_PROXY_HOPS=1
 DATABASE_URL=<private URL for stockcontrol_app>
 DATABASE_POOL_MAX=5
 LOG_LEVEL=info
@@ -106,6 +107,13 @@ FLOOR_PLAN_S3_ACCESS_KEY=${{media.ACCESS_KEY_ID}}
 FLOOR_PLAN_S3_SECRET_KEY=${{media.SECRET_ACCESS_KEY}}
 FLOOR_PLAN_S3_URL_STYLE=virtual
 ```
+
+`TRUSTED_PROXY_HOPS` is how many reverse proxies stand between the browser and
+the API — one, the `web` Nginx service, in the shape above. It decides which
+`X-Forwarded-For` entry becomes the client address, and that address keys the
+per-source sign-in throttle, so an over-generous value lets a caller choose its
+own throttle bucket by sending the header itself. Change it only when the
+deployment really does gain a hop.
 
 `DATABASE_URL` must use the Postgres service's **private** hostname. With
 `NODE_ENV=production` the API refuses to start on a public database host unless

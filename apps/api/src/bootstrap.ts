@@ -21,12 +21,47 @@ import { SYSTEM_TOKENS } from "./system/system.tokens";
 export type ApiListenerEnvironment = DatabaseEnvironment & {
   readonly HOST?: string;
   readonly PORT?: string;
+  readonly TRUSTED_PROXY_HOPS?: string;
 };
 
 export interface ApiListenerConfiguration {
   readonly host: string;
   readonly port: number;
 }
+
+/*
+ * One hop: the Nginx service that is the only thing allowed to reach this API.
+ * Raise it only if a deployment genuinely places more reverse proxies in front
+ * of the API and every one of them rewrites X-Forwarded-For.
+ */
+const DEFAULT_TRUSTED_PROXY_HOPS = 1;
+
+/**
+ * How many reverse proxies sit in front of this API.
+ *
+ * A hop count rather than a list of trusted subnets. Trusting a subnet means
+ * trusting every address inside it, and on a platform whose private network is
+ * entirely unique-local that walks the whole X-Forwarded-For chain — down to
+ * the leftmost entry, which the client wrote. `request.ip` then reports
+ * whatever a caller claimed, and the per-source sign-in throttle is keyed on a
+ * value the caller chooses. Counting hops instead makes the resolved address
+ * depend on the deployment's shape rather than on the request's contents.
+ */
+export const resolveTrustedProxyHops = (environment: ApiListenerEnvironment): number => {
+  const candidate = environment.TRUSTED_PROXY_HOPS?.trim();
+
+  if (candidate === undefined || candidate.length === 0) {
+    return DEFAULT_TRUSTED_PROXY_HOPS;
+  }
+
+  const hops = Number(candidate);
+
+  if (!Number.isInteger(hops) || hops < 0 || hops > 10) {
+    throw new Error(`Invalid TRUSTED_PROXY_HOPS value: ${candidate}`);
+  }
+
+  return hops;
+};
 
 export const resolveApiListenerConfiguration = (
   environment: ApiListenerEnvironment,
@@ -44,11 +79,13 @@ export const resolveApiListenerConfiguration = (
   };
 };
 
-export const createApiApplication = async (): Promise<NestFastifyApplication> => {
+export const createApiApplication = async (
+  environment: ApiListenerEnvironment = process.env,
+): Promise<NestFastifyApplication> => {
   const adapter = new FastifyAdapter({
     bodyLimit: 16 * 1024 * 1024,
     logger: false,
-    trustProxy: "loopback, linklocal, uniquelocal",
+    trustProxy: resolveTrustedProxyHops(environment),
   });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
     bufferLogs: true,
@@ -73,7 +110,7 @@ export const startApi = async (
   environment: ApiListenerEnvironment = process.env,
 ): Promise<NestFastifyApplication> => {
   const { host, port } = resolveApiListenerConfiguration(environment);
-  const app = await createApiApplication();
+  const app = await createApiApplication(environment);
   const logger = app.get<StructuredLogger>(SYSTEM_TOKENS.logger);
 
   app.enableShutdownHooks();
