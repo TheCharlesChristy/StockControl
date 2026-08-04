@@ -9,6 +9,7 @@ const officeUser: AuthenticatedUser = {
   displayName: "Office User",
   role: "Office",
   profilePhotoUrl: null,
+  mustChangePassword: false,
 };
 
 const officeSession: AuthenticatedSession = {

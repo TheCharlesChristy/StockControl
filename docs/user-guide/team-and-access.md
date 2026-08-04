@@ -42,4 +42,19 @@ reservations, and requests remain intact. You cannot disable yourself.
 For a person with existing stock history, disable the account rather than deleting it. Use [User details](user-details.md)
 for the deletion rules.
 
+## Reset somebody’s password
+
+When a person cannot sign in, open their page from Team and use **Reset password**.
+
+1. Enter a new password of at least 15 characters.
+2. Select **Reset password**.
+3. Tell them the new password in person — not by message, email, or chat.
+
+Resetting ends every session that account has and requires the person to choose their own password
+the next time they sign in. That is deliberate: from the moment you type it, you know their
+password, and the account is not really theirs again until they have replaced it.
+
+You cannot reset your own password here. Use **Change password** on [Profile](profile.md), which
+asks for your current one first.
+
 Related: [User details](user-details.md), [Sign in and navigation](sign-in-and-navigation.md).

@@ -32,6 +32,12 @@ export interface AuthenticatedUser {
   readonly displayName: string;
   readonly role: UserRole;
   readonly profilePhotoUrl: string | null;
+  /**
+   * Set while the current password was chosen by somebody else — at account
+   * creation, or by an Admin reset. The browser sends the user to change it
+   * before anything else; the server does not rely on the browser doing so.
+   */
+  readonly mustChangePassword: boolean;
 }
 
 export interface AuthenticatedSession {
@@ -51,6 +57,17 @@ export interface SignInRequest {
 
 export type SignInResponse = SessionResponse;
 
+/** Changing your own password. The current one is required; a reset is not this. */
+export interface ChangePasswordRequest {
+  readonly currentPassword: string;
+  readonly newPassword: string;
+}
+
+/** An Admin setting a password for somebody else, who must then replace it. */
+export interface ResetPasswordRequest {
+  readonly newPassword: string;
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null;
 }
@@ -66,7 +83,8 @@ export function isAuthenticatedUser(value: unknown): value is AuthenticatedUser 
     typeof value["email"] === "string" &&
     typeof value["displayName"] === "string" &&
     isUserRole(value["role"]) &&
-    (typeof value["profilePhotoUrl"] === "string" || value["profilePhotoUrl"] === null)
+    (typeof value["profilePhotoUrl"] === "string" || value["profilePhotoUrl"] === null) &&
+    typeof value["mustChangePassword"] === "boolean"
   );
 }
 

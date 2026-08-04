@@ -21,6 +21,7 @@ function userForRole(role: UserRole): AuthenticatedUser {
     displayName: `${role} User`,
     role,
     profilePhotoUrl: null,
+    mustChangePassword: false,
   };
 }
 

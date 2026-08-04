@@ -92,6 +92,7 @@ export class SessionService {
         "users.role as role",
         "users.password_hash as password_hash",
         "users.is_active as is_active",
+        "users.must_change_password as must_change_password",
         "user_profile_photos.id as profile_photo_id",
       ])
       .where("email", "=", normalisedEmail)
@@ -136,6 +137,7 @@ export class SessionService {
             user.profile_photo_id === null
               ? null
               : `/api/v1/users/${user.id}/profile-photo?v=${user.profile_photo_id}`,
+          mustChangePassword: user.must_change_password,
         },
         issuedAt: issuedAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
@@ -162,6 +164,7 @@ export class SessionService {
         "users.display_name as display_name",
         "users.role as role",
         "users.is_active as is_active",
+        "users.must_change_password as must_change_password",
         "user_profile_photos.id as profile_photo_id",
       ])
       .where("sessions.id", "=", key)
@@ -181,6 +184,7 @@ export class SessionService {
           row.profile_photo_id === null
             ? null
             : `/api/v1/users/${row.user_id}/profile-photo?v=${row.profile_photo_id}`,
+        mustChangePassword: row.must_change_password,
       },
       issuedAt: row.issued_at.toISOString(),
       expiresAt: row.expires_at.toISOString(),
@@ -194,6 +198,85 @@ export class SessionService {
     }
 
     await this.database.withSchema(SCHEMA).deleteFrom("sessions").where("id", "=", key).execute();
+  }
+
+  /**
+   * Replaces a user's own password, having checked the one they hold.
+   *
+   * Returns false rather than throwing when the current password is wrong, so
+   * the caller answers exactly as sign-in does and this cannot become an oracle
+   * for whether a session belongs to a real account.
+   */
+  public async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPasswordHash: string,
+  ): Promise<boolean> {
+    const user = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("users")
+      .select(["password_hash", "is_active"])
+      .where("id", "=", userId)
+      .executeTakeFirst();
+
+    const storedHash = user?.password_hash ?? DUMMY_PASSWORD_HASH;
+
+    if (!(await verifyPassword(currentPassword, storedHash)) || user === undefined) {
+      return false;
+    }
+
+    if (!user.is_active) {
+      return false;
+    }
+
+    await this.setPassword(userId, newPasswordHash, false);
+    return true;
+  }
+
+  /**
+   * Sets a password on someone else's behalf. `mustChange` marks it as chosen
+   * by another person, so the application requires it to be replaced before the
+   * account is used.
+   */
+  public async setPassword(
+    userId: string,
+    passwordHash: string,
+    mustChange: boolean,
+  ): Promise<void> {
+    await this.database
+      .withSchema(SCHEMA)
+      .updateTable("users")
+      .set({
+        password_hash: passwordHash,
+        must_change_password: mustChange,
+        password_changed_at: this.now(),
+        updated_at: this.now(),
+      })
+      .where("id", "=", userId)
+      .execute();
+  }
+
+  /**
+   * Ends every session except the one making the request.
+   *
+   * A password change exists to take an account back from whoever may have had
+   * it, so every other session has to go. Keeping the current one means the
+   * person who just proved they hold the password is not signed out by their
+   * own action.
+   */
+  public async revokeAllForUserExcept(userId: string, sessionId: string): Promise<void> {
+    const key = sessionKey(sessionId);
+
+    let query = this.database
+      .withSchema(SCHEMA)
+      .deleteFrom("sessions")
+      .where("user_id", "=", userId);
+
+    if (key !== null) {
+      query = query.where("id", "!=", key);
+    }
+
+    await query.execute();
   }
 
   /** Disabling a user must end their active sessions, not just block new ones. */

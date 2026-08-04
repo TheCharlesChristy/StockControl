@@ -19,6 +19,7 @@ const adminUser: AuthenticatedUser = {
   displayName: "Accessibility Admin",
   role: "Admin",
   profilePhotoUrl: null,
+  mustChangePassword: false,
 };
 
 const adminSession: AuthenticatedSession = {

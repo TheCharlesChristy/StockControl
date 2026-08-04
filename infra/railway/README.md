@@ -208,6 +208,15 @@ fixed local-development names and passwords.
    passwords must contain 15 to 128 Unicode characters. The setup refuses to
    run if any user already exists and never prints the password.
 
+   This is the one account whose password nobody else has ever known, which is
+   why it is not marked for a forced change. Every account created afterwards
+   is: the Admin types the first password, so the application requires its owner
+   to replace it before they can do anything else.
+
+   If this installation already had accounts before the password-management
+   release, reset each one from **Team -> the person -> Reset password**. Until
+   you do, those accounts are still using a password an Admin chose and knows.
+
 6. Sign in as the Admin and complete the smoke checks below.
 7. Add the customer domain to `web`, wait for managed TLS, change
    `PUBLIC_APP_ORIGIN`, and redeploy `api` then `web`.

@@ -20,6 +20,7 @@ const sessionFor = (role: AuthenticatedSession["user"]["role"]): AuthenticatedSe
     displayName: role,
     role,
     profilePhotoUrl: null,
+    mustChangePassword: false,
   },
   issuedAt: "2026-07-30T09:00:00.000Z",
   expiresAt: "2026-07-30T21:00:00.000Z",

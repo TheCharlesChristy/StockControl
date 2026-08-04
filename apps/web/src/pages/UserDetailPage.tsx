@@ -28,7 +28,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
+import { passwordPolicy, userRoles, type UserRole, type UserView } from "@stockcontrol/contracts";
 import { useCallback, useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 
@@ -219,7 +219,92 @@ function DetailsForm({
           </Box>
         </Stack>
       </Box>
+
+      {!isSelf && <PasswordReset user={user} />}
     </Paper>
+  );
+}
+
+/**
+ * Setting a password for somebody who cannot sign in.
+ *
+ * The only account recovery the product has: there is no email reset, and an
+ * account with stock history cannot be deleted and recreated. The person is
+ * required to replace what is set here the next time they sign in, because from
+ * this moment the Admin knows it too.
+ */
+function PasswordReset({ user }: { readonly user: UserView }): ReactElement {
+  const api = useApi();
+  const [newPassword, setNewPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<ApiError | undefined>(undefined);
+
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    setSaving(true);
+    setDone(false);
+    setError(undefined);
+
+    void api
+      .resetUserPassword(user.id, { newPassword })
+      .then(() => {
+        setNewPassword("");
+        setDone(true);
+      })
+      .catch((caught: unknown) => setError(asApiError(caught)))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <Box component="form" onSubmit={submit} noValidate sx={{ mt: 4 }}>
+      <Divider sx={{ mb: 3 }} />
+      <Stack spacing={2}>
+        <Typography variant="h4" component="h3">
+          Reset password
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Use this when someone cannot sign in. It ends every session they have, and they must
+          choose their own password before they can do anything else. Tell them the new password in
+          person, not by message.
+        </Typography>
+
+        {done && (
+          <Alert severity="success">
+            Password reset. {user.displayName} must change it at their next sign-in.
+          </Alert>
+        )}
+        {error !== undefined && !error.hasFieldErrors && (
+          <Alert severity="error">{error.message}</Alert>
+        )}
+
+        <TextField
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          error={error?.fieldError("newPassword") !== undefined}
+          helperText={
+            error?.fieldError("newPassword") ??
+            `At least ${String(passwordPolicy.minimumCharacters)} characters.`
+          }
+          required
+          sx={{ maxWidth: 420 }}
+        />
+
+        <Box>
+          <Button
+            type="submit"
+            variant="outlined"
+            color="warning"
+            disabled={saving || newPassword.length === 0}
+          >
+            {saving ? "Resetting…" : "Reset password"}
+          </Button>
+        </Box>
+      </Stack>
+    </Box>
   );
 }
 
