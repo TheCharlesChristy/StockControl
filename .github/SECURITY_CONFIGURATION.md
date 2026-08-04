@@ -2,6 +2,10 @@
 
 The workflows in this repository provide enforceable checks, but repository settings must also be configured in GitHub. Treat this file as the configuration checklist for `Settings`.
 
+## Promotion sequence
+
+All feature, maintenance, dependency, and security changes must target `develop`. After those changes have passed CI and been exercised in staging, open a separate pull request from `develop` to `main` for the production release. The `promotion-policy` workflow enforces this source branch on pull requests into `main`.
+
 ## Code security
 
 Enable all features available for the repository:
