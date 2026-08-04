@@ -53,7 +53,16 @@ export class ExpiredSessionSweeper implements OnApplicationBootstrap, OnApplicat
         this.logger.log({ event: "auth.sessions.pruned", deleted });
       }
     } catch (error: unknown) {
-      this.logger.warn({ event: "auth.sessions.prune_failed", error });
+      /*
+       * The label only. StructuredLogger expands an Error into its name,
+       * message and stack, and the failure this most often catches is pg
+       * refusing a connection — whose message carries the connection string,
+       * and so the runtime role's password.
+       */
+      this.logger.warn({
+        event: "auth.sessions.prune_failed",
+        error: error instanceof Error ? error.name : "UnknownError",
+      });
     }
   }
 }
