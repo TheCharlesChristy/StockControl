@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * The rules that decide who may do what, exercised in a browser against the
@@ -14,6 +14,17 @@ const ENGINEER = { email: "engineer.one@example.com", password: "demo-password" 
 interface Credentials {
   readonly email: string;
   readonly password: string;
+}
+
+/*
+ * Anchored at the start rather than exact: a required MUI field renders its
+ * asterisk inside the <label>, so the accessible label is "New password *" and
+ * an exact match finds nothing. A plain substring match is no good either —
+ * Playwright's is case-insensitive, so "New password" would also match
+ * "Confirm new password *" and the two fields would be ambiguous.
+ */
+function newPassword(page: Page): Locator {
+  return page.getByLabel(/^New password/u);
 }
 
 async function signIn(page: Page, who: Credentials): Promise<void> {
@@ -123,7 +134,7 @@ test.describe("changing your own password", () => {
     await page.goto("/change-password");
 
     await page.getByLabel("Current password").fill("not-the-current-password");
-    await page.getByLabel("New password", { exact: true }).fill("a-much-better-passphrase");
+    await newPassword(page).fill("a-much-better-passphrase");
     await page.getByLabel("Confirm new password").fill("a-much-better-passphrase");
     await page.getByRole("button", { name: "Change password" }).click();
 
@@ -137,7 +148,7 @@ test.describe("changing your own password", () => {
     await page.goto("/change-password");
 
     await page.getByLabel("Current password").fill(OFFICE.password);
-    await page.getByLabel("New password", { exact: true }).fill("a-much-better-passphrase");
+    await newPassword(page).fill("a-much-better-passphrase");
     await page.getByLabel("Confirm new password").fill("something-entirely-different");
 
     await expect(page.getByText("This does not match the new password.")).toBeVisible();
