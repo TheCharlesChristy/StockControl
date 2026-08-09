@@ -37,5 +37,12 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.integration.spec.ts"],
     testTimeout: 30_000,
+    /*
+     * One database, and every suite here runs the migrator, which revokes the
+     * runtime role's privileges before re-granting them. Two suites in parallel
+     * means one revoking while the other is mid-insert, so a passing test fails
+     * with a permission error that has nothing to do with what it asserts.
+     */
+    fileParallelism: false,
   },
 });
