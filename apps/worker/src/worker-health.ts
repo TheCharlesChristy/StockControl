@@ -2,6 +2,9 @@ import { createServer } from "node:http";
 
 import type { Server, ServerResponse } from "node:http";
 
+import type { ReadinessResponse } from "@stockcontrol/contracts";
+import type { ReadinessChecks } from "@stockcontrol/module-system";
+
 const DEFAULT_HEALTH_HOST = "0.0.0.0";
 const DEFAULT_HEALTH_PORT = 3_001;
 
@@ -46,11 +49,22 @@ const sendJson = (
   response.end(JSON.stringify(payload));
 };
 
+/**
+ * Readiness now asks the database, not a boolean.
+ *
+ * The boolean was honest while the worker only logged a heartbeat: nothing
+ * could be unready. A worker that claims jobs is different — one that cannot
+ * reach PostgreSQL is claiming nothing while still reporting itself healthy,
+ * which is exactly the outage an operator would never be told about.
+ */
 export class WorkerHealthEndpoint {
   private ready = false;
   private readonly server: Server;
 
-  public constructor(private readonly configuration: WorkerHealthConfiguration) {
+  public constructor(
+    private readonly configuration: WorkerHealthConfiguration,
+    private readonly readiness?: ReadinessChecks,
+  ) {
     this.server = createServer((request, response) => {
       if (request.method !== "GET") {
         response.writeHead(405, {
@@ -70,9 +84,11 @@ export class WorkerHealthEndpoint {
       }
 
       if (request.url === "/health/ready") {
-        sendJson(response, this.ready ? 200 : 503, {
-          service: "stockcontrol-worker",
-          status: this.ready ? "ready" : "not-ready",
+        void this.readinessReport().then((report) => {
+          sendJson(response, report.status === "ready" ? 200 : 503, {
+            service: "stockcontrol-worker",
+            ...report,
+          });
         });
         return;
       }
@@ -102,6 +118,23 @@ export class WorkerHealthEndpoint {
 
   public markReady(): void {
     this.ready = true;
+  }
+
+  private async readinessReport(): Promise<ReadinessResponse> {
+    const timestamp = new Date().toISOString();
+
+    /* Not started yet, or shutting down: no dependency check can change that. */
+    if (!this.ready) {
+      return { status: "not_ready", timestamp, checks: [] };
+    }
+
+    const checks = await Promise.all((this.readiness?.all() ?? []).map((check) => check.check()));
+
+    return {
+      status: checks.every(({ status }) => status === "ok") ? "ready" : "not_ready",
+      timestamp,
+      checks,
+    };
   }
 
   public markNotReady(): void {

@@ -20,6 +20,9 @@
     },
     {
       "path": "../../packages/platform/core/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/platform/database/tsconfig.build.json"
     }
   ]
 }

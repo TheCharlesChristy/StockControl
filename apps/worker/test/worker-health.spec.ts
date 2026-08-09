@@ -1,17 +1,30 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { ReadinessCheckResult } from "@stockcontrol/contracts";
+import type { ReadinessCheck, ReadinessChecks } from "@stockcontrol/module-system";
+
 import { resolveWorkerHealthConfiguration, WorkerHealthEndpoint } from "../src/worker-health";
 
 const endpoints: WorkerHealthEndpoint[] = [];
 
-const startEndpoint = async (): Promise<{
+const checksReporting = (...results: readonly ReadinessCheckResult[]): ReadinessChecks => ({
+  all: (): readonly ReadinessCheck[] =>
+    results.map((result) => ({ name: result.name, check: () => Promise.resolve(result) })),
+});
+
+const startEndpoint = async (
+  readiness?: ReadinessChecks,
+): Promise<{
   readonly endpoint: WorkerHealthEndpoint;
   readonly origin: string;
 }> => {
-  const endpoint = new WorkerHealthEndpoint({
-    host: "127.0.0.1",
-    port: 0,
-  });
+  const endpoint = new WorkerHealthEndpoint(
+    {
+      host: "127.0.0.1",
+      port: 0,
+    },
+    readiness,
+  );
   endpoints.push(endpoint);
   await endpoint.start();
   const address = endpoint.getAddress();
@@ -92,20 +105,72 @@ describe("WorkerHealthEndpoint", () => {
 
     const pending = await fetch(`${origin}/health/ready`);
     expect(pending.status).toBe(503);
-    await expect(pending.json()).resolves.toEqual({
+    await expect(pending.json()).resolves.toMatchObject({
       service: "stockcontrol-worker",
-      status: "not-ready",
+      status: "not_ready",
+      checks: [],
     });
 
     endpoint.markReady();
     const ready = await fetch(`${origin}/health/ready`);
     expect(ready.status).toBe(200);
-    await expect(ready.json()).resolves.toEqual({
+    await expect(ready.json()).resolves.toMatchObject({
       service: "stockcontrol-worker",
       status: "ready",
+      checks: [],
     });
 
     endpoint.markNotReady();
+    expect((await fetch(`${origin}/health/ready`)).status).toBe(503);
+  });
+
+  /*
+   * The boolean this replaced could not tell these two apart: a worker that
+   * cannot reach PostgreSQL claims nothing while reporting itself healthy, and
+   * that is exactly the outage nobody would be paged for.
+   */
+  it("reports not ready while a dependency is failing", async () => {
+    const { endpoint, origin } = await startEndpoint(
+      checksReporting({
+        name: "database.postgresql",
+        status: "error",
+        detail: "PostgreSQL is unavailable or migrations are incomplete.",
+      }),
+    );
+    endpoint.markReady();
+
+    const response = await fetch(`${origin}/health/ready`);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "not_ready",
+      checks: [{ name: "database.postgresql", status: "error" }],
+    });
+  });
+
+  it("reports ready and names the checks it consulted", async () => {
+    const { endpoint, origin } = await startEndpoint(
+      checksReporting({ name: "database.postgresql", status: "ok" }),
+    );
+    endpoint.markReady();
+
+    const response = await fetch(`${origin}/health/ready`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "ready",
+      checks: [{ name: "database.postgresql", status: "ok" }],
+    });
+  });
+
+  /* Shutting down beats a healthy dependency: the process is going away. */
+  it("stays not ready while shutting down even if every check passes", async () => {
+    const { endpoint, origin } = await startEndpoint(
+      checksReporting({ name: "database.postgresql", status: "ok" }),
+    );
+    endpoint.markReady();
+    endpoint.markNotReady();
+
     expect((await fetch(`${origin}/health/ready`)).status).toBe(503);
   });
 

@@ -8,6 +8,7 @@ import {
   loadMigrationDatabaseRoles,
   loadMigratorDatabaseConfiguration,
   loadRuntimeDatabaseConfiguration,
+  loadWorkerDatabaseConfiguration,
 } from "../src/configuration";
 
 describe("database configuration", () => {
@@ -37,6 +38,48 @@ describe("database configuration", () => {
       maximumPoolSize: 1,
       statementTimeoutMilliseconds: 120_000,
     });
+  });
+
+  /*
+   * The worker reads the same URL as the API but is configured separately.
+   * `application_name` is the first thing anybody looks at when a connection
+   * is holding a lock, and "stockcontrol-api" on a worker connection sends
+   * them to the wrong process entirely.
+   */
+  it("names the worker's connections after the worker", () => {
+    expect(loadWorkerDatabaseConfiguration({ DATABASE_URL: runtimeUrl })).toMatchObject({
+      applicationName: "stockcontrol-worker",
+      connectionString: runtimeUrl,
+    });
+  });
+
+  /*
+   * Sized separately from the API's pool: the worker runs a couple of jobs at
+   * a time while the API sizes for concurrent browsers, so one shared number
+   * would either starve the API or let an idle worker hold what it needs.
+   */
+  it("gives the worker its own smaller pool", () => {
+    expect(loadWorkerDatabaseConfiguration({ DATABASE_URL: runtimeUrl }).maximumPoolSize).toBe(4);
+    expect(
+      loadWorkerDatabaseConfiguration({
+        DATABASE_URL: runtimeUrl,
+        DATABASE_POOL_MAX: "40",
+        WORKER_DATABASE_POOL_MAX: "6",
+      }).maximumPoolSize,
+    ).toBe(6);
+  });
+
+  it("holds the worker to the same refusal to cross a public host in the clear", () => {
+    expect(() =>
+      loadWorkerDatabaseConfiguration({
+        DATABASE_URL: "postgresql://runtime_role:secret@db.example.com:5432/stockcontrol",
+        NODE_ENV: "production",
+      }),
+    ).toThrow(/sslmode/u);
+  });
+
+  it("requires the worker to be told which database to use", () => {
+    expect(() => loadWorkerDatabaseConfiguration({})).toThrow(/DATABASE_URL is required/u);
   });
 
   it("uses conservative defaults and trims environment values", () => {

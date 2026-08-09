@@ -32,6 +32,7 @@ describe("WorkerRuntime", () => {
         host: "127.0.0.1",
         port: 0,
       }),
+      undefined,
       1_000,
     );
 
@@ -66,6 +67,7 @@ describe("WorkerRuntime", () => {
         }),
       },
       endpoint,
+      undefined,
       60_000,
     );
 

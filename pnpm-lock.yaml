@@ -236,6 +236,12 @@ importers:
       '@stockcontrol/platform':
         specifier: workspace:*
         version: link:../../packages/platform/core
+      '@stockcontrol/platform-database':
+        specifier: workspace:*
+        version: link:../../packages/platform/database
+      kysely:
+        specifier: ^0.28.0
+        version: 0.28.17
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

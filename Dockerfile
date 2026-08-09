@@ -44,8 +44,9 @@ RUN pnpm --filter @stockcontrol/worker deploy --prod --legacy /runtime/worker \
     && rm -rf /runtime/worker/coverage /runtime/worker/src /runtime/worker/test \
     && find /runtime/worker -maxdepth 1 -type f ! -name package.json -delete \
     && find /runtime/worker -type f \( -name "*.d.ts" -o -name "*.d.ts.map" -o -name ".tsbuildinfo" \) -delete \
-    && mkdir -p /runtime/worker/apps \
-    && ln -s .. /runtime/worker/apps/worker
+    && mkdir -p /runtime/worker/apps /runtime/worker/packages/platform \
+    && ln -s .. /runtime/worker/apps/worker \
+    && ln -s ../../node_modules/@stockcontrol/platform-database /runtime/worker/packages/platform/database
 
 FROM ${NODE_IMAGE} AS api
 
