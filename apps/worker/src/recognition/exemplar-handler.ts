@@ -146,7 +146,13 @@ export const createExemplarHandler = (
             verified_by_user_id: session.actor_user_id,
             quality_score: qualityScoreOf(quality),
           })
-          .onConflict((conflict) => conflict.column("crop_object_key").doNothing())
+          // The unique index on crop_object_key is partial (`where ... is not
+          // null`, migration 0007) because most rows never have a crop. The
+          // conflict target has to name that same predicate — Postgres will
+          // not infer a partial index from the column alone.
+          .onConflict((conflict) =>
+            conflict.column("crop_object_key").where("crop_object_key", "is not", null).doNothing(),
+          )
           .execute();
 
         built += 1;
