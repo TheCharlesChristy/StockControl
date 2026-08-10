@@ -19,7 +19,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.141.1",
     "onnxruntime==1.20.1",
-    "pillow==11.1.0",
+    "pillow==12.3.0",
     "pydantic==2.13.4",
     "python-multipart==0.0.19",
     "pyvips==3.1.1",
