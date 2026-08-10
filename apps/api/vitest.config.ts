@@ -12,6 +12,10 @@ export default defineConfig({
         import.meta.dirname,
         "../../packages/modules/locations/src/index.ts",
       ),
+      "@stockcontrol/module-stock-capture": path.resolve(
+        import.meta.dirname,
+        "../../packages/modules/stock-capture/src/index.ts",
+      ),
       "@stockcontrol/module-system": path.resolve(
         import.meta.dirname,
         "../../packages/modules/system/src/index.ts",
@@ -47,9 +51,9 @@ export default defineConfig({
        * config. Raise a floor whenever a change lifts the measured value.
        */
       thresholds: {
-        branches: 30,
-        functions: 35,
-        lines: 40,
+        branches: 34,
+        functions: 39,
+        lines: 41,
         statements: 40,
       },
     },

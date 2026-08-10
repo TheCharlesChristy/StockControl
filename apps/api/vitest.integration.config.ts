@@ -34,6 +34,10 @@ export default defineConfig({
         import.meta.dirname,
         "../../packages/modules/locations/src/index.ts",
       ),
+      "@stockcontrol/module-stock-capture": path.resolve(
+        import.meta.dirname,
+        "../../packages/modules/stock-capture/src/index.ts",
+      ),
       "@stockcontrol/module-system": path.resolve(
         import.meta.dirname,
         "../../packages/modules/system/src/index.ts",

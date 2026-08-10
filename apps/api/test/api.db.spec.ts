@@ -158,7 +158,18 @@ async function clearBusinessData(): Promise<void> {
   /*
    * Order matters: stock requests and assignments reference items, jobs and
    * users with `on delete restrict`, so they come out before what they point at.
+   * The assisted-capture tables reference items, transactions and locations
+   * the same way, and other integration files leave rows behind by design —
+   * each file cleans up after the last one — so they come out first of all.
    */
+  await schema().deleteFrom("recognition_feedback").execute();
+  await schema().deleteFrom("stock_capture_entries").execute();
+  await schema().deleteFrom("item_visual_examples").execute();
+  await schema().deleteFrom("stock_recognition_jobs").execute();
+  await schema().deleteFrom("stock_recognition_candidates").execute();
+  await schema().deleteFrom("stock_recognition_images").execute();
+  await schema().deleteFrom("stock_recognition_sessions").execute();
+  await schema().deleteFrom("stock_capture_batches").execute();
   await schema().deleteFrom("transactions").execute();
   await schema().deleteFrom("stock_requests").execute();
   await schema().deleteFrom("job_assignments").execute();

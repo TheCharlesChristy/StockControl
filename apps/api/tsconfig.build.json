@@ -22,6 +22,9 @@
       "path": "../../packages/modules/locations/tsconfig.build.json"
     },
     {
+      "path": "../../packages/modules/stock-capture/tsconfig.build.json"
+    },
+    {
       "path": "../../packages/platform/core/tsconfig.build.json"
     },
     {

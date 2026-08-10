@@ -51,6 +51,13 @@ import { UsersService } from "./users/users.service";
 import { LocationsController } from "./locations/locations.controller";
 import { LocationsService } from "./locations/locations.service";
 import { PhotosService } from "./media/photos.service";
+import {
+  isStockCaptureEnabled,
+  loadStockCaptureConfiguration,
+  type StockCaptureConfiguration,
+} from "./stock-capture/capture-configuration";
+import { StockCaptureController } from "./stock-capture/stock-capture.controller";
+import { StockCaptureService } from "./stock-capture/stock-capture.service";
 
 type Database = Kysely<StockControlDatabase>;
 
@@ -205,6 +212,30 @@ const providers: Provider[] = [
   },
 ];
 
+/*
+ * Assisted stock capture stays off an existing deployment until this is set.
+ * Both the provider and the controller are conditional, not only the route
+ * list: `loadStockCaptureConfiguration` validates several numbers, and
+ * letting it run unconditionally on every boot would mean a typo in a
+ * setting nobody is using yet could take an otherwise-healthy API down.
+ */
+const stockCaptureEnabled = isStockCaptureEnabled();
+
+const stockCaptureProviders: Provider[] = stockCaptureEnabled
+  ? [
+      {
+        provide: API_TOKENS.stockCaptureConfiguration,
+        useFactory: () => loadStockCaptureConfiguration(),
+      },
+      {
+        provide: API_TOKENS.stockCaptureService,
+        useFactory: (database: Database, configuration: StockCaptureConfiguration) =>
+          new StockCaptureService(database, configuration),
+        inject: [SYSTEM_TOKENS.database, API_TOKENS.stockCaptureConfiguration],
+      },
+    ]
+  : [];
+
 @Module({
   controllers: [
     SystemController,
@@ -216,7 +247,8 @@ const providers: Provider[] = [
     StockRequestsController,
     UsersController,
     LocationsController,
+    ...(stockCaptureEnabled ? [StockCaptureController] : []),
   ],
-  providers,
+  providers: [...providers, ...stockCaptureProviders],
 })
 export class AppModule {}
