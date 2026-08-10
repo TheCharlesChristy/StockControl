@@ -31,8 +31,16 @@ larger multi-customer platform described in the full product requirements.
 ## Accepted MVP limitations
 
 - Application MFA, passkeys and self-service password reset are deferred.
-- The heartbeat-only worker is not deployed; no product behavior may depend on
-  it.
+- The `worker`, `recognition-core` and `recognition-fusion` services are
+  optional and undeployed by default. They exist to serve assisted stock
+  capture, itself gated off by `STOCK_CAPTURE_ENABLED` until a customer opts
+  in — see [`docs/operations/railway-stock-capture.md`](railway-stock-capture.md).
+  `recognition-core` and `recognition-fusion` additionally require real model
+  weights promoted into `models/manifest.lock.json`, which has not happened in
+  this environment (specification section 20's S0 gate needs real hardware and
+  a consented evaluation set); until then, capture still works end to end
+  through the barcode fast path and manual entry, with the model stages
+  correctly reporting themselves unavailable.
 - Recovery uses Railway's PostgreSQL facilities only. Railway Bucket objects
   have no independent backup/version history in this baseline.
 - Release ordering is operator-driven rather than a fully automated promotion

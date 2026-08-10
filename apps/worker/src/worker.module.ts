@@ -17,6 +17,9 @@ import {
 } from "@stockcontrol/platform-database";
 
 import { DatabaseLifecycle } from "./database-lifecycle";
+import { createCaptureCleanupHandler } from "./recognition/capture-cleanup-handler";
+import { sweepCaptureLifecycle } from "./recognition/capture-expiry-sweeper";
+import { createExemplarHandler } from "./recognition/exemplar-handler";
 import { S3ImageStorage, type ImageStorage } from "./recognition/image-storage";
 import {
   RecognitionDispatcher,
@@ -75,14 +78,18 @@ const providers: Provider[] = [
       imageStorage: ImageStorage,
     ) => {
       const jobs = new BackgroundJobDispatcher(context, logger);
+      const configuration = loadRecognitionPipelineConfiguration(process.env);
       jobs.register(
         "Recognize",
-        createRecognitionHandler({
-          database,
-          imageStorage,
-          configuration: loadRecognitionPipelineConfiguration(process.env),
-          logger,
-        }),
+        createRecognitionHandler({ database, imageStorage, configuration, logger }),
+      );
+      jobs.register(
+        "BuildExemplars",
+        createExemplarHandler({ database, imageStorage, configuration, logger }),
+      );
+      jobs.register(
+        "DeleteObjects",
+        createCaptureCleanupHandler({ database, imageStorage, logger }),
       );
       return jobs;
     },
@@ -122,13 +129,24 @@ const providers: Provider[] = [
       versionProvider: VersionInformationProvider,
       healthEndpoint: WorkerHealthEndpoint,
       recognition: RecognitionDispatcher,
-    ) => new WorkerRuntime(context, logger, versionProvider, healthEndpoint, recognition),
+      database: Kysely<StockControlDatabase>,
+    ) =>
+      new WorkerRuntime(
+        context,
+        logger,
+        versionProvider,
+        healthEndpoint,
+        recognition,
+        undefined,
+        () => sweepCaptureLifecycle(database, logger).then(() => undefined),
+      ),
     inject: [
       WORKER_TOKENS.correlationContext,
       WORKER_TOKENS.logger,
       WORKER_TOKENS.versionProvider,
       WORKER_TOKENS.healthEndpoint,
       WORKER_TOKENS.recognitionDispatcher,
+      WORKER_TOKENS.database,
     ],
   },
 ];

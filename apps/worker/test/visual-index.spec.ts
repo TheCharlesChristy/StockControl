@@ -3,32 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   cosineSimilarity,
   decodeFloat16Buffer,
+  encodeFloat16Buffer,
   findNearestNeighbours,
   type VisualExample,
 } from "../src/recognition/visual-index";
 
-/** Encodes a JS number as an IEEE-754 half-precision little-endian buffer,
- * mirroring what numpy's float16 `.tobytes()` produces — used only to build
- * fixtures for the tests below, never in the module under test. */
-const encodeFloat16 = (value: number): Buffer => {
-  const buffer = Buffer.alloc(2);
-  const sign = value < 0 ? 1 : 0;
-  const absolute = Math.abs(value);
-
-  if (absolute === 0) {
-    buffer.writeUInt16LE(sign << 15, 0);
-    return buffer;
-  }
-
-  const exponent = Math.floor(Math.log2(absolute));
-  const normalisedExponent = exponent + 15;
-  const fraction = Math.round((absolute / 2 ** exponent - 1) * 1024);
-  buffer.writeUInt16LE((sign << 15) | (normalisedExponent << 10) | (fraction & 0x3ff), 0);
-  return buffer;
-};
-
-const encodeVector = (values: readonly number[]): Buffer =>
-  Buffer.concat(values.map(encodeFloat16));
+const encodeVector = (values: readonly number[]): Buffer => encodeFloat16Buffer(values);
 
 describe("decodeFloat16Buffer", () => {
   it("round-trips ordinary values within half-precision tolerance", () => {
@@ -62,6 +42,50 @@ describe("decodeFloat16Buffer", () => {
 
   it("returns an empty vector for empty input", () => {
     expect(decodeFloat16Buffer(Buffer.alloc(0))).toHaveLength(0);
+  });
+});
+
+describe("encodeFloat16Buffer", () => {
+  it("produces two bytes per entry", () => {
+    expect(encodeFloat16Buffer([1, 2, 3]).length).toBe(6);
+  });
+
+  it("round-trips ordinary and negative values through decodeFloat16Buffer", () => {
+    const decoded = decodeFloat16Buffer(encodeFloat16Buffer([1, -1, 0.5, -2.5, 100, -0.125]));
+
+    expect(decoded[0]).toBeCloseTo(1, 2);
+    expect(decoded[1]).toBeCloseTo(-1, 2);
+    expect(decoded[2]).toBeCloseTo(0.5, 2);
+    expect(decoded[3]).toBeCloseTo(-2.5, 2);
+    expect(decoded[4]).toBeCloseTo(100, 0);
+    expect(decoded[5]).toBeCloseTo(-0.125, 3);
+  });
+
+  it("round-trips zero", () => {
+    expect(decodeFloat16Buffer(encodeFloat16Buffer([0]))[0]).toBe(0);
+  });
+
+  it("round-trips a subnormal magnitude", () => {
+    const decoded = decodeFloat16Buffer(encodeFloat16Buffer([0.00003]));
+    expect(decoded[0]).toBeCloseTo(0.00003, 5);
+  });
+
+  it("saturates a magnitude beyond half-precision range to infinity", () => {
+    const decoded = decodeFloat16Buffer(encodeFloat16Buffer([100_000, -100_000]));
+    expect(decoded[0]).toBe(Infinity);
+    expect(decoded[1]).toBe(-Infinity);
+  });
+
+  it("encodes NaN to the half-precision NaN bit pattern", () => {
+    const decoded = decodeFloat16Buffer(encodeFloat16Buffer([Number.NaN]));
+    expect(Number.isNaN(decoded[0])).toBe(true);
+  });
+
+  it("carries a mantissa rounded up to the next exponent", () => {
+    // Rounds to a fraction of exactly 1,024 (one past the 10-bit mantissa's
+    // range), which must roll over into the exponent rather than overflow it.
+    const decoded = decodeFloat16Buffer(encodeFloat16Buffer([1.99999]));
+    expect(decoded[0]).toBeCloseTo(2, 2);
   });
 });
 

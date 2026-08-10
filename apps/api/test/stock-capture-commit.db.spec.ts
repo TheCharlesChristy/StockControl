@@ -408,6 +408,16 @@ describe("assisted stock capture: commitEntry", () => {
       .execute();
     expect(jobs).toHaveLength(1);
 
+    // A committed session no longer needs its photographs — the capture
+    // janitor is queued in the same transaction as the receipt itself.
+    const deletionJobs = await schema()
+      .selectFrom("stock_recognition_jobs")
+      .select(["job_type", "deduplication_key"])
+      .where("session_id", "=", sessionId)
+      .where("job_type", "=", "DeleteObjects")
+      .execute();
+    expect(deletionJobs).toHaveLength(1);
+
     const feedback = await schema()
       .selectFrom("recognition_feedback")
       .select("outcome")

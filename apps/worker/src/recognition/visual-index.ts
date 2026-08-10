@@ -47,6 +47,52 @@ export const decodeFloat16Buffer = (buffer: Buffer): Float32Array => {
   return vector;
 };
 
+/**
+ * The inverse of `decodeFloat16`, round-to-nearest. A comparison embedding
+ * does not need better than half-precision, which is the entire reason it is
+ * stored this way rather than as `float32`.
+ */
+const encodeFloat16 = (value: number): number => {
+  if (Number.isNaN(value)) return 0x7e00;
+
+  const sign = value < 0 || Object.is(value, -0) ? 0x8000 : 0;
+  const absolute = Math.abs(value);
+
+  if (absolute === 0) return sign;
+  if (!Number.isFinite(absolute) || absolute >= 65_520) return sign | 0x7c00;
+
+  const exponent = Math.floor(Math.log2(absolute));
+
+  // Subnormal: below the smallest normal exponent, there is no implicit
+  // leading 1, so the whole value is carried in the fraction bits.
+  if (exponent < -14) {
+    return sign | (Math.round(absolute / 2 ** -24) & 0x3ff);
+  }
+
+  let fraction = Math.round((absolute / 2 ** exponent - 1) * 1024);
+  let normalisedExponent = exponent;
+  if (fraction === 1024) {
+    // The rounding carry this reverses can reach exponent 15 (from 14) but
+    // never past it: the guard above already routes anything within
+    // rounding distance of overflowing exponent 15 itself to infinity.
+    fraction = 0;
+    normalisedExponent += 1;
+  }
+
+  return sign | ((normalisedExponent + 15) << 10) | fraction;
+};
+
+/** Encodes a query vector the same way `decodeFloat16Buffer` reads one back,
+ * so a newly built exemplar's embedding is comparable to every other. */
+export const encodeFloat16Buffer = (vector: Float32Array | readonly number[]): Buffer => {
+  const buffer = Buffer.alloc(vector.length * 2);
+  for (let index = 0; index < vector.length; index += 1) {
+    // index is within [0, vector.length) by construction of the loop bound.
+    buffer.writeUInt16LE(encodeFloat16(vector[index]!), index * 2);
+  }
+  return buffer;
+};
+
 export const cosineSimilarity = (left: Float32Array, right: Float32Array): number => {
   if (left.length !== right.length || left.length === 0) return 0;
 

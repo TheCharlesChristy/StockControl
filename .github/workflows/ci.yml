@@ -48,7 +48,7 @@ jobs:
       - name: Validate Railway service configuration
         run: >-
           node -e
-          "for (const path of ['infra/railway/web.railway.json', 'infra/railway/api.railway.json', 'infra/railway/bootstrap.railway.json', 'infra/railway/migrate.railway.json']) JSON.parse(require('node:fs').readFileSync(path, 'utf8'))"
+          "for (const path of ['infra/railway/web.railway.json', 'infra/railway/api.railway.json', 'infra/railway/bootstrap.railway.json', 'infra/railway/migrate.railway.json', 'infra/railway/worker.railway.json', 'infra/railway/recognition-core.railway.json', 'infra/railway/recognition-fusion.railway.json']) JSON.parse(require('node:fs').readFileSync(path, 'utf8'))"
 
       - name: Check formatting, lint, types, and the production build
         run: pnpm run quality
@@ -120,7 +120,9 @@ jobs:
         runtime:
           - api
           - web
+          - worker
           - recognition-core
+          - recognition-fusion
 
     steps:
       - name: Check out the commit under test
@@ -150,9 +152,14 @@ jobs:
           if [ "$RUNTIME" = api ]; then
             docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
               'test -f apps/api/dist/main.js && test -f apps/api/dist/reset-admin-password.js && test -f apps/api/dist/setup-first-admin.js && test -f packages/platform/database/dist/bootstrap-roles.js && test -f packages/platform/database/dist/migrate.js'
+          elif [ "$RUNTIME" = worker ]; then
+            docker run --rm --entrypoint /bin/sh "$IMAGE" -c 'test -f apps/worker/dist/main.js'
           elif [ "$RUNTIME" = recognition-core ]; then
             docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
               'test -f /app/.venv/bin/python && test -f /app/src/recognition_core/main.py && test -d /models'
+          elif [ "$RUNTIME" = recognition-fusion ]; then
+            docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+              'test -f /usr/local/bin/llama-server && test -x /app/docker-entrypoint.sh && test -d /models'
           fi
 
       - name: Smoke test the web runtime
@@ -201,6 +208,16 @@ jobs:
 
           docs_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/docs)"
           test "$docs_status" = "404"
+
+      # worker and recognition-fusion get no runtime smoke test here, unlike
+      # web and recognition-core: worker's entrypoint requires a real
+      # PostgreSQL to construct its connection pool, and recognition-fusion's
+      # entrypoint refuses to start at all without real model files at
+      # RECOGNITION_FUSION_MODEL_PATH/MMPROJ_PATH — neither exists in this
+      # environment (models/manifest.lock.json lists none; see
+      # docs/operations/railway-stock-capture.md). The generic checks above
+      # — non-root user, the revision label, and the worker/recognition-fusion
+      # file-existence checks — are what this job can honestly prove.
 
   # Proves the stock rules hold against a real database, including the
   # concurrent double collection that section 9 names specifically.

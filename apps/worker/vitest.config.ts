@@ -45,7 +45,10 @@ export default defineConfig({
       exclude: [
         "src/main.ts",
         "src/database-lifecycle.ts",
+        "src/recognition/capture-cleanup-handler.ts",
+        "src/recognition/capture-expiry-sweeper.ts",
         "src/recognition/catalogue-retrieval.ts",
+        "src/recognition/exemplar-handler.ts",
         "src/recognition/image-storage.ts",
         "src/recognition/recognition-dispatcher.ts",
         "src/recognition/recognition-handler.ts",
@@ -55,7 +58,7 @@ export default defineConfig({
       /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
       thresholds: {
         branches: 98,
-        functions: 97,
+        functions: 98,
         lines: 99,
         statements: 99,
       },

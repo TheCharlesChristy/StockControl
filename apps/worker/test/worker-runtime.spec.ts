@@ -135,6 +135,59 @@ describe("WorkerRuntime", () => {
     expect(releaseHeldLeases).toHaveBeenCalledOnce();
     expect(lines.some((line) => line.includes("recognition.queue.depth_unavailable"))).toBe(true);
   });
+
+  it("calls the capture lifecycle sweep on every heartbeat", async () => {
+    vi.useFakeTimers();
+    const logger = new StructuredLogger(new CorrelationContext(), "worker-test", {
+      write: () => undefined,
+    });
+    const sweep = vi.fn().mockResolvedValue(undefined);
+    const runtime = new WorkerRuntime(
+      new CorrelationContext(),
+      logger,
+      {
+        get: () => ({ service: "worker-test", version: "1.0.0", commit: "abc123", builtAt: null }),
+      },
+      new WorkerHealthEndpoint({ host: "127.0.0.1", port: 0 }),
+      undefined,
+      1_000,
+      sweep,
+    );
+
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await runtime.onApplicationShutdown();
+
+    expect(sweep).toHaveBeenCalledOnce();
+  });
+
+  it("logs a stable event when the capture lifecycle sweep fails", async () => {
+    vi.useFakeTimers();
+    const lines: string[] = [];
+    const logger = new StructuredLogger(new CorrelationContext(), "worker-test", {
+      write: (line) => lines.push(line),
+    });
+    const sweep = vi.fn().mockRejectedValue(new Error("database unreachable"));
+    const runtime = new WorkerRuntime(
+      new CorrelationContext(),
+      logger,
+      {
+        get: () => ({ service: "worker-test", version: "1.0.0", commit: "abc123", builtAt: null }),
+      },
+      new WorkerHealthEndpoint({ host: "127.0.0.1", port: 0 }),
+      undefined,
+      1_000,
+      sweep,
+    );
+
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await runtime.onApplicationShutdown();
+
+    expect(lines.some((line) => line.includes("capture.lifecycle.sweep_failed"))).toBe(true);
+  });
 });
 
 describe("worker heartbeat configuration", () => {

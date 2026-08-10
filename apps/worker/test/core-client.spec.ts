@@ -57,6 +57,7 @@ const VALID_ANALYSE_RESPONSE = {
       embedding: null,
       categoryOutcome: "NotApplicable",
       categories: [],
+      quality: { blurScore: 0.6, foregroundAreaRatio: 0.4 },
     },
   ],
 };
@@ -308,6 +309,60 @@ describe("parseAnalyseSessionResponse", () => {
       ],
     });
     expect(result.photoResults[0]?.categories).toEqual([{ label: "Hand tool", score: 0.7 }]);
+  });
+
+  it("parses image quality", () => {
+    const result = parseAnalyseSessionResponse(VALID_ANALYSE_RESPONSE);
+    expect(result.photoResults[0]?.quality).toEqual({ blurScore: 0.6, foregroundAreaRatio: 0.4 });
+  });
+
+  it("rejects a photo result missing image quality", () => {
+    const { quality, ...withoutQuality } = VALID_ANALYSE_RESPONSE.photoResults[0] ?? {};
+    void quality;
+    expect(() =>
+      parseAnalyseSessionResponse({ ...VALID_ANALYSE_RESPONSE, photoResults: [withoutQuality] }),
+    ).toThrow(RecognitionCoreUnavailableError);
+  });
+
+  it("defaults crops to an empty list when absent", () => {
+    const result = parseAnalyseSessionResponse(VALID_ANALYSE_RESPONSE);
+    expect(result.photoResults[0]?.crops).toEqual([]);
+  });
+
+  it("accepts well-formed crop boxes", () => {
+    const result = parseAnalyseSessionResponse({
+      ...VALID_ANALYSE_RESPONSE,
+      photoResults: [
+        {
+          ...VALID_ANALYSE_RESPONSE.photoResults[0],
+          crops: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.6, label: "product" }],
+        },
+      ],
+    });
+    expect(result.photoResults[0]?.crops).toEqual([
+      { x: 0.1, y: 0.2, width: 0.5, height: 0.6, label: "product" },
+    ]);
+  });
+
+  it("rejects a malformed crop box", () => {
+    const malformed = {
+      ...VALID_ANALYSE_RESPONSE,
+      photoResults: [
+        {
+          ...VALID_ANALYSE_RESPONSE.photoResults[0],
+          crops: [{ x: 0.1, y: 0.2, width: 0.5 }],
+        },
+      ],
+    };
+    expect(() => parseAnalyseSessionResponse(malformed)).toThrow(RecognitionCoreUnavailableError);
+  });
+
+  it("rejects a crop box that is not an object", () => {
+    const malformed = {
+      ...VALID_ANALYSE_RESPONSE,
+      photoResults: [{ ...VALID_ANALYSE_RESPONSE.photoResults[0], crops: ["not an object"] }],
+    };
+    expect(() => parseAnalyseSessionResponse(malformed)).toThrow(RecognitionCoreUnavailableError);
   });
 
   it("rejects a photo result missing a required numeric field", () => {

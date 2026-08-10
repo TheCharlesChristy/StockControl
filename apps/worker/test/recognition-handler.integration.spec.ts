@@ -33,6 +33,16 @@ class FakeImageStorage implements ImageStorage {
     if (object === undefined) throw new Error(`No fake object for ${key}`);
     return Promise.resolve(object);
   }
+
+  public async putObject(key: string, bytes: Buffer, mediaType: string): Promise<void> {
+    this.objects.set(key, { bytes, mediaType });
+    return Promise.resolve();
+  }
+
+  public async deleteObject(key: string): Promise<void> {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
 }
 
 const silentLogger = (): StructuredLogger =>

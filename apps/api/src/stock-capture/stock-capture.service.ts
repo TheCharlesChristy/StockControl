@@ -579,6 +579,10 @@ export class StockCaptureService {
         maxAttempts: 3,
       });
 
+      // The photographs have done their job — the item is committed and
+      // BuildExemplars has its own copy of whatever it needs from them.
+      await this.scheduleObjectDeletion(tx, command.sessionId);
+
       return {
         itemId,
         transactionId: receipt.transactionId,

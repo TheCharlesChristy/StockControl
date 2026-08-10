@@ -1,9 +1,18 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 /*
- * Read-only access to the same private bucket the API presigns uploads into.
- * The worker never writes here — the browser already put the bytes there
- * directly — and it never receives credentials wider than GetObject needs.
+ * Access to the same private bucket the API presigns uploads into. Most
+ * traffic is read-only — the browser already put the capture bytes there
+ * directly — but the worker owns two writes of its own: deleting a session's
+ * objects once they are no longer needed (the capture janitor, specification
+ * section 15) and writing the small EXIF-free crops an accepted item's
+ * exemplars are built from. It never receives credentials wider than this
+ * bucket needs.
  *
  * Configuration mirrors apps/api/src/media/media-storage.ts deliberately:
  * both processes must point at the same physical bucket, so the environment
@@ -17,6 +26,9 @@ export interface DownloadedObject {
 
 export interface ImageStorage {
   getObject(key: string): Promise<DownloadedObject>;
+  putObject(key: string, bytes: Buffer, mediaType: string): Promise<void>;
+  /** S3-semantics idempotent: deleting a key that is already gone still succeeds. */
+  deleteObject(key: string): Promise<void>;
 }
 
 interface S3Configuration {
@@ -126,5 +138,21 @@ export class S3ImageStorage implements ImageStorage {
       bytes: Buffer.from(await response.Body.transformToByteArray()),
       mediaType: response.ContentType ?? "application/octet-stream",
     };
+  }
+
+  public async putObject(key: string, bytes: Buffer, mediaType: string): Promise<void> {
+    if (this.bucket === undefined || this.client === undefined) {
+      throw new Error("Private image storage is not configured.");
+    }
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes, ContentType: mediaType }),
+    );
+  }
+
+  public async deleteObject(key: string): Promise<void> {
+    if (this.bucket === undefined || this.client === undefined) {
+      throw new Error("Private image storage is not configured.");
+    }
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }

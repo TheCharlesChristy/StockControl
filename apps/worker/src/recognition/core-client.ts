@@ -47,6 +47,22 @@ export interface CoreCategoryLabel {
   readonly score: number;
 }
 
+/** A normalised (0-1) box, so it survives independent of pixel geometry. */
+export interface CoreCropBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly label: string;
+}
+
+/** Cheap, untuned image-statistics heuristics — see recognition-core's
+ * quality.py docstring — not a learned quality model. */
+export interface CoreImageQuality {
+  readonly blurScore: number;
+  readonly foregroundAreaRatio: number;
+}
+
 export interface CorePhotoResult {
   readonly imageOrdinal: number;
   readonly barcodeOutcome: CoreStageOutcome;
@@ -58,6 +74,8 @@ export interface CorePhotoResult {
   readonly embedding: CoreEmbedding | null;
   readonly categoryOutcome: CoreStageOutcome;
   readonly categories: readonly CoreCategoryLabel[];
+  readonly quality: CoreImageQuality;
+  readonly crops: readonly CoreCropBox[];
 }
 
 export interface AnalyseSessionResult {
@@ -162,6 +180,25 @@ const parseCategory = (value: unknown): CoreCategoryLabel => {
   return { label: readString(value, "label"), score: readNumber(value, "score") };
 };
 
+const parseQuality = (value: unknown): CoreImageQuality => {
+  if (!isRecord(value)) throw new RecognitionCoreUnavailableError("Malformed image quality.");
+  return {
+    blurScore: readNumber(value, "blurScore"),
+    foregroundAreaRatio: readNumber(value, "foregroundAreaRatio"),
+  };
+};
+
+const parseCropBox = (value: unknown): CoreCropBox => {
+  if (!isRecord(value)) throw new RecognitionCoreUnavailableError("Malformed crop box.");
+  return {
+    x: readNumber(value, "x"),
+    y: readNumber(value, "y"),
+    width: readNumber(value, "width"),
+    height: readNumber(value, "height"),
+    label: readString(value, "label"),
+  };
+};
+
 const parsePhotoResult = (value: unknown): CorePhotoResult => {
   if (!isRecord(value)) throw new RecognitionCoreUnavailableError("Malformed photo result.");
 
@@ -189,6 +226,8 @@ const parsePhotoResult = (value: unknown): CorePhotoResult => {
     embedding: parseEmbedding(value.embedding),
     categoryOutcome,
     categories: Array.isArray(value.categories) ? value.categories.map(parseCategory) : [],
+    quality: parseQuality(value.quality),
+    crops: Array.isArray(value.crops) ? value.crops.map(parseCropBox) : [],
   };
 };
 

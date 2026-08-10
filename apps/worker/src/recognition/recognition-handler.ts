@@ -32,7 +32,7 @@ import {
 import { FusionClient, type VlmCandidateAllowlistEntry, type VlmRequest } from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
 import type { RecognitionPipelineConfiguration } from "./recognition-configuration";
-import { findNearestNeighbours } from "./visual-index";
+import { encodeFloat16Buffer, findNearestNeighbours } from "./visual-index";
 import { loadVisualIndex } from "./visual-index-store";
 import { gatherWebEvidence } from "./web-evidence";
 
@@ -237,6 +237,42 @@ const catalogueMatchIdentity = (match: CatalogueMatch): CandidateIdentityInput =
 });
 
 /**
+ * Saves each image's embedding and proposed crops onto its own row, keyed by
+ * ordinal. `BuildExemplars` reads this back after commit rather than calling
+ * recognition-core a second time for evidence this job already paid for —
+ * the column is exactly as ephemeral as the image itself, gone with it at
+ * the same `delete_after`.
+ */
+const persistImageEvidence = async (
+  database: Database,
+  imageRows: readonly ImageRow[],
+  photoResults: readonly CorePhotoResult[],
+): Promise<void> => {
+  const idByOrdinal = new Map(imageRows.map((row) => [row.ordinal, row.id]));
+
+  for (const photo of photoResults) {
+    if (photo.embedding === null && photo.crops.length === 0) continue;
+    const imageId = idByOrdinal.get(photo.imageOrdinal);
+    if (imageId === undefined) continue;
+
+    await database
+      .withSchema(SCHEMA)
+      .updateTable("stock_recognition_images")
+      .set({
+        ...(photo.embedding === null
+          ? {}
+          : {
+              embedding: encodeFloat16Buffer(photo.embedding.vector),
+              embedding_model: photo.embedding.modelRevision,
+            }),
+        crop_metadata: JSON.stringify({ crops: photo.crops, quality: photo.quality }),
+      })
+      .where("id", "=", imageId)
+      .execute();
+  }
+};
+
+/**
  * Runs every evidence stage this handler owns and returns the flat evidence
  * list `runFusion` expects. Nothing here throws for a single stage's
  * failure — each stage is wrapped so one unreachable service cannot take
@@ -246,6 +282,7 @@ const gatherEvidence = async (
   database: Database,
   configuration: RecognitionPipelineConfiguration,
   verifiedImages: readonly VerifiedImage[],
+  imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
 ): Promise<readonly StageResult[]> => {
@@ -265,6 +302,7 @@ const gatherEvidence = async (
     try {
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
+      await persistImageEvidence(database, imageRows, photoResults);
     } catch (error: unknown) {
       logger.error({
         event: "recognition.core_unavailable",
@@ -497,6 +535,7 @@ export const createRecognitionHandler = (
       database,
       configuration,
       verifiedImages,
+      imageRows,
       localCodes,
       logger,
     );

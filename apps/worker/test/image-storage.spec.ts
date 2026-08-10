@@ -18,6 +18,10 @@ describe("S3ImageStorage", () => {
   it("reports not configured when an operation is attempted without configuration", async () => {
     const storage = new S3ImageStorage({});
     await expect(storage.getObject("some/key")).rejects.toThrow("not configured");
+    await expect(storage.putObject("some/key", Buffer.from(""), "image/webp")).rejects.toThrow(
+      "not configured",
+    );
+    await expect(storage.deleteObject("some/key")).rejects.toThrow("not configured");
   });
 
   it("throws at construction when only some variables are set", () => {

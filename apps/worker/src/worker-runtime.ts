@@ -35,6 +35,9 @@ export class WorkerRuntime implements OnApplicationShutdown {
     private readonly heartbeatMilliseconds = parseHeartbeatMilliseconds(
       process.env.WORKER_HEARTBEAT_MS,
     ),
+    /** The capture janitor's backstop (capture-expiry-sweeper.ts). Optional so
+     * a worker built without the stock-capture tables still starts cleanly. */
+    private readonly sweepCaptureLifecycle?: () => Promise<void>,
   ) {}
 
   public async start(): Promise<void> {
@@ -67,6 +70,9 @@ export class WorkerRuntime implements OnApplicationShutdown {
         this.logger.log({ event: "worker.heartbeat" });
         void this.recognition?.reportQueueDepth().catch(() => {
           this.logger.error({ event: "recognition.queue.depth_unavailable" });
+        });
+        void this.sweepCaptureLifecycle?.().catch(() => {
+          this.logger.error({ event: "capture.lifecycle.sweep_failed" });
         });
       });
     }, this.heartbeatMilliseconds);
