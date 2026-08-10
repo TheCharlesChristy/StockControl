@@ -9,7 +9,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StockControlProviders } from "../../app/App";
-import type { AuthClient, SignInCredentials } from "../../auth/auth-types";
+import type { AuthClient, SessionOutcome, SignInCredentials } from "../../auth/auth-types";
 import {
   createFakeApiClient,
   testAisleId,
@@ -52,14 +52,14 @@ const session: AuthenticatedSession = {
 };
 
 class StubAuthClient implements AuthClient {
-  public getSession(signal: AbortSignal): Promise<AuthenticatedSession | null> {
+  public getSession(signal: AbortSignal): Promise<SessionOutcome | null> {
     signal.throwIfAborted();
-    return Promise.resolve(session);
+    return Promise.resolve({ session, features: { stockCapture: false } });
   }
 
-  public signIn(credentials: SignInCredentials): Promise<AuthenticatedSession> {
+  public signIn(credentials: SignInCredentials): Promise<SessionOutcome> {
     void credentials;
-    return Promise.resolve(session);
+    return Promise.resolve({ session, features: { stockCapture: false } });
   }
 
   public signOut(): Promise<void> {

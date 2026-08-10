@@ -32,6 +32,16 @@ import type {
   UploadFloorPlanRequest,
   ReportIssueRequest,
   ReportIssueResponse,
+  CaptureUploadGrantResponse,
+  CommitCaptureEntryRequest,
+  CommitCaptureEntryResponse,
+  CompleteCaptureUploadsRequest,
+  RecognitionSessionSummaryView,
+  RecognitionSessionView,
+  RequestCaptureUploadsRequest,
+  StartCaptureBatchRequest,
+  StartRecognitionSessionRequest,
+  StockCaptureBatchView,
 } from "@stockcontrol/contracts";
 
 /**
@@ -515,5 +525,89 @@ export class ApiClient {
     return this.send("GET", `/users/${id}/activity`, {
       ...(signal === undefined ? {} : { signal }),
     });
+  }
+
+  // ---- Assisted stock capture, specification section 10 --------------------
+
+  public async startCaptureBatch(body: StartCaptureBatchRequest): Promise<StockCaptureBatchView> {
+    const { batch } = await this.send<{ batch: StockCaptureBatchView }>(
+      "POST",
+      "/stock-capture/batches",
+      { body },
+    );
+    return batch;
+  }
+
+  public async getCaptureBatch(
+    batchId: string,
+    signal?: AbortSignal,
+  ): Promise<StockCaptureBatchView> {
+    const { batch } = await this.send<{ batch: StockCaptureBatchView }>(
+      "GET",
+      `/stock-capture/batches/${batchId}`,
+      { ...(signal === undefined ? {} : { signal }) },
+    );
+    return batch;
+  }
+
+  public async completeCaptureBatch(batchId: string): Promise<StockCaptureBatchView> {
+    const { batch } = await this.send<{ batch: StockCaptureBatchView }>(
+      "POST",
+      `/stock-capture/batches/${batchId}/complete`,
+    );
+    return batch;
+  }
+
+  public startCaptureSession(body: StartRecognitionSessionRequest): Promise<{
+    readonly session: RecognitionSessionSummaryView;
+    readonly exactItemId: string | null;
+  }> {
+    return this.send("POST", "/stock-capture/sessions", { body });
+  }
+
+  public async getCaptureSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RecognitionSessionView> {
+    const { session } = await this.send<{ session: RecognitionSessionView }>(
+      "GET",
+      `/stock-capture/sessions/${sessionId}`,
+      { ...(signal === undefined ? {} : { signal }) },
+    );
+    return session;
+  }
+
+  public requestCaptureUploads(
+    sessionId: string,
+    body: RequestCaptureUploadsRequest,
+  ): Promise<CaptureUploadGrantResponse> {
+    return this.send("POST", `/stock-capture/sessions/${sessionId}/uploads`, { body });
+  }
+
+  public async completeCaptureUploads(
+    sessionId: string,
+    body: CompleteCaptureUploadsRequest,
+  ): Promise<RecognitionSessionSummaryView> {
+    const { session } = await this.send<{ session: RecognitionSessionSummaryView }>(
+      "POST",
+      `/stock-capture/sessions/${sessionId}/uploads/complete`,
+      { body },
+    );
+    return session;
+  }
+
+  public async cancelCaptureSession(sessionId: string): Promise<RecognitionSessionSummaryView> {
+    const { session } = await this.send<{ session: RecognitionSessionSummaryView }>(
+      "POST",
+      `/stock-capture/sessions/${sessionId}/cancel`,
+    );
+    return session;
+  }
+
+  public commitCaptureEntry(
+    batchId: string,
+    body: CommitCaptureEntryRequest,
+  ): Promise<CommitCaptureEntryResponse> {
+    return this.send("POST", `/stock-capture/batches/${batchId}/entries`, { body });
   }
 }

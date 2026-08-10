@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiClient } from "../api/ApiClient";
 import { StockControlProviders } from "../app/App";
 import { RequireAuthentication } from "../auth/RouteGuards";
-import type { AuthClient, SignInCredentials } from "../auth/auth-types";
+import type { AuthClient, SessionOutcome, SignInCredentials } from "../auth/auth-types";
 import { createFakeApiClient, type RecordedRequest } from "../test/fake-api";
 import { ChangePasswordPage } from "./ChangePasswordPage";
 
@@ -27,14 +27,14 @@ const sessionWith = (mustChangePassword: boolean): AuthenticatedSession => ({
 class StubAuthClient implements AuthClient {
   public constructor(private readonly session: AuthenticatedSession) {}
 
-  public getSession(signal: AbortSignal): Promise<AuthenticatedSession | null> {
+  public getSession(signal: AbortSignal): Promise<SessionOutcome | null> {
     signal.throwIfAborted();
-    return Promise.resolve(this.session);
+    return Promise.resolve({ session: this.session, features: { stockCapture: false } });
   }
 
-  public signIn(credentials: SignInCredentials): Promise<AuthenticatedSession> {
+  public signIn(credentials: SignInCredentials): Promise<SessionOutcome> {
     void credentials;
-    return Promise.resolve(this.session);
+    return Promise.resolve({ session: this.session, features: { stockCapture: false } });
   }
 
   public signOut(): Promise<void> {

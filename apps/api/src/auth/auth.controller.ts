@@ -22,6 +22,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
 import { bodyOf } from "../inventory/request-parsing";
+import { isStockCaptureEnabled } from "../stock-capture/capture-configuration";
 import { readSessionCookie } from "./auth.guard";
 import { hashPassword } from "./password";
 import { Public } from "./public.decorator";
@@ -72,7 +73,11 @@ export class AuthController {
       );
     }
 
-    return { session, capabilities: capabilitiesForRole(session.user.role) };
+    return {
+      session,
+      capabilities: capabilitiesForRole(session.user.role),
+      features: { stockCapture: isStockCaptureEnabled() },
+    };
   }
 
   @Post("sign-in")
@@ -133,6 +138,7 @@ export class AuthController {
     return {
       session: outcome.session,
       capabilities: capabilitiesForRole(outcome.session.user.role),
+      features: { stockCapture: isStockCaptureEnabled() },
     };
   }
 

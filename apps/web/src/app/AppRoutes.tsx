@@ -29,6 +29,11 @@ const LocationsPage = lazy(async () => ({
   default: (await import("../pages/LocationsPage")).LocationsPage,
 }));
 
+/* No other screen needs the camera/barcode/upload machinery this pulls in. */
+const StockCapturePage = lazy(async () => ({
+  default: (await import("../features/stock-capture/StockCapturePage")).StockCapturePage,
+}));
+
 interface GuardedProps {
   readonly path: string;
   readonly children: ReactElement;
@@ -39,14 +44,14 @@ interface GuardedProps {
  * checks the same rule again on every request it serves.
  */
 function Guarded({ path, children }: GuardedProps): ReactElement | null {
-  const { user } = useAuth();
+  const { user, features } = useAuth();
   const item = navigationItems.find((candidate) => candidate.path === path);
 
   if (user === null) {
     return null;
   }
 
-  if (item !== undefined && !canAccessNavigationItem(user, item)) {
+  if (item !== undefined && !canAccessNavigationItem(user, item, features)) {
     return <AccessDeniedPage />;
   }
 
@@ -85,6 +90,16 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/inventory/:itemId" element={<ItemDetailPage />} />
+            <Route
+              path="/stock-capture"
+              element={
+                <Guarded path="/stock-capture">
+                  <Suspense fallback={<LoadingPage />}>
+                    <StockCapturePage />
+                  </Suspense>
+                </Guarded>
+              }
+            />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/jobs/:jobId" element={<JobDetailPage />} />
             <Route
