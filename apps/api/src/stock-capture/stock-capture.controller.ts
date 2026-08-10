@@ -2,11 +2,18 @@ import { Body, Controller, Get, Inject, Param, Post, Req } from "@nestjs/common"
 import type {
   CaptureUploadGrantResponse,
   CaptureImageMediaType,
+  CommitCaptureEntryRequest,
+  CommitCaptureEntryResponse,
   RecognitionSessionSummaryView,
   RecognitionSessionView,
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
-import { CAPTURE_MAX_PHOTOS, captureImageMediaTypes } from "@stockcontrol/contracts";
+import {
+  CAPTURE_MAX_PHOTOS,
+  captureImageMediaTypes,
+  validationFailed,
+} from "@stockcontrol/contracts";
+import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { DeclaredImage } from "@stockcontrol/module-stock-capture";
 import type { FastifyRequest } from "fastify";
 
@@ -14,8 +21,11 @@ import { API_TOKENS } from "../api.tokens";
 import { canViewAllActivity, requireCapability } from "../auth/request-context";
 import {
   bodyOf,
+  optionalText,
   optionalUuid,
+  readBoolean,
   readBoundedArray,
+  requireText,
   requireUuid,
   requireUuidParameter,
   type Body as ParsedBody,
@@ -24,13 +34,15 @@ import { uploadInvalid } from "./capture-failures";
 import type { StockCaptureService } from "./stock-capture.service";
 
 /**
- * The nine routes of specification section 10, minus the commit route: that
- * one needs the atomic-commit writers, which are not built yet, so it is
- * added alongside them rather than half-wired ahead of its own dependency.
+ * The nine routes of specification section 10.
  *
  * Every handler starts with `requireCapability`, matching the rest of the
  * API — a route here is authenticated by the global guard and authorised on
- * top of that, never by anything the browser sent.
+ * top of that, never by anything the browser sent. Committing an entry that
+ * creates a new item asks for `manageCatalogue` in addition to `manageStock`,
+ * the same pairing the ordinary "new item" and "receive stock" routes ask
+ * for separately — capture just asks for both in one request when the
+ * command needs both.
  */
 @Controller()
 export class StockCaptureController {
@@ -163,7 +175,73 @@ export class StockCaptureController {
       ),
     };
   }
+
+  @Post("stock-capture/batches/:batchId/entries")
+  public async commitEntry(
+    @Req() request: FastifyRequest,
+    @Param("batchId") batchId: string,
+    @Body() rawBody: unknown,
+  ): Promise<CommitCaptureEntryResponse> {
+    const user = requireCapability(request, "manageStock");
+    const body = bodyOf(rawBody);
+    const selection = readSelection(body);
+
+    if (selection.kind === "NewItem") {
+      requireCapability(request, "manageCatalogue");
+    }
+
+    return this.capture.commitEntry(
+      {
+        actorUserId: user.id,
+        batchId: requireUuidParameter(batchId, "batch"),
+        clientEntryId: requireUuid(body, "clientEntryId", "an entry id"),
+        sessionId: requireUuid(body, "sessionId", "a session id"),
+        selection,
+        quantity: requireText(body, "quantity", "a quantity"),
+        locationId: requireUuid(body, "locationId", "a location"),
+        acknowledgedDuplicatePartNumber:
+          readBoolean(body, "acknowledgedDuplicatePartNumber") ?? false,
+      },
+      { viewerUserId: user.id, scopeActivityToViewer: !canViewAllActivity(request) },
+    );
+  }
 }
+
+const selectionInvalid = (): ApplicationFailureException =>
+  new ApplicationFailureException(
+    validationFailed({ selection: ["Choose an item to receive stock against."] }),
+  );
+
+export const readSelection = (body: ParsedBody): CommitCaptureEntryRequest["selection"] => {
+  const raw = body.selection;
+  if (typeof raw !== "object" || raw === null) {
+    throw selectionInvalid();
+  }
+  const record = raw as ParsedBody;
+  const kind = record.kind;
+
+  if (kind === "ExistingItem") {
+    return {
+      kind: "ExistingItem",
+      itemId: requireUuid(record, "itemId", "an item"),
+      candidateId: optionalUuid(record, "candidateId", "a candidate"),
+    };
+  }
+
+  if (kind === "NewItem") {
+    return {
+      kind: "NewItem",
+      candidateId: optionalUuid(record, "candidateId", "a candidate"),
+      reference: optionalText(record, "reference"),
+      name: requireText(record, "name", "an item name"),
+      unit: requireText(record, "unit", "a unit, for example ea or m"),
+      barcode: optionalText(record, "barcode"),
+      partNumber: optionalText(record, "partNumber"),
+    };
+  }
+
+  throw selectionInvalid();
+};
 
 export const readPhotoCount = (body: ParsedBody): number => {
   const value = body.photoCount;

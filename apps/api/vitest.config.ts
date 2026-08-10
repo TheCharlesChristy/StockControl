@@ -39,9 +39,20 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
       include: ["src/**/*.ts"],
-      // Process entry points: argument-free scripts whose logic lives elsewhere
-      // (the seed's simulation is covered through src/seed/simulate.ts).
-      exclude: ["src/main.ts", "src/seed/seed.ts"],
+      exclude: [
+        // Process entry points: argument-free scripts whose logic lives
+        // elsewhere (the seed's simulation is covered through
+        // src/seed/simulate.ts).
+        "src/main.ts",
+        "src/seed/seed.ts",
+        // Transaction-scoped writers: locking, advisory-lock serialisation
+        // and rollback-on-error only mean something against a real
+        // PostgreSQL — test:integration proves them (stock-capture-commit.db
+        // .spec.ts in particular), a mocked query builder would only assert
+        // the SQL they write.
+        "src/inventory/catalogue-writer.ts",
+        "src/inventory/stock-writer.ts",
+      ],
       /*
        * Ratchet floors, not targets. CI enforces these from the commit that
        * turned coverage on, so the numbers may only ever go up; 80 across the
@@ -51,10 +62,10 @@ export default defineConfig({
        * config. Raise a floor whenever a change lifts the measured value.
        */
       thresholds: {
-        branches: 34,
-        functions: 39,
-        lines: 41,
-        statements: 40,
+        branches: 35,
+        functions: 40,
+        lines: 42,
+        statements: 41,
       },
     },
   },

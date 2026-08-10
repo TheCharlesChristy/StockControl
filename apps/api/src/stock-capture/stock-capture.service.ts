@@ -3,14 +3,19 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
   CaptureUploadGrant,
   CaptureUploadGrantResponse,
+  CommitCaptureEntryRequest,
+  CommitCaptureEntryResponse,
+  RecognitionFeedbackOutcome,
   RecognitionSessionSummaryView,
   RecognitionSessionView,
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
+import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import {
   canonicalRequest,
   describeImageProblem,
   validateImageDeclarations,
+  type CanonicalValue,
   type DeclaredImage,
 } from "@stockcontrol/module-stock-capture";
 import {
@@ -18,16 +23,23 @@ import {
   type STOCKCONTROL_SCHEMA,
   type StockControlDatabase,
 } from "@stockcontrol/platform-database";
+import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { Kysely, Transaction } from "kysely";
 
+import { createItemInTransaction } from "../inventory/catalogue-writer";
+import { requireQuantity } from "../inventory/stock.service";
+import { receiveInTransaction, requireLocation } from "../inventory/stock-writer";
 import { S3PrivateObjectStorage, type PresigningObjectStorage } from "../media/media-storage";
-import type { ItemDetailOptions } from "../persistence/read-models";
+import { findItemDetail, type ItemDetailOptions } from "../persistence/read-models";
+import { formatQuantity } from "../stock/quantity";
 import { readLocalCodes, resolveLocalCodes } from "./barcode-resolution";
 import type { StockCaptureConfiguration } from "./capture-configuration";
 import {
   batchNotOpen,
   captureNotFound,
   idempotencyConflict,
+  itemChanged,
+  locationUnavailable,
   sessionExpired,
   sessionNotReady,
   uploadInvalid,
@@ -40,6 +52,21 @@ type CaptureTransaction = Transaction<StockControlDatabase>;
 
 const hashOf = (canonical: string): string =>
   createHash("sha256").update(canonical, "utf8").digest("hex");
+
+const canonicalSelection = (
+  selection: CommitCaptureEntryRequest["selection"],
+): Record<string, CanonicalValue> =>
+  selection.kind === "ExistingItem"
+    ? { kind: "ExistingItem", itemId: selection.itemId, candidateId: selection.candidateId }
+    : {
+        kind: "NewItem",
+        candidateId: selection.candidateId,
+        reference: selection.reference,
+        name: selection.name,
+        unit: selection.unit,
+        barcode: selection.barcode,
+        partNumber: selection.partNumber,
+      };
 
 export interface StartBatchCommand {
   readonly actorUserId: string;
@@ -66,6 +93,17 @@ export interface RequestUploadsCommand {
   readonly actorUserId: string;
   readonly sessionId: string;
   readonly images: readonly DeclaredImage[];
+}
+
+export interface CommitEntryCommand {
+  readonly actorUserId: string;
+  readonly batchId: string;
+  readonly clientEntryId: string;
+  readonly sessionId: string;
+  readonly selection: CommitCaptureEntryRequest["selection"];
+  readonly quantity: string;
+  readonly locationId: string;
+  readonly acknowledgedDuplicatePartNumber: boolean;
 }
 
 /**
@@ -393,6 +431,292 @@ export class StockCaptureService {
   ): Promise<RecognitionSessionView> {
     await this.requireSession(sessionId, actorUserId);
     return presentRecognitionSession(this.database, sessionId, viewer);
+  }
+
+  /**
+   * The one place a recognition session is allowed to change stock. Section
+   * 12's nine steps, one Kysely transaction: idempotent on
+   * (actor, session, hash), locks the batch and session before touching
+   * either, re-verifies the selected item has not moved since it was shown,
+   * and never trusts a candidate's identity — only its id, to look up what
+   * was actually published.
+   */
+  public async commitEntry(
+    command: CommitEntryCommand,
+    viewer: ItemDetailOptions,
+  ): Promise<CommitCaptureEntryResponse> {
+    const quantity = requireQuantity(command.quantity);
+
+    const outcome = await this.database.transaction().execute(async (tx) => {
+      const sessionLink = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("stock_recognition_sessions")
+        .select(["batch_id"])
+        .where("id", "=", command.sessionId)
+        .where("actor_user_id", "=", command.actorUserId)
+        .executeTakeFirst();
+
+      if (sessionLink === undefined || sessionLink.batch_id !== command.batchId) {
+        throw captureNotFound("That item");
+      }
+
+      const requestHash = hashOf(
+        canonicalRequest("commit-entry", {
+          actorUserId: command.actorUserId,
+          sessionId: command.sessionId,
+          selection: canonicalSelection(command.selection),
+          quantity: formatQuantity(quantity),
+          locationId: command.locationId,
+        }),
+      );
+
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("stock_capture_entries")
+        .values({
+          id: command.clientEntryId,
+          batch_id: sessionLink.batch_id,
+          session_id: command.sessionId,
+          actor_user_id: command.actorUserId,
+          request_hash: requestHash,
+        })
+        .onConflict((conflict) => conflict.column("id").doNothing())
+        .execute();
+
+      const entry = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("stock_capture_entries")
+        .selectAll()
+        .where("id", "=", command.clientEntryId)
+        .executeTakeFirstOrThrow();
+
+      if (
+        entry.actor_user_id !== command.actorUserId ||
+        entry.session_id !== command.sessionId ||
+        entry.request_hash !== requestHash
+      ) {
+        throw idempotencyConflict();
+      }
+
+      /* A replay of an already-committed entry: nothing left to do or re-check. */
+      if (entry.status === "Committed") {
+        return {
+          itemId: entry.item_id as string,
+          transactionId: entry.transaction_id as string,
+          createdItem: entry.created_item as boolean,
+          batchId: sessionLink.batch_id,
+        };
+      }
+
+      const batch = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("stock_capture_batches")
+        .select(["status"])
+        .where("id", "=", sessionLink.batch_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+
+      if (batch.status !== "Open") throw batchNotOpen();
+
+      const session = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("stock_recognition_sessions")
+        .select(["status"])
+        .where("id", "=", command.sessionId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+
+      if (session.status !== "ReviewReady") throw sessionNotReady();
+
+      const location = await requireLocation(tx, command.locationId);
+      if (!location.isActive || location.kind !== "Store") throw locationUnavailable();
+
+      const { itemId, createdItem } = await this.resolveCommittedItem(tx, command);
+
+      const receipt = await receiveInTransaction(
+        tx,
+        {
+          actorUserId: command.actorUserId,
+          scopeActivityToActor: viewer.scopeActivityToViewer,
+          itemId,
+          locationId: command.locationId,
+          quantity,
+        },
+        this.now(),
+      );
+
+      const now = this.now();
+
+      await tx
+        .withSchema(SCHEMA)
+        .updateTable("stock_capture_entries")
+        .set({
+          status: "Committed",
+          item_id: itemId,
+          transaction_id: receipt.transactionId,
+          created_item: createdItem,
+          committed_at: now,
+        })
+        .where("id", "=", command.clientEntryId)
+        .execute();
+
+      await tx
+        .withSchema(SCHEMA)
+        .updateTable("stock_recognition_sessions")
+        .set({ status: "Committed", committed_item_id: itemId, updated_at: now })
+        .where("id", "=", command.sessionId)
+        .execute();
+
+      await this.recordFeedback(tx, command, itemId);
+
+      await enqueueJob(tx, {
+        id: randomUUID(),
+        sessionId: command.sessionId,
+        jobType: "BuildExemplars",
+        payloadVersion: 1,
+        payload: { sessionId: command.sessionId, itemId },
+        deduplicationKey: `build-exemplars:${command.sessionId}`,
+        maxAttempts: 3,
+      });
+
+      return {
+        itemId,
+        transactionId: receipt.transactionId,
+        createdItem,
+        batchId: sessionLink.batch_id,
+      };
+    });
+
+    const item = await findItemDetail(this.database, outcome.itemId, viewer);
+
+    if (item === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "The committed item could not be read back." }),
+      );
+    }
+
+    return {
+      item,
+      transactionId: outcome.transactionId,
+      createdItem: outcome.createdItem,
+      batch: await this.presentBatch(outcome.batchId, command.actorUserId),
+    };
+  }
+
+  /**
+   * Existing-item selections are re-verified against what was actually
+   * published, never against what the client claims: an archived or
+   * materially changed item since the candidate was shown is refused rather
+   * than silently received against. New-item selections go through the same
+   * writer, and advisory lock, as the ordinary catalogue "create item" route.
+   */
+  private async resolveCommittedItem(
+    tx: CaptureTransaction,
+    command: CommitEntryCommand,
+  ): Promise<{ readonly itemId: string; readonly createdItem: boolean }> {
+    if (command.selection.kind === "ExistingItem") {
+      const item = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("items")
+        .select(["id", "is_active", "updated_at"])
+        .where("id", "=", command.selection.itemId)
+        .executeTakeFirst();
+
+      if (item === undefined || !item.is_active) throw itemChanged();
+
+      if (command.selection.candidateId !== null) {
+        const candidate = await tx
+          .withSchema(SCHEMA)
+          .selectFrom("stock_recognition_candidates")
+          .select(["item_id", "created_at"])
+          .where("id", "=", command.selection.candidateId)
+          .where("session_id", "=", command.sessionId)
+          .executeTakeFirst();
+
+        if (candidate === undefined || candidate.item_id !== item.id) throw itemChanged();
+        if (item.updated_at.getTime() > candidate.created_at.getTime()) throw itemChanged();
+      }
+
+      return { itemId: item.id, createdItem: false };
+    }
+
+    if (command.selection.partNumber !== null && !command.acknowledgedDuplicatePartNumber) {
+      const duplicate = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("items")
+        .select("id")
+        .where("part_number", "=", command.selection.partNumber)
+        .where("is_active", "=", true)
+        .executeTakeFirst();
+
+      if (duplicate !== undefined) {
+        throw new ApplicationFailureException(
+          validationFailed({
+            partNumber: [
+              "Another active item already uses this part number. Confirm to create it anyway.",
+            ],
+          }),
+        );
+      }
+    }
+
+    const created = await createItemInTransaction(tx, {
+      reference: command.selection.reference,
+      name: command.selection.name,
+      unit: command.selection.unit,
+      barcode: command.selection.barcode,
+      partNumber: command.selection.partNumber,
+      lowStockThreshold: null,
+    });
+
+    return { itemId: created.id, createdItem: true };
+  }
+
+  /**
+   * Best-effort telemetry for a later offline calibration release (section
+   * 11.8). Holds no raw OCR or model text — only the rank the person picked,
+   * what they did with it, and which candidate ids the session ever
+   * published. Deduplicated per session so a replayed commit never writes a
+   * second row.
+   */
+  private async recordFeedback(
+    tx: CaptureTransaction,
+    command: CommitEntryCommand,
+    finalItemId: string,
+  ): Promise<void> {
+    const candidates = await tx
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_candidates")
+      .select(["id", "rank"])
+      .where("session_id", "=", command.sessionId)
+      .execute();
+
+    const selectedCandidate =
+      command.selection.candidateId === null
+        ? undefined
+        : candidates.find((candidate) => candidate.id === command.selection.candidateId);
+
+    const outcome: RecognitionFeedbackOutcome =
+      command.selection.candidateId === null
+        ? "RejectedAll"
+        : command.selection.kind === "ExistingItem"
+          ? "Accepted"
+          : "Edited";
+
+    await tx
+      .withSchema(SCHEMA)
+      .insertInto("recognition_feedback")
+      .values({
+        id: randomUUID(),
+        session_id: command.sessionId,
+        actor_user_id: command.actorUserId,
+        outcome,
+        selected_rank: selectedCandidate?.rank ?? null,
+        final_item_id: finalItemId,
+        shown_candidate_ids: JSON.stringify(candidates.map((candidate) => candidate.id)),
+      })
+      .onConflict((conflict) => conflict.column("session_id").doNothing())
+      .execute();
   }
 
   /**

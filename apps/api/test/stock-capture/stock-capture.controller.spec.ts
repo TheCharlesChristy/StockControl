@@ -6,6 +6,7 @@ import type { Body } from "../../src/inventory/request-parsing";
 import {
   readDeclaredImages,
   readPhotoCount,
+  readSelection,
 } from "../../src/stock-capture/stock-capture.controller";
 
 const bodyOf = (value: Record<string, unknown>): Body => value;
@@ -76,4 +77,85 @@ describe("reading declared image uploads", () => {
       ApplicationFailureException,
     );
   });
+});
+
+const uuid = "11111111-1111-4111-8111-111111111111";
+const otherUuid = "22222222-2222-4222-8222-222222222222";
+
+describe("reading a commit selection", () => {
+  it("reads an ExistingItem selection, with or without a candidate", () => {
+    expect(
+      readSelection(
+        bodyOf({ selection: { kind: "ExistingItem", itemId: uuid, candidateId: null } }),
+      ),
+    ).toEqual({ kind: "ExistingItem", itemId: uuid, candidateId: null });
+
+    expect(
+      readSelection(
+        bodyOf({ selection: { kind: "ExistingItem", itemId: uuid, candidateId: otherUuid } }),
+      ),
+    ).toEqual({ kind: "ExistingItem", itemId: uuid, candidateId: otherUuid });
+  });
+
+  it("reads a NewItem selection, defaulting absent optional fields to null", () => {
+    expect(
+      readSelection(bodyOf({ selection: { kind: "NewItem", name: "Widget", unit: "ea" } })),
+    ).toEqual({
+      kind: "NewItem",
+      candidateId: null,
+      reference: null,
+      name: "Widget",
+      unit: "ea",
+      barcode: null,
+      partNumber: null,
+    });
+  });
+
+  it("reads every NewItem field when supplied", () => {
+    expect(
+      readSelection(
+        bodyOf({
+          selection: {
+            kind: "NewItem",
+            candidateId: otherUuid,
+            reference: "ITM-9999",
+            name: "Widget",
+            unit: "ea",
+            barcode: "5012345678900",
+            partNumber: "RS-1234A",
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: "NewItem",
+      candidateId: otherUuid,
+      reference: "ITM-9999",
+      name: "Widget",
+      unit: "ea",
+      barcode: "5012345678900",
+      partNumber: "RS-1234A",
+    });
+  });
+
+  it("refuses a NewItem selection missing a required field", () => {
+    expect(() => readSelection(bodyOf({ selection: { kind: "NewItem", unit: "ea" } }))).toThrow(
+      ApplicationFailureException,
+    );
+    expect(() => readSelection(bodyOf({ selection: { kind: "NewItem", name: "Widget" } }))).toThrow(
+      ApplicationFailureException,
+    );
+  });
+
+  it("refuses an ExistingItem selection missing its item id", () => {
+    expect(() =>
+      readSelection(bodyOf({ selection: { kind: "ExistingItem", candidateId: null } })),
+    ).toThrow(ApplicationFailureException);
+  });
+
+  it.each([undefined, null, "ExistingItem", 42, { kind: "Unknown" }])(
+    "refuses a malformed selection %j",
+    (selection) => {
+      expect(() => readSelection(bodyOf({ selection }))).toThrow(ApplicationFailureException);
+    },
+  );
 });
