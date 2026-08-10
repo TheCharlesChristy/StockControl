@@ -306,8 +306,12 @@ describe("FusionClient.proposeIdentity", () => {
     const textPart = userContent?.find((part) => part.type === "text");
     // The injected string survives as literal, harmless text inside the
     // evidence JSON — it is never unwrapped into a second top-level message
-    // or treated as anything other than an OCR line's value.
-    expect(textPart?.text).toContain(injection.replace(/"/gu, '\\"'));
+    // or treated as anything other than an OCR line's value. JSON.stringify
+    // is the correct way to compute what that nested encoding produces —
+    // a hand-rolled quote-only replace would (as CodeQL flagged) miss
+    // backslashes and stop mirroring the real encoding the moment the
+    // injected text contained one.
+    expect(textPart?.text).toContain(JSON.stringify(injection).slice(1, -1));
     expect(parsed.messages).toHaveLength(2);
     expect(parsed.messages[0]?.role).toBe("system");
   });
