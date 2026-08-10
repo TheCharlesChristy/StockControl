@@ -43,6 +43,7 @@ jobs:
       matrix:
         language:
           - javascript-typescript
+          - python
           - actions
 
     steps:

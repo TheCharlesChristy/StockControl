@@ -2,6 +2,8 @@
 
 ARG NODE_IMAGE=node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.8.17@sha256:e4644cb5bd56fdc2c5ea3ee0525d9d21eed1603bccd6a21f887a938be7e85be1
 ARG PNPM_VERSION=11.9.0
 ARG APP_VERSION=0.1.0
 ARG BUILD_TIMESTAMP=unknown
@@ -9,8 +11,8 @@ ARG RAILWAY_GIT_COMMIT_SHA=unknown
 ARG GIT_SHA=${RAILWAY_GIT_COMMIT_SHA}
 # Railway deploys each runtime as a separate service from this single
 # multi-stage image. The service supplies RUNTIME_TARGET as a build-time
-# variable (api, worker, or web); the default keeps local Docker builds
-# backwards-compatible with the web image.
+# variable (api, worker, web, or recognition-core); the default keeps local
+# Docker builds backwards-compatible with the web image.
 ARG RUNTIME_TARGET=web
 
 FROM ${NODE_IMAGE} AS build
@@ -122,5 +124,74 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=5 \
   CMD ["wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
 
 CMD ["nginx", "-g", "daemon off;"]
+
+FROM ${UV_IMAGE} AS uv
+
+FROM ${PYTHON_IMAGE} AS recognition-core-build
+
+# libvips backs pyvips's native decode path; zxing-cpp and onnxruntime bundle
+# their own native code and need nothing extra at build time. Package name
+# varies by Debian release around the 64-bit time_t transition (libvips42 on
+# bookworm, libvips42t64 from trixie onward) — try both rather than pin to
+# one and break silently on the next base image bump.
+RUN apt-get update \
+    && (apt-get install --yes --no-install-recommends libvips42 \
+        || apt-get install --yes --no-install-recommends libvips42t64) \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+
+# Dependencies first, cached independently of source changes: uv.lock pins
+# every version, so this layer only invalidates when a dependency changes.
+COPY services/recognition-core/pyproject.toml services/recognition-core/uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY services/recognition-core/src ./src
+RUN uv sync --frozen --no-dev
+
+# Verifies every digest against the reviewed manifest; a no-op today because
+# manifest.lock.json lists no models (specification section 20's S0 gate has
+# not run against real hardware). The runtime image below never downloads.
+COPY services/recognition-core/scripts ./scripts
+COPY models/manifest.lock.json ./models/manifest.lock.json
+RUN uv run python scripts/fetch_models.py --manifest models/manifest.lock.json --output /models
+
+FROM ${PYTHON_IMAGE} AS recognition-core
+
+ARG APP_VERSION
+ARG BUILD_TIMESTAMP
+ARG GIT_SHA
+LABEL org.opencontainers.image.created="${BUILD_TIMESTAMP}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.title="StockControl Recognition Core" \
+      org.opencontainers.image.version="${APP_VERSION}"
+
+RUN apt-get update \
+    && (apt-get install --yes --no-install-recommends libvips42 \
+        || apt-get install --yes --no-install-recommends libvips42t64) \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /app --shell /usr/sbin/nologin recognition
+
+WORKDIR /app
+
+COPY --from=recognition-core-build --chown=recognition:recognition /app/.venv /app/.venv
+COPY --from=recognition-core-build --chown=recognition:recognition /app/src /app/src
+COPY --from=recognition-core-build --chown=recognition:recognition /models /models
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH="/app/src" \
+    RECOGNITION_CORE_MODEL_DIR=/models
+
+USER recognition
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=5 \
+  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8000') + '/health/ready').read()"]
+
+# Railway assigns PORT at deploy time; exec keeps uvicorn as PID 1 so it
+# still receives SIGTERM directly for a clean shutdown.
+CMD ["sh", "-c", "exec uvicorn recognition_core.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 FROM ${RUNTIME_TARGET} AS runtime

@@ -58,6 +58,57 @@ jobs:
       - name: Run unit tests with coverage thresholds
         run: pnpm run test:coverage
 
+  # services/recognition-core is a standalone Python project outside the
+  # pnpm workspace (specification section 9.1), so it gets its own gate
+  # rather than folding into `quality` above.
+  recognition-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: services/recognition-core
+
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Package name varies by Ubuntu release around the 64-bit time_t
+      # transition (libvips42t64 on 24.04 "noble"); try both so a future
+      # runner image bump doesn't silently break this step.
+      - name: Install libvips for pyvips's native decode path
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvips42t64 \
+            || sudo apt-get install --yes --no-install-recommends libvips42
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: services/recognition-core/uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type-check
+        run: uv run mypy src tests scripts
+
+      - name: Run unit tests
+        run: uv run pytest
+
+      # No copyleft dependency should reach a proprietary build without a
+      # deliberate, reviewed decision — see package.json's own "UNLICENSED".
+      - name: Check dependency licences
+        run: uv run pip-licenses --fail-on="GPL;AGPL;LGPL" --partial-match
+
   container-images:
     name: container image (${{ matrix.runtime }})
     runs-on: ubuntu-latest
@@ -69,6 +120,7 @@ jobs:
         runtime:
           - api
           - web
+          - recognition-core
 
     steps:
       - name: Check out the commit under test
@@ -98,6 +150,9 @@ jobs:
           if [ "$RUNTIME" = api ]; then
             docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
               'test -f apps/api/dist/main.js && test -f apps/api/dist/reset-admin-password.js && test -f apps/api/dist/setup-first-admin.js && test -f packages/platform/database/dist/bootstrap-roles.js && test -f packages/platform/database/dist/migrate.js'
+          elif [ "$RUNTIME" = recognition-core ]; then
+            docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+              'test -f /app/.venv/bin/python && test -f /app/src/recognition_core/main.py && test -d /models'
           fi
 
       - name: Smoke test the web runtime
@@ -128,6 +183,24 @@ jobs:
 
           docker exec "$container_id" nginx -T 2>&1 \
             | grep --quiet 'client_max_body_size 16m;'
+
+      - name: Smoke test the recognition-core runtime
+        if: matrix.runtime == 'recognition-core'
+        run: |
+          container_id="$(docker run --detach --publish 18000:8000 stockcontrol-recognition-core:ci)"
+          trap 'docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+
+          curl --fail --silent --show-error --retry 20 --retry-all-errors \
+            --retry-delay 1 http://127.0.0.1:18000/health/live
+
+          # No model weights exist in this environment (specification section
+          # 20's S0 gate has not run against real hardware), so readiness is
+          # honestly reported as not ready rather than faked.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/health/ready)"
+          test "$status" = "503"
+
+          docs_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/docs)"
+          test "$docs_status" = "404"
 
   # Proves the stock rules hold against a real database, including the
   # concurrent double collection that section 9 names specifically.

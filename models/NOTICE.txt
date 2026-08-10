@@ -1,0 +1,12 @@
+No third-party model weights are baked into any build of this repository.
+
+manifest.lock.json's "models" list is empty by design: the S0 model-promotion
+workflow described in docs/stock-capture-technical-spec.md section 20 has not
+run in this environment, because doing so needs real hardware, a consented
+evaluation set, and reviewed licence terms this repository does not have.
+
+When that workflow adds an entry to manifest.lock.json, it must add that
+model's licence terms to this file in the same change. Until then,
+services/recognition-core/scripts/fetch_models.py has nothing to fetch, and
+every model-backed recognition stage reports "Unavailable" rather than a
+result.

@@ -39,3 +39,9 @@ Thumbs.db
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# Python bytecode (services/recognition-core). uv, mypy, pytest and ruff each
+# drop their own .gitignore inside their own cache/venv directories, so only
+# the bare interpreter cache needs a rule here.
+__pycache__/
+*.pyc

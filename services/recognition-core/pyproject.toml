@@ -1,0 +1,72 @@
+[project]
+name = "recognition-core"
+version = "0.1.0"
+description = "Stateless barcode, OCR, and visual-embedding analysis for assisted stock capture."
+requires-python = ">=3.12,<3.13"
+
+# Runtime dependencies. Pinned to exact versions, not ranges: production never
+# resolves this file at deploy time, only at image build, and an exact pin is
+# what makes a rebuild months later reproduce the image that was actually
+# evaluated. Bump deliberately, in a reviewed commit, never automatically.
+#
+# `onnxruntime` rather than `onnxruntime-openvino`: the OpenVINO execution
+# provider needs a matching OpenVINO runtime baked into the image, which is a
+# model-build-time decision recorded in models/manifest.lock.json, not a
+# library choice this file can pin on its own. The production image adds the
+# OpenVINO provider at build time behind the same onnxruntime API; ordinary
+# development and CI run the portable CPU provider this dependency already
+# provides.
+dependencies = [
+    "fastapi==0.141.1",
+    "onnxruntime==1.20.1",
+    "pillow==11.1.0",
+    "pydantic==2.13.4",
+    "python-multipart==0.0.19",
+    "pyvips==3.1.1",
+    "uvicorn==0.34.0",
+    "zxing-cpp==2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "mypy==1.14.1",
+    "pip-licenses==5.5.5",
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.2",
+    "ruff==0.9.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
+
+# FastAPI's dependency-injection idiom calls Form()/File() in an argument
+# default; that is how the framework recognises a multipart field, not a
+# mutable-default bug.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Form", "fastapi.File"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+
+# Native C-extension bindings; neither ships type stubs.
+[[tool.mypy.overrides]]
+module = ["pyvips", "zxingcpp"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/recognition_core"]
