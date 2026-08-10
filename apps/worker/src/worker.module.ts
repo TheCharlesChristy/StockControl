@@ -17,11 +17,14 @@ import {
 } from "@stockcontrol/platform-database";
 
 import { DatabaseLifecycle } from "./database-lifecycle";
+import { S3ImageStorage, type ImageStorage } from "./recognition/image-storage";
 import {
   RecognitionDispatcher,
   type RecognitionDispatcherOptions,
 } from "./recognition/recognition-dispatcher";
 import { resolveDispatcherOptions } from "./recognition/dispatcher-configuration";
+import { loadRecognitionPipelineConfiguration } from "./recognition/recognition-configuration";
+import { createRecognitionHandler } from "./recognition/recognition-handler";
 import { WorkerRuntime } from "./worker-runtime";
 import { resolveWorkerHealthConfiguration, WorkerHealthEndpoint } from "./worker-health";
 import { WORKER_TOKENS } from "./worker.tokens";
@@ -60,10 +63,35 @@ const providers: Provider[] = [
     inject: [WORKER_TOKENS.database],
   },
   {
+    provide: WORKER_TOKENS.imageStorage,
+    useFactory: (): ImageStorage => new S3ImageStorage(process.env),
+  },
+  {
     provide: WORKER_TOKENS.dispatcher,
-    useFactory: (context: CorrelationContext, logger: StructuredLogger) =>
-      new BackgroundJobDispatcher(context, logger),
-    inject: [WORKER_TOKENS.correlationContext, WORKER_TOKENS.logger],
+    useFactory: (
+      context: CorrelationContext,
+      logger: StructuredLogger,
+      database: Kysely<StockControlDatabase>,
+      imageStorage: ImageStorage,
+    ) => {
+      const jobs = new BackgroundJobDispatcher(context, logger);
+      jobs.register(
+        "Recognize",
+        createRecognitionHandler({
+          database,
+          imageStorage,
+          configuration: loadRecognitionPipelineConfiguration(process.env),
+          logger,
+        }),
+      );
+      return jobs;
+    },
+    inject: [
+      WORKER_TOKENS.correlationContext,
+      WORKER_TOKENS.logger,
+      WORKER_TOKENS.database,
+      WORKER_TOKENS.imageStorage,
+    ],
   },
   {
     provide: WORKER_TOKENS.recognitionDispatcher,

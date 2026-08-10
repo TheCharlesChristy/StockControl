@@ -5,3 +5,11 @@ playwright-report
 test-results
 pnpm-lock.yaml
 
+# Python build/cache state for services/recognition-core (gitignored, but
+# prettier does not consult .gitignore on its own).
+services/recognition-core/.venv
+services/recognition-core/.mypy_cache
+services/recognition-core/.pytest_cache
+services/recognition-core/.ruff_cache
+services/recognition-core/**/__pycache__
+

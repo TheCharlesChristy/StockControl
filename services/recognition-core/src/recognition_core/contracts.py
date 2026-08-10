@@ -11,6 +11,20 @@ from __future__ import annotations
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
+
+
+class _WireModel(BaseModel):
+    """Base for every model on this contract.
+
+    Python code throughout this service reads and writes the snake_case
+    field names below (`populate_by_name`); the JSON wire format is
+    camelCase (`alias_generator`), matching every other service contract in
+    this repository (packages/contracts). routes.py serialises with
+    `by_alias=True` so the two stay in sync rather than by convention alone.
+    """
+
+    model_config = ConfigDict(frozen=True, alias_generator=to_camel, populate_by_name=True)
 
 
 class BarcodeSymbology(str, Enum):
@@ -31,40 +45,32 @@ class BarcodeSymbology(str, Enum):
     DATA_BAR = "DataBar"
 
 
-class BarcodeObservation(BaseModel):
+class BarcodeObservation(_WireModel):
     """A decoded value. Confidence is not reported: a value either decoded
     with a passing check digit or it did not decode at all."""
-
-    model_config = ConfigDict(frozen=True)
 
     value: str
     symbology: BarcodeSymbology
 
 
-class OcrLine(BaseModel):
+class OcrLine(_WireModel):
     """One recognised text line, with its polygon in normalised (0-1)
     coordinates so the caller does not need this service's pixel geometry."""
-
-    model_config = ConfigDict(frozen=True)
 
     text: str = Field(max_length=200)
     score: float = Field(ge=0.0, le=1.0)
     polygon: list[tuple[float, float]] = Field(min_length=3, max_length=8)
 
 
-class VariantAttribute(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class VariantAttribute(_WireModel):
     label: str = Field(max_length=40)
     value: str = Field(max_length=80)
 
 
-class ParsedIdentifiers(BaseModel):
+class ParsedIdentifiers(_WireModel):
     """The deterministic parser's output. Section 7.5: numbers are never
     promoted to a stock quantity here, and nothing in this model claims
     identity — the worker's catalogue query and fusion stage do that."""
-
-    model_config = ConfigDict(frozen=True)
 
     manufacturer_tokens: list[str] = Field(default_factory=list, max_length=5)
     name_fragments: list[str] = Field(default_factory=list, max_length=5)
@@ -75,17 +81,13 @@ class ParsedIdentifiers(BaseModel):
     labelled_pack_quantity: str | None = None
 
 
-class ImageQuality(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class ImageQuality(_WireModel):
     blur_score: float = Field(ge=0.0, le=1.0)
     foreground_area_ratio: float = Field(ge=0.0, le=1.0)
 
 
-class CropBox(BaseModel):
+class CropBox(_WireModel):
     """A normalised (0-1) box, so it survives independent of pixel geometry."""
-
-    model_config = ConfigDict(frozen=True)
 
     x: float = Field(ge=0.0, le=1.0)
     y: float = Field(ge=0.0, le=1.0)
@@ -94,16 +96,12 @@ class CropBox(BaseModel):
     label: str = Field(max_length=40)
 
 
-class EmbeddingResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class EmbeddingResult(_WireModel):
     model_revision: str
     vector: list[float]
 
 
-class CategoryLabel(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class CategoryLabel(_WireModel):
     label: str = Field(max_length=60)
     score: float = Field(ge=0.0, le=1.0)
 
@@ -115,11 +113,9 @@ class StageAvailability(str, Enum):
     FAILED = "Failed"
 
 
-class PhotoResult(BaseModel):
+class PhotoResult(_WireModel):
     """Everything this service found in one photograph. Independent of every
     other photograph in the session — fan-in happens in the worker."""
-
-    model_config = ConfigDict(frozen=True)
 
     image_ordinal: int = Field(ge=1, le=5)
     barcode_outcome: StageAvailability
@@ -135,17 +131,13 @@ class PhotoResult(BaseModel):
     crops: list[CropBox] = Field(default_factory=list, max_length=8)
 
 
-class AnalyseSessionResponse(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class AnalyseSessionResponse(_WireModel):
     request_id: str
     model_manifest_version: str
     photo_results: list[PhotoResult] = Field(min_length=1, max_length=5)
 
 
-class RenderExemplarResponse(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+class RenderExemplarResponse(_WireModel):
     media_type: str = "image/webp"
     width: int = Field(gt=0)
     height: int = Field(gt=0)

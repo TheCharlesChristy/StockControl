@@ -8,6 +8,10 @@ export default defineConfig({
         import.meta.dirname,
         "../../packages/contracts/src/index.ts",
       ),
+      "@stockcontrol/module-stock-capture": path.resolve(
+        import.meta.dirname,
+        "../../packages/modules/stock-capture/src/index.ts",
+      ),
       "@stockcontrol/module-system": path.resolve(
         import.meta.dirname,
         "../../packages/modules/system/src/index.ts",
@@ -41,15 +45,19 @@ export default defineConfig({
       exclude: [
         "src/main.ts",
         "src/database-lifecycle.ts",
+        "src/recognition/catalogue-retrieval.ts",
+        "src/recognition/image-storage.ts",
         "src/recognition/recognition-dispatcher.ts",
+        "src/recognition/recognition-handler.ts",
+        "src/recognition/visual-index-store.ts",
         "src/worker.module.ts",
       ],
       /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
       thresholds: {
-        branches: 95,
-        functions: 93,
-        lines: 94,
-        statements: 94,
+        branches: 98,
+        functions: 97,
+        lines: 99,
+        statements: 99,
       },
     },
   },

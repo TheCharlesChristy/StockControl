@@ -47,14 +47,14 @@ def test_analyse_session_returns_one_photo_result_per_image(jpeg_bytes: bytes) -
 
     assert response.status_code == 200
     body = response.json()
-    assert body["request_id"] == "req-1"
-    assert len(body["photo_results"]) == 1
-    photo = body["photo_results"][0]
-    assert photo["image_ordinal"] == 1
-    assert photo["barcode_outcome"] == "Succeeded"
-    assert photo["ocr_outcome"] == "Unavailable"
-    assert photo["embedding_outcome"] == "Unavailable"
-    assert photo["category_outcome"] == "NotApplicable"
+    assert body["requestId"] == "req-1"
+    assert len(body["photoResults"]) == 1
+    photo = body["photoResults"][0]
+    assert photo["imageOrdinal"] == 1
+    assert photo["barcodeOutcome"] == "Succeeded"
+    assert photo["ocrOutcome"] == "Unavailable"
+    assert photo["embeddingOutcome"] == "Unavailable"
+    assert photo["categoryOutcome"] == "NotApplicable"
     assert len(photo["crops"]) == 3
 
 
@@ -72,7 +72,7 @@ def test_analyse_session_handles_multiple_images_independently(jpeg_bytes: bytes
     )
 
     assert response.status_code == 200
-    ordinals = [photo["image_ordinal"] for photo in response.json()["photo_results"]]
+    ordinals = [photo["imageOrdinal"] for photo in response.json()["photoResults"]]
     assert ordinals == [1, 2, 3]
 
 

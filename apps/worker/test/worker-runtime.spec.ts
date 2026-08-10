@@ -2,8 +2,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CorrelationContext, StructuredLogger } from "@stockcontrol/platform";
 
+import type { RecognitionDispatcher } from "../src/recognition/recognition-dispatcher";
 import { WorkerHealthEndpoint } from "../src/worker-health";
 import { parseHeartbeatMilliseconds, WorkerRuntime } from "../src/worker-runtime";
+
+const fakeRecognitionDispatcher = (): {
+  readonly dispatcher: RecognitionDispatcher;
+  readonly drain: ReturnType<typeof vi.fn>;
+  readonly releaseHeldLeases: ReturnType<typeof vi.fn>;
+} => {
+  const drain = vi.fn().mockResolvedValue(undefined);
+  const releaseHeldLeases = vi.fn().mockResolvedValue(undefined);
+  const dispatcher = {
+    start: vi.fn(),
+    reportQueueDepth: vi.fn().mockRejectedValue(new Error("recognition-core unreachable")),
+    drain,
+    releaseHeldLeases,
+  } as unknown as RecognitionDispatcher;
+  return { dispatcher, drain, releaseHeldLeases };
+};
 
 describe("WorkerRuntime", () => {
   afterEach(() => {
@@ -77,6 +94,46 @@ describe("WorkerRuntime", () => {
 
     await runtime.start();
     await runtime.onApplicationShutdown();
+  });
+
+  it("logs a stable event when the queue-depth report fails, and drains recognition on shutdown", async () => {
+    vi.useFakeTimers();
+    const lines: string[] = [];
+    const context = new CorrelationContext();
+    const logger = new StructuredLogger(context, "worker-test", {
+      write: (line) => lines.push(line),
+    });
+    const { dispatcher, drain, releaseHeldLeases } = fakeRecognitionDispatcher();
+    const runtime = new WorkerRuntime(
+      context,
+      logger,
+      {
+        get: () => ({
+          service: "worker-test",
+          version: "1.0.0",
+          commit: "abc123",
+          builtAt: null,
+        }),
+      },
+      new WorkerHealthEndpoint({
+        host: "127.0.0.1",
+        port: 0,
+      }),
+      dispatcher,
+      1_000,
+    );
+
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The rejection handler runs one microtask after the (synchronous)
+    // interval callback that fake-timer advancement doesn't itself await.
+    await Promise.resolve();
+    await Promise.resolve();
+    await runtime.onApplicationShutdown();
+
+    expect(drain).toHaveBeenCalledOnce();
+    expect(releaseHeldLeases).toHaveBeenCalledOnce();
+    expect(lines.some((line) => line.includes("recognition.queue.depth_unavailable"))).toBe(true);
   });
 });
 

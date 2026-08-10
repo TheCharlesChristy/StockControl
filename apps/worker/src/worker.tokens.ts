@@ -4,6 +4,7 @@ export const WORKER_TOKENS = {
   databaseLifecycle: Symbol("database.lifecycle"),
   dispatcher: Symbol("background.dispatcher"),
   healthEndpoint: Symbol("worker.health-endpoint"),
+  imageStorage: Symbol("recognition.image-storage"),
   logger: Symbol("observability.structured-logger"),
   readinessChecks: Symbol("health.readiness-checks"),
   recognitionDispatcher: Symbol("recognition.dispatcher"),

@@ -227,6 +227,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1101.0
+        version: 3.1101.0
       '@nestjs/common':
         specifier: ^11.1.28
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -236,6 +239,9 @@ importers:
       '@stockcontrol/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@stockcontrol/module-stock-capture':
+        specifier: workspace:*
+        version: link:../../packages/modules/stock-capture
       '@stockcontrol/module-system':
         specifier: workspace:*
         version: link:../../packages/modules/system

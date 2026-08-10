@@ -121,7 +121,9 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/v1/analyse-session", response_model=AnalyseSessionResponse)
+    @router.post(
+        "/v1/analyse-session", response_model=AnalyseSessionResponse, response_model_by_alias=True
+    )
     async def analyse_session(
         request_id: str = Form(..., max_length=_MAX_REQUEST_ID_LENGTH),
         images: list[UploadFile] = File(...),

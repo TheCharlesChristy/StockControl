@@ -204,4 +204,30 @@ describe("WorkerHealthEndpoint", () => {
     expect(endpoint.getAddress()).toBeUndefined();
     await endpoint.close();
   });
+
+  it("rejects start() when the port is already bound", async () => {
+    const first = await startEndpoint();
+    const address = first.endpoint.getAddress();
+    if (address === undefined) throw new Error("Expected the first endpoint to be listening.");
+
+    const second = new WorkerHealthEndpoint({ host: "127.0.0.1", port: address.port });
+    endpoints.push(second);
+
+    await expect(second.start()).rejects.toThrow();
+  });
+
+  it("rejects close() when the underlying server reports a close error", async () => {
+    const { endpoint } = await startEndpoint();
+    const server = (
+      endpoint as unknown as { server: { close: (cb: (error?: Error) => void) => void } }
+    ).server;
+    const originalClose = server.close.bind(server);
+    server.close = (callback: (error?: Error) => void): void => {
+      callback(new Error("simulated close failure"));
+    };
+
+    await expect(endpoint.close()).rejects.toThrow("simulated close failure");
+
+    server.close = originalClose;
+  });
 });
