@@ -25,7 +25,7 @@
     "test:coverage": "vitest run --coverage --configLoader runner"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

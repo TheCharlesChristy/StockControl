@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "catalog:",
     "eslint": "10.8.0",
     "eslint-plugin-boundaries": "7.1.0",
