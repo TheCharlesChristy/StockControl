@@ -46,7 +46,7 @@
     "eslint": "10.8.0",
     "eslint-plugin-boundaries": "7.1.0",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "globals": "^16.5.0",
+    "globals": "^17.9.0",
     "prettier": "^3.9.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
