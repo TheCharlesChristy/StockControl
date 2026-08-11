@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { AuthClient, AuthenticatedSession, AuthenticatedUser } from "./auth-types";
+import type {
+  AuthClient,
+  AuthenticatedSession,
+  AuthenticatedUser,
+  SessionOutcome,
+} from "./auth-types";
 import { AuthProvider, useAuth } from "./AuthContext";
 
 type GetSession = AuthClient["getSession"];
@@ -44,6 +49,11 @@ const officeSession: AuthenticatedSession = {
   expiresAt: "2026-07-29T21:00:00.000Z",
 };
 
+const officeOutcome: SessionOutcome = {
+  session: officeSession,
+  features: { stockCapture: false },
+};
+
 function createDeferred<T>(): Deferred<T> {
   let resolvePromise!: (value: T) => void;
   let rejectPromise!: (reason: unknown) => void;
@@ -57,7 +67,7 @@ function createDeferred<T>(): Deferred<T> {
 
 function createAuthClient(implementations: AuthClientImplementations = {}): AuthClientHarness {
   const getSession = vi.fn<GetSession>(implementations.getSession ?? (() => Promise.resolve(null)));
-  const signIn = vi.fn<SignIn>(implementations.signIn ?? (() => Promise.resolve(officeSession)));
+  const signIn = vi.fn<SignIn>(implementations.signIn ?? (() => Promise.resolve(officeOutcome)));
   const signOut = vi.fn<SignOut>(implementations.signOut ?? (() => Promise.resolve()));
 
   return {
@@ -108,7 +118,7 @@ const statusText = (): string =>
 
 describe("AuthProvider", () => {
   it("reports checking until the initial session lookup settles", async () => {
-    const deferred = createDeferred<AuthenticatedSession | null>();
+    const deferred = createDeferred<SessionOutcome | null>();
     renderProbe(createAuthClient({ getSession: () => deferred.promise }).client);
 
     expect(statusText()).toBe("checking");
@@ -124,7 +134,7 @@ describe("AuthProvider", () => {
   });
 
   it("restores an existing session as authenticated", async () => {
-    renderProbe(createAuthClient({ getSession: () => Promise.resolve(officeSession) }).client);
+    renderProbe(createAuthClient({ getSession: () => Promise.resolve(officeOutcome) }).client);
 
     await waitFor(() => {
       expect(statusText()).toBe("authenticated");
@@ -163,7 +173,7 @@ describe("AuthProvider", () => {
   });
 
   it("returns to anonymous after signing out", async () => {
-    const harness = createAuthClient({ getSession: () => Promise.resolve(officeSession) });
+    const harness = createAuthClient({ getSession: () => Promise.resolve(officeOutcome) });
     renderProbe(harness.client);
     await waitFor(() => {
       expect(statusText()).toBe("authenticated");

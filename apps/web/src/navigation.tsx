@@ -1,3 +1,4 @@
+import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
 import DashboardRounded from "@mui/icons-material/DashboardRounded";
 import Inventory2Rounded from "@mui/icons-material/Inventory2Rounded";
 import ManageAccountsRounded from "@mui/icons-material/ManageAccountsRounded";
@@ -8,7 +9,7 @@ import MapRounded from "@mui/icons-material/MapRounded";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import type { ComponentType } from "react";
 
-import type { UserRole } from "./auth/auth-types";
+import type { SessionFeatures, UserRole } from "./auth/auth-types";
 
 interface RoleHolder {
   readonly role: UserRole;
@@ -22,7 +23,18 @@ export interface NavigationItem {
   /** Roles that may open the section. An empty list means every signed-in user. */
   readonly roles: readonly UserRole[];
   readonly icon: ComponentType<SvgIconProps>;
+  /** A section behind a server flag: absent entirely until the flag is on,
+   * regardless of role. */
+  readonly requiresFeature?: keyof SessionFeatures;
 }
+
+/*
+ * Deny by default: a caller that forgets to pass the real, server-decided
+ * features sees a flagged section as absent, never as present. The opposite
+ * default would mean one missed call site quietly shows "Add stock" in a
+ * deployment that has not turned the flag on.
+ */
+const noFeatures: SessionFeatures = { stockCapture: false };
 
 /**
  * Each role gets the sections it works in and nothing else. An Engineer's
@@ -44,6 +56,14 @@ export const navigationItems: readonly NavigationItem[] = [
     description: "Find stock and see what is ready to use in each store.",
     roles: ["Office", "Admin"],
     icon: Inventory2Rounded,
+  },
+  {
+    path: "/stock-capture",
+    label: "Add stock",
+    description: "Photograph an item and let StockControl suggest what it is.",
+    roles: ["Office", "Admin"],
+    icon: AddAPhotoRounded,
+    requiresFeature: "stockCapture",
   },
   {
     path: "/jobs",
@@ -82,10 +102,21 @@ export const navigationItems: readonly NavigationItem[] = [
   },
 ] as const;
 
-export function canAccessNavigationItem(user: RoleHolder, item: NavigationItem): boolean {
+export function canAccessNavigationItem(
+  user: RoleHolder,
+  item: NavigationItem,
+  features: SessionFeatures = noFeatures,
+): boolean {
+  if (item.requiresFeature !== undefined && !features[item.requiresFeature]) {
+    return false;
+  }
+
   return item.roles.length === 0 || item.roles.includes(user.role);
 }
 
-export function navigationForUser(user: RoleHolder): readonly NavigationItem[] {
-  return navigationItems.filter((item) => canAccessNavigationItem(user, item));
+export function navigationForUser(
+  user: RoleHolder,
+  features: SessionFeatures = noFeatures,
+): readonly NavigationItem[] {
+  return navigationItems.filter((item) => canAccessNavigationItem(user, item, features));
 }

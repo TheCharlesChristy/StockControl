@@ -12,7 +12,10 @@
 *.pem
 *.tfstate
 *.tfstate.*
+**/__pycache__
 **/__tests__
+**/.pytest_cache
+**/.venv
 **/coverage
 **/dist
 **/test
@@ -33,5 +36,8 @@ infra/**
 !infra/railway/web-nginx.conf.template
 node_modules
 playwright-report
+# Root-anchored, not recursive: excludes only the top-level scripts/, not
+# services/recognition-core/scripts/, which the recognition-core build
+# stage's COPY instructions need.
 scripts
 test-results

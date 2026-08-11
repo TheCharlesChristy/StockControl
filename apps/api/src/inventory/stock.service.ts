@@ -1,54 +1,33 @@
 import type { ItemDetailView, StockOperationResponse } from "@stockcontrol/contracts";
-import { applicationFailure, resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
+import { validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
 import { findItemDetail, type ItemDetailOptions } from "../persistence/read-models";
-import {
-  applyEffect,
-  loadItemFacts,
-  loadJobFacts,
-  loadLocationFacts,
-  lockItemSnapshot,
-  lockReservation,
-  type StockTransaction,
-} from "../persistence/stock-store";
-import type { StockError, StockErrorCode } from "../stock/errors";
-import {
-  adjust,
-  closeJob,
-  collect,
-  issue,
-  receive,
-  release,
-  reserve,
-  transfer,
-  type ItemFacts,
-  type JobFacts,
-  type LocationFacts,
-  type StockDecision,
-} from "../stock/operations";
+import { applyEffect, lockItemSnapshot, lockReservation } from "../persistence/stock-store";
+import { adjust, closeJob, collect, issue, release, reserve, transfer } from "../stock/operations";
 import { parseQuantity, type Quantity } from "../stock/quantity";
+import {
+  commitDecision,
+  notFound,
+  receiveInTransaction,
+  requireItem,
+  requireJob,
+  requireLocation,
+  stockFailure,
+  viewerFor,
+  type ActorCommand,
+  type ReceiveCommand,
+} from "./stock-writer";
 
 /**
  * Turns a validated command into a locked transaction, one engine decision and
  * one set of writes. The engine owns every rule; this class owns loading,
- * locking and persisting.
+ * locking and persisting. The loading/locking/persisting primitives
+ * themselves live in `stock-writer.ts`, so `StockCaptureService.commitEntry`
+ * can run `receiveInTransaction` inside its own larger transaction.
  */
-
-const snakeCase = (code: StockErrorCode): string =>
-  code.replace(/([a-z0-9])([A-Z])/gu, "$1_$2").toLowerCase();
-
-/** Every stock refusal is a 422 whose stable code names the exact rule. */
-export function stockFailure(error: StockError): ApplicationFailureException {
-  return new ApplicationFailureException(
-    applicationFailure("Validation", {
-      code: `stock.${snakeCase(error.code)}`,
-      detail: error.message,
-    }),
-  );
-}
 
 export function requireQuantity(value: string, field = "quantity"): Quantity {
   const quantity = parseQuantity(value);
@@ -62,59 +41,7 @@ export function requireQuantity(value: string, field = "quantity"): Quantity {
   return quantity;
 }
 
-function notFound(what: string): ApplicationFailureException {
-  return new ApplicationFailureException(resourceUnavailable({ detail: `${what} was not found.` }));
-}
-
-async function requireItem(tx: StockTransaction, itemId: string): Promise<ItemFacts> {
-  const item = await loadItemFacts(tx, itemId);
-
-  if (item === undefined) {
-    throw notFound("That item");
-  }
-
-  return item;
-}
-
-async function requireLocation(
-  tx: StockTransaction,
-  locationId: string,
-  what = "That location",
-): Promise<LocationFacts> {
-  const location = await loadLocationFacts(tx, locationId);
-
-  if (location === undefined) {
-    throw notFound(what);
-  }
-
-  return location;
-}
-
-async function requireJob(tx: StockTransaction, jobId: string): Promise<JobFacts> {
-  const job = await loadJobFacts(tx, jobId);
-
-  if (job === undefined) {
-    throw notFound("That job");
-  }
-
-  return job;
-}
-
-/**
- * Every command names who is running it. `scopeActivityToActor` decides whose
- * transactions come back on the item afterwards: an Engineer is shown their own
- * record and nobody else's, exactly as on the item screen itself.
- */
-export interface ActorCommand {
-  readonly actorUserId: string;
-  readonly scopeActivityToActor: boolean;
-}
-
-export interface ReceiveCommand extends ActorCommand {
-  readonly itemId: string;
-  readonly locationId: string;
-  readonly quantity: Quantity;
-}
+export type { ActorCommand, ReceiveCommand };
 
 export interface IssueCommand extends ReceiveCommand {
   readonly jobId: string | null;
@@ -151,62 +78,16 @@ export interface ReleaseCommand extends ActorCommand {
   readonly reason: string;
 }
 
-/** How an item should be read back for the person who just acted on it. */
-function viewerFor(command: ActorCommand): ItemDetailOptions {
-  return {
-    viewerUserId: command.actorUserId,
-    scopeActivityToViewer: command.scopeActivityToActor,
-  };
-}
-
 export class StockService {
   public constructor(
     private readonly database: Kysely<StockControlDatabase>,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  private async commit(
-    tx: StockTransaction,
-    decision: StockDecision,
-    itemId: string,
-    viewer: ItemDetailOptions,
-  ): Promise<StockOperationResponse> {
-    if (!decision.ok) {
-      throw stockFailure(decision.error);
-    }
-
-    const applied = await applyEffect(tx, decision.effect, this.now());
-    const item = await findItemDetail(tx, itemId, viewer);
-
-    if (item === undefined) {
-      throw notFound("That item");
-    }
-
-    return {
-      item,
-      transactionId: applied.transactionId,
-      reservationId: applied.reservationId,
-    };
-  }
-
   public async receive(command: ReceiveCommand): Promise<StockOperationResponse> {
-    return this.database.transaction().execute(async (tx) => {
-      const item = await requireItem(tx, command.itemId);
-      const location = await requireLocation(tx, command.locationId);
-      await lockItemSnapshot(tx, item.id);
-
-      return this.commit(
-        tx,
-        receive({
-          item,
-          location,
-          quantity: command.quantity,
-          actorUserId: command.actorUserId,
-        }),
-        item.id,
-        viewerFor(command),
-      );
-    });
+    return this.database
+      .transaction()
+      .execute((tx) => receiveInTransaction(tx, command, this.now()));
   }
 
   public async issue(command: IssueCommand): Promise<StockOperationResponse> {
@@ -216,7 +97,7 @@ export class StockService {
       const job = command.jobId === null ? null : await requireJob(tx, command.jobId);
       const snapshot = await lockItemSnapshot(tx, item.id);
 
-      return this.commit(
+      return commitDecision(
         tx,
         issue({
           item,
@@ -228,6 +109,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }
@@ -239,7 +121,7 @@ export class StockService {
       const to = await requireLocation(tx, command.toLocationId, "The destination location");
       const snapshot = await lockItemSnapshot(tx, item.id);
 
-      return this.commit(
+      return commitDecision(
         tx,
         transfer({
           item,
@@ -251,6 +133,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }
@@ -261,7 +144,7 @@ export class StockService {
       const location = await requireLocation(tx, command.locationId);
       const snapshot = await lockItemSnapshot(tx, item.id);
 
-      return this.commit(
+      return commitDecision(
         tx,
         adjust({
           item,
@@ -273,6 +156,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }
@@ -283,7 +167,7 @@ export class StockService {
       const job = await requireJob(tx, command.jobId);
       const snapshot = await lockItemSnapshot(tx, item.id);
 
-      return this.commit(
+      return commitDecision(
         tx,
         reserve({
           item,
@@ -294,6 +178,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }
@@ -316,7 +201,7 @@ export class StockService {
       const source = await requireLocation(tx, command.sourceLocationId, "The source location");
       const snapshot = await lockItemSnapshot(tx, item.id);
 
-      return this.commit(
+      return commitDecision(
         tx,
         collect({
           item,
@@ -329,6 +214,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }
@@ -343,7 +229,7 @@ export class StockService {
 
       const item = await requireItem(tx, reservation.itemId);
 
-      return this.commit(
+      return commitDecision(
         tx,
         release({
           item,
@@ -353,6 +239,7 @@ export class StockService {
         }),
         item.id,
         viewerFor(command),
+        this.now(),
       );
     });
   }

@@ -11,8 +11,14 @@ Internet -> web (public Nginx/React) -> api (private NestJS)
 migrate (private, runs to completion) -> PostgreSQL
 ```
 
-Run one `web` and one `api` replica in Railway EU West (Amsterdam). Do not
-deploy the heartbeat-only worker. Only `web` receives a public domain.
+Run one `web` and one `api` replica in Railway EU West (Amsterdam). Only `web`
+receives a public domain.
+
+`worker`, `recognition-core` and `recognition-fusion` are optional services
+for the assisted stock capture feature (gated off by `STOCK_CAPTURE_ENABLED`
+until a customer opts in) and are not part of this base installation. See
+[`docs/operations/railway-stock-capture.md`](../../docs/operations/railway-stock-capture.md)
+before deploying any of them.
 
 ## What the repository controls
 

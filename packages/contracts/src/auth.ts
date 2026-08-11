@@ -46,8 +46,15 @@ export interface AuthenticatedSession {
   readonly expiresAt: string;
 }
 
+/** Server-decided feature availability, so an unflagged deployment never
+ * renders an entry point for something the API will refuse anyway. */
+export interface SessionFeatures {
+  readonly stockCapture: boolean;
+}
+
 export interface SessionResponse {
   readonly session: AuthenticatedSession;
+  readonly features: SessionFeatures;
 }
 
 export interface SignInRequest {
@@ -97,6 +104,14 @@ export function isAuthenticatedSession(value: unknown): value is AuthenticatedSe
   );
 }
 
+function isSessionFeatures(value: unknown): value is SessionFeatures {
+  return isRecord(value) && typeof value["stockCapture"] === "boolean";
+}
+
 export function isSessionResponse(value: unknown): value is SessionResponse {
-  return isRecord(value) && isAuthenticatedSession(value["session"]);
+  return (
+    isRecord(value) &&
+    isAuthenticatedSession(value["session"]) &&
+    isSessionFeatures(value["features"])
+  );
 }

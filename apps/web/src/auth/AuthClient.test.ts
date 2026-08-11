@@ -18,6 +18,9 @@ const officeSession: AuthenticatedSession = {
   expiresAt: "2026-07-29T21:00:00.000Z",
 };
 
+const officeFeatures = { stockCapture: false };
+const officeOutcome = { session: officeSession, features: officeFeatures };
+
 type FetchCall = readonly [RequestInfo | URL, RequestInit | undefined];
 
 function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
@@ -56,10 +59,10 @@ function createFetch(...responses: readonly Response[]): {
 
 describe("HTTP authentication client", () => {
   it("returns the current session", async () => {
-    const fetch = createFetch(jsonResponse({ session: officeSession }));
+    const fetch = createFetch(jsonResponse({ session: officeSession, features: officeFeatures }));
     const client = createHttpAuthClient(fetch.fetchImplementation);
 
-    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(officeSession);
+    await expect(client.getSession(new AbortController().signal)).resolves.toEqual(officeOutcome);
     expect(fetch.calls[0]?.[0]).toBe("/api/v1/auth/session");
   });
 
@@ -88,7 +91,7 @@ describe("HTTP authentication client", () => {
   });
 
   it("posts credentials directly and returns the established session", async () => {
-    const fetch = createFetch(jsonResponse({ session: officeSession }));
+    const fetch = createFetch(jsonResponse({ session: officeSession, features: officeFeatures }));
     const credentials = {
       email: "office@example.com",
       password: "long-enough-password",
@@ -96,7 +99,7 @@ describe("HTTP authentication client", () => {
 
     await expect(
       createHttpAuthClient(fetch.fetchImplementation).signIn(credentials),
-    ).resolves.toEqual(officeSession);
+    ).resolves.toEqual(officeOutcome);
     expect(fetch.calls).toEqual([
       [
         "/api/v1/auth/sign-in",

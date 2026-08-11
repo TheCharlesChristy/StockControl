@@ -5,7 +5,8 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "paths": {
-      "@stockcontrol/module-locations": ["packages/modules/locations/dist/index.d.ts"]
+      "@stockcontrol/module-locations": ["packages/modules/locations/dist/index.d.ts"],
+      "@stockcontrol/module-stock-capture": ["packages/modules/stock-capture/dist/index.d.ts"]
     }
   }
 }

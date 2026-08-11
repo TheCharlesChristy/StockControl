@@ -10,16 +10,24 @@ import {
 } from "react";
 
 import { createDefaultAuthClient } from "./AuthClient";
-import type { AuthClient, AuthenticatedSession, AuthenticatedUser } from "./auth-types";
+import type {
+  AuthClient,
+  AuthenticatedSession,
+  AuthenticatedUser,
+  SessionFeatures,
+} from "./auth-types";
 
 export type { AuthClient, AuthenticatedSession, AuthenticatedUser, UserRole } from "./auth-types";
 
 type AuthenticationStatus = "checking" | "anonymous" | "authenticated";
 
+const NO_FEATURES: SessionFeatures = { stockCapture: false };
+
 interface AuthContextValue {
   readonly status: AuthenticationStatus;
   readonly session: AuthenticatedSession | null;
   readonly user: AuthenticatedUser | null;
+  readonly features: SessionFeatures;
   readonly signIn: (email: string, password: string) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly refresh: () => Promise<void>;
@@ -35,10 +43,19 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 interface AuthenticationState {
   readonly status: AuthenticationStatus;
   readonly session: AuthenticatedSession | null;
+  readonly features: SessionFeatures;
 }
 
-const checkingState: AuthenticationState = { status: "checking", session: null };
-const anonymousState: AuthenticationState = { status: "anonymous", session: null };
+const checkingState: AuthenticationState = {
+  status: "checking",
+  session: null,
+  features: NO_FEATURES,
+};
+const anonymousState: AuthenticationState = {
+  status: "anonymous",
+  session: null,
+  features: NO_FEATURES,
+};
 
 export function AuthProvider({
   children,
@@ -52,8 +69,12 @@ export function AuthProvider({
 
     void client
       .getSession(controller.signal)
-      .then((session) => {
-        setState(session === null ? anonymousState : { status: "authenticated", session });
+      .then((outcome) => {
+        setState(
+          outcome === null
+            ? anonymousState
+            : { status: "authenticated", session: outcome.session, features: outcome.features },
+        );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -70,12 +91,12 @@ export function AuthProvider({
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<void> => {
-      const session = await client.signIn({
+      const outcome = await client.signIn({
         email: email.trim().toLowerCase(),
         password,
       });
 
-      setState({ status: "authenticated", session });
+      setState({ status: "authenticated", session: outcome.session, features: outcome.features });
     },
     [client],
   );
@@ -86,8 +107,12 @@ export function AuthProvider({
   }, [client]);
 
   const refresh = useCallback(async (): Promise<void> => {
-    const session = await client.getSession(new AbortController().signal);
-    setState(session === null ? anonymousState : { status: "authenticated", session });
+    const outcome = await client.getSession(new AbortController().signal);
+    setState(
+      outcome === null
+        ? anonymousState
+        : { status: "authenticated", session: outcome.session, features: outcome.features },
+    );
   }, [client]);
 
   const value = useMemo<AuthContextValue>(
@@ -95,6 +120,7 @@ export function AuthProvider({
       status: state.status,
       session: state.session,
       user: state.session?.user ?? null,
+      features: state.features,
       signIn,
       signOut,
       refresh,

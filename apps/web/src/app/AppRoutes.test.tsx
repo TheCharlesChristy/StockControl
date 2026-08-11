@@ -6,6 +6,8 @@ import type {
   AuthClient,
   AuthenticatedSession,
   AuthenticatedUser,
+  SessionFeatures,
+  SessionOutcome,
   SignInCredentials,
   UserRole,
 } from "../auth/auth-types";
@@ -33,25 +35,30 @@ function sessionForUser(user: AuthenticatedUser): AuthenticatedSession {
   };
 }
 
+const noFeatures: SessionFeatures = { stockCapture: false };
+
 class FakeAuthClient implements AuthClient {
   private session: AuthenticatedSession | null;
 
   public constructor(
     sessionUser: AuthenticatedUser | null = null,
     private readonly signInUser: AuthenticatedUser = userForRole("Office"),
+    private readonly features: SessionFeatures = noFeatures,
   ) {
     this.session = sessionUser === null ? null : sessionForUser(sessionUser);
   }
 
-  public getSession(signal: AbortSignal): Promise<AuthenticatedSession | null> {
+  public getSession(signal: AbortSignal): Promise<SessionOutcome | null> {
     signal.throwIfAborted();
-    return Promise.resolve(this.session);
+    return Promise.resolve(
+      this.session === null ? null : { session: this.session, features: this.features },
+    );
   }
 
-  public signIn(credentials: SignInCredentials): Promise<AuthenticatedSession> {
+  public signIn(credentials: SignInCredentials): Promise<SessionOutcome> {
     void credentials;
     this.session = sessionForUser(this.signInUser);
-    return Promise.resolve(this.session);
+    return Promise.resolve({ session: this.session, features: this.features });
   }
 
   public signOut(): Promise<void> {

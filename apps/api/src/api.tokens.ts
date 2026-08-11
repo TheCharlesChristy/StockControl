@@ -13,4 +13,6 @@ export const API_TOKENS = {
   photosService: Symbol("photos.service"),
   publicAppOrigin: Symbol("auth.public-app-origin"),
   expiredSessionSweeper: Symbol("auth.expired-session-sweeper"),
+  stockCaptureConfiguration: Symbol("stock-capture.configuration"),
+  stockCaptureService: Symbol("stock-capture.service"),
 } as const;

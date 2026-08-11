@@ -7,6 +7,7 @@ import type {
   AuthClient,
   AuthenticatedSession,
   AuthenticatedUser,
+  SessionOutcome,
   SignInCredentials,
 } from "../auth/auth-types";
 import { createFakeApiClient } from "../test/fake-api";
@@ -28,17 +29,21 @@ const adminSession: AuthenticatedSession = {
   expiresAt: "2026-07-29T21:00:00.000Z",
 };
 
+const noFeatures = { stockCapture: false };
+
 class AccessibilityAuthClient implements AuthClient {
   public constructor(private readonly session: AuthenticatedSession | null) {}
 
-  public getSession(signal: AbortSignal): Promise<AuthenticatedSession | null> {
+  public getSession(signal: AbortSignal): Promise<SessionOutcome | null> {
     signal.throwIfAborted();
-    return Promise.resolve(this.session);
+    return Promise.resolve(
+      this.session === null ? null : { session: this.session, features: noFeatures },
+    );
   }
 
-  public signIn(credentials: SignInCredentials): Promise<AuthenticatedSession> {
+  public signIn(credentials: SignInCredentials): Promise<SessionOutcome> {
     void credentials;
-    return Promise.resolve(adminSession);
+    return Promise.resolve({ session: adminSession, features: noFeatures });
   }
 
   public signOut(): Promise<void> {

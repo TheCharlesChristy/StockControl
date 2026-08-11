@@ -9,6 +9,7 @@ export * from "./locations";
 export * from "./jobs";
 export * from "./observability";
 export * from "./permissions";
+export * from "./stock-capture";
 export * from "./stock-requests";
 export * from "./system";
 export * from "./users";
