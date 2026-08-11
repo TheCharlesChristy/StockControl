@@ -83,3 +83,94 @@ export function readOptionalId(body: Body, field: string): string | null {
 
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+/**
+ * For identifiers the client generates. A client that picks its own id can
+ * pick anything at all, so the shape is checked before it reaches a query —
+ * and rejecting the malformed ones early keeps a route from turning a typo
+ * into a database error whose message nobody wants in a response.
+ */
+export function requireUuid(body: Body, field: string, label: string): string {
+  const value = readText(body, field);
+
+  if (!isUuid(value)) {
+    throw new ApplicationFailureException(validationFailed({ [field]: [`Enter ${label}.`] }));
+  }
+
+  return value.toLowerCase();
+}
+
+export function optionalUuid(body: Body, field: string, label: string): string | null {
+  const value = readOptionalId(body, field);
+
+  if (value === null) return null;
+
+  if (!isUuid(value)) {
+    throw new ApplicationFailureException(validationFailed({ [field]: [`Enter ${label}.`] }));
+  }
+
+  return value.toLowerCase();
+}
+
+/** Route parameters get the same treatment; a path segment is not a promise. */
+export function requireUuidParameter(value: string, label: string): string {
+  if (!isUuid(value)) {
+    throw new ApplicationFailureException(
+      validationFailed({ id: [`Enter a valid ${label} reference.`] }),
+    );
+  }
+
+  return value.toLowerCase();
+}
+
+/**
+ * Reads a bounded array. Every capture route takes lists whose length the
+ * client decides, and an unbounded one is a way to make the server allocate
+ * as much memory as somebody feels like sending.
+ */
+export function readBoundedArray(body: Body, field: string, maximum: number): readonly unknown[] {
+  const value = body[field];
+
+  if (!Array.isArray(value)) return [];
+
+  if (value.length > maximum) {
+    throw new ApplicationFailureException(
+      validationFailed({ [field]: [`Send at most ${String(maximum)} of these at a time.`] }),
+    );
+  }
+
+  return value;
+}
+
+export function requireBoundedText(
+  body: Body,
+  field: string,
+  label: string,
+  maximum: number,
+): string {
+  const text = requireText(body, field, label);
+
+  if (text.length > maximum) {
+    throw new ApplicationFailureException(
+      validationFailed({ [field]: [`Keep this to ${String(maximum)} characters or fewer.`] }),
+    );
+  }
+
+  return text;
+}
+
+export function readPositiveInteger(body: Body, field: string, label: string): number {
+  const value = body[field];
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new ApplicationFailureException(validationFailed({ [field]: [`Enter ${label}.`] }));
+  }
+
+  return value;
+}

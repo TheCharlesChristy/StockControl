@@ -50,10 +50,10 @@ export default defineConfig(({ mode }) => {
         exclude: ["src/main.tsx", "src/test/**", "src/**/*.d.ts"],
         /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
         thresholds: {
-          branches: 55,
-          functions: 50,
-          lines: 65,
-          statements: 65,
+          branches: 59,
+          functions: 54,
+          lines: 66,
+          statements: 66,
         },
       },
     },

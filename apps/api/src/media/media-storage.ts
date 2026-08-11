@@ -4,8 +4,24 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import type { ImageMediaType } from "@stockcontrol/contracts";
+
+/**
+ * A short-lived grant to write exactly one object.
+ *
+ * The browser uploads capture photographs straight to the bucket rather than
+ * through the API. That keeps image bytes out of the API process — and off
+ * Railway's billable service egress — but it means the grant itself is the
+ * only control. So it names one server-generated key, pins the content type,
+ * and expires in minutes: whoever holds it can write that one object, once,
+ * for a short while, and nothing else.
+ */
+export interface PresignedUploadGrant {
+  readonly url: string;
+  readonly expiresAt: Date;
+}
 
 export interface PrivateObjectStorage {
   putObject(input: {
@@ -15,6 +31,14 @@ export interface PrivateObjectStorage {
   }): Promise<void>;
   getObject(key: string): Promise<{ readonly bytes: Buffer; readonly mediaType: string }>;
   deleteObject(key: string): Promise<void>;
+}
+
+export interface PresigningObjectStorage extends PrivateObjectStorage {
+  createPresignedUpload(input: {
+    readonly key: string;
+    readonly mediaType: string;
+    readonly expiresInSeconds: number;
+  }): Promise<PresignedUploadGrant>;
 }
 
 interface S3Configuration {
@@ -93,7 +117,7 @@ const configurationFrom = (environment: NodeJS.ProcessEnv): S3Configuration | un
 };
 
 /** S3-compatible private storage shared by floor plans and application photos. */
-export class S3PrivateObjectStorage implements PrivateObjectStorage {
+export class S3PrivateObjectStorage implements PresigningObjectStorage {
   private readonly bucket: string | undefined;
   private readonly client: S3Client | undefined;
 
@@ -151,6 +175,31 @@ export class S3PrivateObjectStorage implements PrivateObjectStorage {
   public async deleteObject(key: string): Promise<void> {
     const { bucket, client } = this.configuredStorage();
     await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  }
+
+  /**
+   * The content type is signed into the grant, so a browser that uploads
+   * something other than what it declared is refused by the bucket rather
+   * than by us later. That is a cheap first gate, not the check that matters:
+   * the worker still verifies magic bytes, dimensions and digest on the bytes
+   * that actually arrived, because a declared type is only ever a claim.
+   */
+  public async createPresignedUpload(input: {
+    readonly key: string;
+    readonly mediaType: string;
+    readonly expiresInSeconds: number;
+  }): Promise<PresignedUploadGrant> {
+    const { bucket, client } = this.configuredStorage();
+    const url = await getSignedUrl(
+      client,
+      new PutObjectCommand({ Bucket: bucket, Key: input.key, ContentType: input.mediaType }),
+      { expiresIn: input.expiresInSeconds },
+    );
+
+    return {
+      url,
+      expiresAt: new Date(Date.now() + input.expiresInSeconds * 1_000),
+    };
   }
 
   private configuredStorage(): { readonly bucket: string; readonly client: S3Client } {

@@ -25,9 +25,11 @@ pnpm run test:e2e         # needs a migrated, seeded database
 ## Layout
 
 ```
-apps/api        NestJS on Fastify, the only process production runs
+apps/api        NestJS on Fastify, the process every installation runs
 apps/web        React SPA, served by Nginx which also proxies /api
-apps/worker     heartbeat only; the Railway runbook says not to deploy it
+apps/worker     optional; claims assisted-capture jobs, undeployed unless
+                STOCK_CAPTURE_ENABLED is on — see
+                docs/operations/railway-stock-capture.md
 apps/e2e        Playwright
 packages/contracts        types and guards shared by both sides
 packages/modules/*        framework-free domain logic

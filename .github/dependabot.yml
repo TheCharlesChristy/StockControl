@@ -58,3 +58,33 @@ updates:
       timezone: Europe/London
     commit-message:
       prefix: "chore(docker)"
+
+  # services/recognition-core is a standalone uv-managed project outside the
+  # pnpm workspace (specification section 9.1).
+  - package-ecosystem: uv
+    directory: /services/recognition-core
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    groups:
+      production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps-py)"
+      prefix-development: "chore(deps-py-dev)"

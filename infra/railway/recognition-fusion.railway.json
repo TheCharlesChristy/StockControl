@@ -1,0 +1,26 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "/services/recognition-fusion/**",
+      "/models/manifest.lock.json",
+      "/infra/railway/recognition-fusion.railway.json",
+      "/.dockerignore",
+      "/Dockerfile"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ALWAYS",
+    "multiRegionConfig": {
+      "europe-west4-drams3a": {
+        "numReplicas": 1
+      }
+    },
+    "overlapSeconds": 30,
+    "drainingSeconds": 30
+  }
+}

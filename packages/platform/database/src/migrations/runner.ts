@@ -23,10 +23,27 @@ export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
   floor_plan_documents: ["select", "insert"],
   user_profile_photos: ["select", "insert", "update", "delete"],
   item_photos: ["select", "insert", "update", "delete"],
+  /*
+   * Assisted stock capture. Delete is granted where a row is temporary
+   * evidence the application is obliged to destroy: images, candidates and
+   * their feedback are purged after the session finishes, and a visual example
+   * disappears when its item is retired or exemplars are switched off.
+   * `stock_capture_entries` is withheld delete for the opposite reason — it is
+   * the idempotency record that proves a receipt happened exactly once, so
+   * losing it would let a retry create a second one.
+   */
+  item_visual_examples: ["select", "insert", "update", "delete"],
   migration_integrity: [],
+  recognition_feedback: ["select", "insert", "delete"],
   reservations: ["select", "insert", "update"],
   sessions: ["select", "insert", "delete"],
+  stock_capture_batches: ["select", "insert", "update"],
+  stock_capture_entries: ["select", "insert", "update"],
   stock_levels: ["select", "insert", "update"],
+  stock_recognition_candidates: ["select", "insert", "delete"],
+  stock_recognition_images: ["select", "insert", "update", "delete"],
+  stock_recognition_jobs: ["select", "insert", "update", "delete"],
+  stock_recognition_sessions: ["select", "insert", "update"],
   stock_requests: ["select", "insert", "update"],
   system_metadata: ["select", "insert", "update", "delete"],
   transactions: ["select", "insert"],

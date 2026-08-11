@@ -1,5 +1,6 @@
 export * from "./configuration";
 export * from "./connection";
+export * from "./jobs/job-store";
 export * from "./migrations/service";
 export * from "./migrations/provider";
 export * from "./migrations/runner";

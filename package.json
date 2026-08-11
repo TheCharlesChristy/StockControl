@@ -27,7 +27,7 @@
     "test": "pnpm -r --if-present test",
     "test:unit": "pnpm -r --if-present test:unit",
     "test:coverage": "pnpm -r --if-present test:coverage",
-    "test:integration": "pnpm --filter @stockcontrol/platform-database test:integration && pnpm --filter @stockcontrol/api test:integration",
+    "test:integration": "pnpm --filter @stockcontrol/platform-database test:integration && pnpm --filter @stockcontrol/api test:integration && pnpm --filter @stockcontrol/worker test:integration",
     "test:e2e": "pnpm --filter @stockcontrol/e2e test:e2e",
     "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build",
     "reset:admin-password:prod": "pnpm --filter @stockcontrol/api reset:admin-password:prod",

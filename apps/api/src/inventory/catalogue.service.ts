@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import type {
   ImageUploadRequest,
   ItemDetailView,
@@ -10,8 +8,9 @@ import type {
 import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
-import { sql, type Kysely } from "kysely";
+import type { Kysely } from "kysely";
 
+import { createItemInTransaction, duplicateOrRethrow } from "./catalogue-writer";
 import {
   findItemByCode,
   findItemDetail,
@@ -26,9 +25,6 @@ import { parseQuantity } from "../stock/quantity";
 import type { PhotosService } from "../media/photos.service";
 
 const SCHEMA = "stockcontrol" as const;
-
-/** Enough to outlast a demo audience all creating an item at once. */
-const GENERATED_REFERENCE_ATTEMPTS = 5;
 
 export interface NewItem {
   readonly reference: string | null;
@@ -105,54 +101,9 @@ export class CatalogueService {
   }
 
   public async createItem(input: NewItem, viewer: ItemDetailOptions): Promise<ItemDetailView> {
-    if (input.lowStockThreshold !== null && parseQuantity(input.lowStockThreshold) === null) {
-      throw new ApplicationFailureException(
-        validationFailed({ lowStockThreshold: ["Enter a quantity or leave it blank."] }),
-      );
-    }
-
-    const id = randomUUID();
-
-    /*
-     * A generated reference is the highest existing one plus one, so two people
-     * pressing "New item" at the same moment compute the same string and one of
-     * them loses the unique index. Recomputing and retrying makes that
-     * invisible. A reference the caller typed is theirs to correct, so it is
-     * attempted once and the duplicate is reported.
-     */
-    const attempts = input.reference === null ? GENERATED_REFERENCE_ATTEMPTS : 1;
-
-    for (let attempt = 1; ; attempt += 1) {
-      const reference = input.reference ?? (await this.nextItemReference());
-
-      try {
-        await this.database
-          .withSchema(SCHEMA)
-          .insertInto("items")
-          .values({
-            id,
-            reference,
-            name: input.name,
-            unit: input.unit,
-            barcode: input.barcode,
-            part_number: input.partNumber,
-            low_stock_threshold: input.lowStockThreshold,
-            is_active: true,
-          })
-          .execute();
-
-        break;
-      } catch (error: unknown) {
-        if (attempt < attempts && isConstraintViolation(error, "items_reference_key")) {
-          continue;
-        }
-
-        throw duplicateOrRethrow(error, {
-          items_reference_key: { reference: ["That item reference is already in use."] },
-          items_barcode_key: { barcode: ["That barcode already belongs to another item."] },
-        });
-      }
-    }
+    const { id } = await this.database
+      .transaction()
+      .execute((tx) => createItemInTransaction(tx, input));
 
     const item = await findItemDetail(this.database, id, viewer);
 
@@ -227,22 +178,6 @@ export class CatalogueService {
     return findItemByCode(this.database, code);
   }
 
-  /** ITM-0001, ITM-0002, … continuing from the highest existing reference. */
-  private async nextItemReference(): Promise<string> {
-    const row = await this.database
-      .withSchema(SCHEMA)
-      .selectFrom("items")
-      .select((builder) => [
-        builder.fn
-          .max<number>(sql<number>`nullif(regexp_replace(reference, '\\D', '', 'g'), '')::bigint`)
-          .as("highest"),
-      ])
-      .where("reference", "like", "ITM-%")
-      .executeTakeFirst();
-
-    return `ITM-${String(Number(row?.highest ?? 0) + 1).padStart(4, "0")}`;
-  }
-
   private async requireDetail(itemId: string, viewer: ItemDetailOptions): Promise<ItemDetailView> {
     const item = await findItemDetail(this.database, itemId, viewer);
     if (item === undefined) {
@@ -252,32 +187,4 @@ export class CatalogueService {
     }
     return item;
   }
-}
-
-interface PostgresError {
-  readonly constraint?: string;
-  readonly code?: string;
-}
-
-function isConstraintViolation(error: unknown, constraint: string): boolean {
-  const candidate = error as PostgresError;
-
-  return candidate.code === "23505" && candidate.constraint === constraint;
-}
-
-function duplicateOrRethrow(
-  error: unknown,
-  byConstraint: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>,
-): unknown {
-  const candidate = error as PostgresError;
-
-  if (candidate.code === "23505" && candidate.constraint !== undefined) {
-    const fields = byConstraint[candidate.constraint];
-
-    if (fields !== undefined) {
-      return new ApplicationFailureException(validationFailed(fields));
-    }
-  }
-
-  return error;
 }

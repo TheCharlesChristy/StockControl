@@ -1,10 +1,6 @@
-import {
-  isSessionResponse,
-  type AuthenticatedSession,
-  type SignInRequest,
-} from "@stockcontrol/contracts";
+import { isSessionResponse, type SignInRequest } from "@stockcontrol/contracts";
 
-import { type AuthClient } from "./auth-types";
+import { type AuthClient, type SessionOutcome } from "./auth-types";
 
 type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -22,19 +18,19 @@ function requestFailed(response: Response, action: string): Error {
   return new Error(`${action} failed with status ${response.status}.`);
 }
 
-function parseSessionPayload(value: unknown): AuthenticatedSession {
+function parseSessionPayload(value: unknown): SessionOutcome {
   if (!isSessionResponse(value)) {
     throw new Error("The authentication service returned an invalid session.");
   }
 
-  return value.session;
+  return { session: value.session, features: value.features };
 }
 
 export function createHttpAuthClient(
   fetchImplementation: FetchImplementation = window.fetch.bind(window),
 ): AuthClient {
   return {
-    async getSession(signal: AbortSignal): Promise<AuthenticatedSession | null> {
+    async getSession(signal: AbortSignal): Promise<SessionOutcome | null> {
       const response = await fetchImplementation("/api/v1/auth/session", {
         method: "GET",
         credentials: "include",
@@ -53,7 +49,7 @@ export function createHttpAuthClient(
       return parseSessionPayload(await readJson(response));
     },
 
-    async signIn(credentials: SignInRequest): Promise<AuthenticatedSession> {
+    async signIn(credentials: SignInRequest): Promise<SessionOutcome> {
       const response = await fetchImplementation("/api/v1/auth/sign-in", {
         method: "POST",
         credentials: "include",

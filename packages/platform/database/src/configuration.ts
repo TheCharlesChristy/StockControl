@@ -26,6 +26,7 @@ const DEFAULT_LOCK_TIMEOUT_MILLISECONDS = 5_000;
 const DEFAULT_MIGRATION_LOCK_TIMEOUT_MILLISECONDS = 10_000;
 const DEFAULT_MIGRATION_STATEMENT_TIMEOUT_MILLISECONDS = 120_000;
 const DEFAULT_RUNTIME_POOL_SIZE = 10;
+const DEFAULT_WORKER_POOL_SIZE = 4;
 const DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS = 15_000;
 
 const readRequiredValue = (environment: DatabaseEnvironment, name: string): string => {
@@ -166,6 +167,41 @@ export const loadRuntimeDatabaseConfiguration = (
     DEFAULT_LOCK_TIMEOUT_MILLISECONDS,
   ),
   maximumPoolSize: readPositiveInteger(environment, "DATABASE_POOL_MAX", DEFAULT_RUNTIME_POOL_SIZE),
+  statementTimeoutMilliseconds: readPositiveInteger(
+    environment,
+    "DATABASE_STATEMENT_TIMEOUT_MS",
+    DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS,
+  ),
+});
+
+/**
+ * The worker's own pool. It reads the same `DATABASE_URL` as the API and gets
+ * the same refusal to cross a public host without TLS, but it is configured
+ * separately for two reasons.
+ *
+ * `application_name` is the first thing anybody looks at when a connection is
+ * holding a lock in production, and "stockcontrol-api" on a worker connection
+ * sends them to the wrong process. And the worker's pool is deliberately
+ * smaller: it runs a handful of jobs at a time, while the API's pool sizes for
+ * concurrent browsers, so sharing a number would either starve the API or let
+ * an idle worker hold connections the API needs.
+ */
+export const loadWorkerDatabaseConfiguration = (
+  environment: DatabaseEnvironment = process.env,
+): DatabaseConnectionConfiguration => ({
+  applicationName: "stockcontrol-worker",
+  connectionString: readConnectionString(environment, "DATABASE_URL"),
+  connectionTimeoutMilliseconds: readConnectionTimeout(environment),
+  lockTimeoutMilliseconds: readPositiveInteger(
+    environment,
+    "DATABASE_LOCK_TIMEOUT_MS",
+    DEFAULT_LOCK_TIMEOUT_MILLISECONDS,
+  ),
+  maximumPoolSize: readPositiveInteger(
+    environment,
+    "WORKER_DATABASE_POOL_MAX",
+    DEFAULT_WORKER_POOL_SIZE,
+  ),
   statementTimeoutMilliseconds: readPositiveInteger(
     environment,
     "DATABASE_STATEMENT_TIMEOUT_MS",

@@ -47,7 +47,7 @@ function initials(displayName: string): string {
 
 export function AppShell(): ReactElement | null {
   const api = useApi();
-  const { user, signOut } = useAuth();
+  const { user, features, signOut } = useAuth();
   const theme = useTheme();
   const desktopNavigation = useMediaQuery(theme.breakpoints.up("md"));
   const location = useLocation();
@@ -76,7 +76,7 @@ export function AppShell(): ReactElement | null {
     });
   };
 
-  const roleNavigation = navigationForUser(user);
+  const roleNavigation = navigationForUser(user, features);
   const primaryNavigation = roleNavigation.filter((item) => primaryNavigationPaths.has(item.path));
   const secondaryNavigation = roleNavigation.filter(
     (item) => !primaryNavigationPaths.has(item.path),

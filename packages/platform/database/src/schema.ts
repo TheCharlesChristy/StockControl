@@ -10,6 +10,14 @@ export interface JsonObject {
 }
 
 export type ImmutableColumn<Value> = ColumnType<Value, Value, never>;
+
+/**
+ * A jsonb column holding an array. `JSONColumnType` only admits objects, and
+ * a JS array passed as a parameter becomes a PostgreSQL array literal that
+ * jsonb rejects, so these are written as serialised JSON — the same trap
+ * `locations.search_aliases` documents.
+ */
+export type JsonArrayColumn = ColumnType<JsonValue, string | undefined, string>;
 export type GeneratedImmutableColumn<Value> = ColumnType<Value, Value | undefined, never>;
 
 export interface SystemMetadataTable {
@@ -227,7 +235,169 @@ export interface TransactionsTable {
   readonly occurred_at: GeneratedImmutableColumn<Date>;
 }
 
+/*
+ * Assisted stock capture. Every table below holds operational state that is
+ * purged after the session finishes; none of it is a business record. The
+ * receipt those sessions produce lives in `transactions` and outlives all of
+ * this, which is why nothing in the ledger points back here.
+ */
+
+export type StockCaptureBatchStatus = "Open" | "Completed" | "Cancelled";
+
+export type RecognitionSessionStatus =
+  | "AwaitingUpload"
+  | "Queued"
+  | "ProcessingBarcode"
+  | "ProcessingImages"
+  | "Enriching"
+  | "Fusing"
+  | "ReviewReady"
+  | "Committed"
+  | "Failed"
+  | "Cancelled"
+  | "Expired";
+
+export type RecognitionImageStatus = "Pending" | "Verified" | "Rejected" | "Deleted";
+export type RecognitionCandidateKind = "InternalItem" | "ExternalDraft";
+export type RecognitionConfidenceBand = "Strong" | "Possible" | "Weak";
+export type RecognitionJobType = "Recognize" | "BuildExemplars" | "DeleteObjects";
+export type RecognitionJobStatus = "Ready" | "Running" | "Succeeded" | "Retry" | "Failed";
+export type StockCaptureEntryStatus = "Pending" | "Committed";
+export type RecognitionFeedbackOutcome = "Accepted" | "Edited" | "RejectedAll";
+
+export interface StockCaptureBatchesTable {
+  readonly id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly default_location_id: string | null;
+  readonly request_hash: ImmutableColumn<string>;
+  readonly status: Generated<StockCaptureBatchStatus>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+  readonly closed_at: Date | null;
+}
+
+export interface StockRecognitionSessionsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly batch_id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly request_hash: ImmutableColumn<string>;
+  readonly status: Generated<RecognitionSessionStatus>;
+  readonly photo_count: number;
+  /** Validated observations, never trusted matches. */
+  readonly local_codes: JsonArrayColumn;
+  readonly model_manifest: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly selected_candidate_id: string | null;
+  readonly committed_item_id: string | null;
+  /** A stable code. Never a model, OCR or driver message. */
+  readonly failure_code: string | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+  readonly expires_at: Date;
+}
+
+export interface StockRecognitionImagesTable {
+  readonly id: ImmutableColumn<string>;
+  readonly session_id: ImmutableColumn<string>;
+  readonly ordinal: ImmutableColumn<number>;
+  readonly object_key: ImmutableColumn<string>;
+  readonly sha256: string;
+  readonly media_type: "image/jpeg" | "image/webp";
+  readonly byte_length: number;
+  readonly width: number;
+  readonly height: number;
+  readonly status: Generated<RecognitionImageStatus>;
+  /** Versioned float16 query vector, discarded with the rest of the evidence. */
+  readonly embedding: Buffer | null;
+  readonly embedding_model: string | null;
+  readonly crop_metadata: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly delete_after: Date;
+  readonly deleted_at: Date | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface StockRecognitionCandidatesTable {
+  readonly id: ImmutableColumn<string>;
+  readonly session_id: ImmutableColumn<string>;
+  readonly rank: number;
+  readonly kind: RecognitionCandidateKind;
+  readonly item_id: string | null;
+  readonly identity: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly confidence_band: RecognitionConfidenceBand;
+  /** Internal ordering only. Never shown to a person as a probability. */
+  readonly fusion_score: number;
+  readonly evidence: JsonArrayColumn;
+  readonly model_manifest: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+/** The durable queue ADR 0004 specifies. Claimed with `for update skip locked`. */
+export interface StockRecognitionJobsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly session_id: string | null;
+  readonly job_type: ImmutableColumn<RecognitionJobType>;
+  readonly payload_version: ImmutableColumn<number>;
+  readonly payload: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly status: Generated<RecognitionJobStatus>;
+  readonly deduplication_key: ImmutableColumn<string>;
+  readonly attempt_count: Generated<number>;
+  readonly max_attempts: number;
+  readonly available_at: Generated<Date>;
+  readonly lease_owner: string | null;
+  readonly leased_until: Date | null;
+  readonly last_error_code: string | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+  readonly completed_at: Date | null;
+}
+
+/** Only a human-confirmed result creates one of these. */
+export interface ItemVisualExamplesTable {
+  readonly id: ImmutableColumn<string>;
+  readonly item_id: ImmutableColumn<string>;
+  readonly embedding: ImmutableColumn<Buffer>;
+  readonly embedding_model: ImmutableColumn<string>;
+  readonly crop_object_key: string | null;
+  readonly source_session_id: string | null;
+  readonly source_image_id: string | null;
+  readonly verified_by_user_id: ImmutableColumn<string>;
+  readonly quality_score: number;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  /** Soft retirement, so a model upgrade does not delete provenance. */
+  readonly retired_at: Date | null;
+}
+
+export interface StockCaptureEntriesTable {
+  readonly id: ImmutableColumn<string>;
+  readonly batch_id: ImmutableColumn<string>;
+  readonly session_id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly request_hash: ImmutableColumn<string>;
+  readonly status: Generated<StockCaptureEntryStatus>;
+  readonly item_id: string | null;
+  readonly transaction_id: string | null;
+  readonly created_item: boolean | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly committed_at: Date | null;
+}
+
+/** Telemetry for a later offline calibration release. Holds no raw model text. */
+export interface RecognitionFeedbackTable {
+  readonly id: ImmutableColumn<string>;
+  readonly session_id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly outcome: ImmutableColumn<RecognitionFeedbackOutcome>;
+  readonly selected_rank: ImmutableColumn<number | null>;
+  readonly final_item_id: ImmutableColumn<string | null>;
+  readonly corrected_fields: JsonArrayColumn;
+  readonly shown_candidate_ids: JsonArrayColumn;
+  readonly stage_availability: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly timings: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly model_manifest: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
 export interface StockControlDatabase {
+  readonly item_visual_examples: ItemVisualExamplesTable;
   readonly items: ItemsTable;
   readonly job_assignments: JobAssignmentsTable;
   readonly jobs: JobsTable;
@@ -238,9 +408,16 @@ export interface StockControlDatabase {
   readonly user_profile_photos: UserProfilePhotosTable;
   readonly item_photos: ItemPhotosTable;
   readonly migration_integrity: MigrationIntegrityTable;
+  readonly recognition_feedback: RecognitionFeedbackTable;
   readonly reservations: ReservationsTable;
   readonly sessions: SessionsTable;
+  readonly stock_capture_batches: StockCaptureBatchesTable;
+  readonly stock_capture_entries: StockCaptureEntriesTable;
   readonly stock_levels: StockLevelsTable;
+  readonly stock_recognition_candidates: StockRecognitionCandidatesTable;
+  readonly stock_recognition_images: StockRecognitionImagesTable;
+  readonly stock_recognition_jobs: StockRecognitionJobsTable;
+  readonly stock_recognition_sessions: StockRecognitionSessionsTable;
   readonly stock_requests: StockRequestsTable;
   readonly system_metadata: SystemMetadataTable;
   readonly transactions: TransactionsTable;

@@ -29,6 +29,13 @@ afterEach(async () => {
   }
 });
 
+/*
+ * Now an integration test. The worker used to compose without a database
+ * because it only logged a heartbeat; one that claims jobs cannot, and its
+ * readiness endpoint deliberately asks PostgreSQL rather than reporting a
+ * boolean. Composing it against a fake would stop testing the thing that
+ * broke first in production.
+ */
 describe("worker application contract", () => {
   it("starts the composed Nest context and publishes readiness", async () => {
     process.env.APP_VERSION = "worker-test";
@@ -48,6 +55,7 @@ describe("worker application contract", () => {
     await expect(response.json()).resolves.toMatchObject({
       service: "stockcontrol-worker",
       status: "ready",
+      checks: [{ name: "database.postgresql", status: "ok" }],
     });
 
     await application.close();
