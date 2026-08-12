@@ -45,3 +45,16 @@ Thumbs.db
 # the bare interpreter cache needs a rule here.
 __pycache__/
 *.pyc
+**/.mypy_cache/
+
+# Downloaded model artefacts. Keep the lock, schema, and runtime notice
+# reviewable; generated runtime metadata and weights never belong in Git.
+/models/manifest.runtime.json
+/models/**/*.onnx
+/models/**/*.onnx.data
+/models/**/*.gguf
+/models/**/*.bin
+/models/**/*.safetensors
+/models/**/*.pt
+/models/**/*.pth
+/models/**/*.ckpt

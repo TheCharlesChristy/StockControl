@@ -1,0 +1,37 @@
+name: model-artifact-policy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tracked-model-artifacts:
+    name: reject tracked model binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Check out the complete tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Reject model-binary extensions under models/
+        shell: bash
+        run: |
+          matches="$(git ls-files -- 'models/**' | grep -E -i '\.(onnx\.data|onnx|gguf|bin|safetensors|pt|pth|ckpt)$' || true)"
+          if [ -n "$matches" ]; then
+            echo "::error::Tracked model binaries are not permitted under models/:"
+            printf '%s\n' "$matches"
+            exit 1
+          fi

@@ -135,7 +135,8 @@ FROM ${UV_IMAGE} AS uv
 FROM ${PYTHON_IMAGE} AS recognition-core-build
 
 # libvips backs pyvips's native decode path; zxing-cpp and onnxruntime bundle
-# their own native code and need nothing extra at build time. Package name
+# their own native code, while SentenceTransformers uses the explicitly
+# CPU-only PyTorch wheel. Package name
 # varies by Debian release around the 64-bit time_t transition (libvips42 on
 # bookworm, libvips42t64 from trixie onward) — try both rather than pin to
 # one and break silently on the next base image bump.

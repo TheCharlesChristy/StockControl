@@ -90,7 +90,6 @@ const baseConfiguration = (
   recognitionFusionTimeoutMilliseconds: 1_000,
   braveSearchApiKey: undefined,
   webFetchTimeoutMilliseconds: 1_000,
-  visualIndexEmbeddingModel: EMBEDDING_MODEL,
 });
 
 describe.sequential("exemplar handler", () => {

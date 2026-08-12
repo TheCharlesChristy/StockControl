@@ -3,6 +3,7 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  MAX_EMBEDDING_VECTOR_LENGTH,
   parseAnalyseSessionResponse,
   RecognitionCoreClient,
   RecognitionCoreUnavailableError,
@@ -266,6 +267,23 @@ describe("parseAnalyseSessionResponse", () => {
     expect(() => parseAnalyseSessionResponse(malformed)).toThrow(RecognitionCoreUnavailableError);
   });
 
+  it.each([
+    { modelRevision: "", vector: [0.1, 0.2] },
+    { modelRevision: "synthetic-revision", vector: [] },
+    { modelRevision: "synthetic-revision", vector: [Number.NaN] },
+    { modelRevision: "synthetic-revision", vector: [Number.POSITIVE_INFINITY] },
+    {
+      modelRevision: "synthetic-revision",
+      vector: Array.from({ length: MAX_EMBEDDING_VECTOR_LENGTH + 1 }, () => 0.1),
+    },
+  ])("rejects unsafe embedding vectors", (embedding) => {
+    const malformed = {
+      ...VALID_ANALYSE_RESPONSE,
+      photoResults: [{ ...VALID_ANALYSE_RESPONSE.photoResults[0], embedding }],
+    };
+    expect(() => parseAnalyseSessionResponse(malformed)).toThrow(RecognitionCoreUnavailableError);
+  });
+
   it("accepts a well-formed embedding", () => {
     const result = parseAnalyseSessionResponse({
       ...VALID_ANALYSE_RESPONSE,
@@ -273,12 +291,12 @@ describe("parseAnalyseSessionResponse", () => {
         {
           ...VALID_ANALYSE_RESPONSE.photoResults[0],
           embeddingOutcome: "Succeeded",
-          embedding: { modelRevision: "nomic-embed-vision-v1.5", vector: [0.1, 0.2] },
+          embedding: { modelRevision: "synthetic-visual-revision-a", vector: [0.1, 0.2] },
         },
       ],
     });
     expect(result.photoResults[0]?.embedding).toEqual({
-      modelRevision: "nomic-embed-vision-v1.5",
+      modelRevision: "synthetic-visual-revision-a",
       vector: [0.1, 0.2],
     });
   });

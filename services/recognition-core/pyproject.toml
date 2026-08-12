@@ -9,13 +9,8 @@ requires-python = ">=3.12,<3.13"
 # what makes a rebuild months later reproduce the image that was actually
 # evaluated. Bump deliberately, in a reviewed commit, never automatically.
 #
-# `onnxruntime` rather than `onnxruntime-openvino`: the OpenVINO execution
-# provider needs a matching OpenVINO runtime baked into the image, which is a
-# model-build-time decision recorded in models/manifest.lock.json, not a
-# library choice this file can pin on its own. The production image adds the
-# OpenVINO provider at build time behind the same onnxruntime API; ordinary
-# development and CI run the portable CPU provider this dependency already
-# provides.
+# `onnxruntime` is the portable CPU provider. OpenVINO is an optimisation
+# candidate for an S0 benchmark, not a provider installed by this repository.
 dependencies = [
     "fastapi==0.141.1",
     "onnxruntime==1.20.1",
@@ -23,9 +18,21 @@ dependencies = [
     "pydantic==2.13.4",
     "python-multipart==0.0.32",
     "pyvips==3.1.1",
+    "sentence-transformers==5.7.0",
+    "torch==2.7.1+cpu",
     "uvicorn==0.34.0",
     "zxing-cpp==2.3.0",
 ]
+
+# PyTorch's general Linux wheels carry CUDA runtime dependencies. Keep the
+# CPU-only index explicit so the lock cannot silently acquire GPU packages.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [

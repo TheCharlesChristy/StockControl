@@ -29,13 +29,15 @@ stage does not stop later stages. There is one exception: a valid barcode that
 maps unambiguously to one active StockControl item returns that item immediately
 and avoids uploads and model inference. Human confirmation is still required.
 
-The selected production components are:
+The current preparation records production-stage candidates; none of the
+unverified model artefacts below is promoted by this change:
 
 - native `BarcodeDetector` when available, with self-hosted `zxing-wasm/reader`
   in the browser and ZXing-C++ on the server;
 - `PP-OCRv6_small_det` plus `PP-OCRv6_small_rec` for OCR;
-- `nomic-ai/nomic-embed-vision-v1.5` INT8 ONNX for visual examples and broad
-  category similarity;
+- `sentence-transformers/clip-ViT-B-32` with a CPU-only SentenceTransformers /
+  PyTorch path as the S0 candidate for visual examples and broad category
+  similarity;
 - `Qwen/Qwen3.5-0.8B`, using the official ggml-org Q4_0 GGUF and a pinned
   CPU-only `llama.cpp` runtime, for one item-level fusion proposal;
 - Brave Search Web API for one bounded item-level search when a reliable query
@@ -426,9 +428,12 @@ matches remain visible and non-selectable.
 ### 7.6 Stage 3: adaptive visual examples
 
 The adaptive classifier is nearest-neighbour retrieval, not live fine-tuning.
-`nomic-embed-vision-v1.5` produces a normalised embedding for the full image and
-bounded candidate crops. The worker compares it with human-confirmed embeddings
-for existing items using cosine similarity.
+The S0 CLIP candidate `sentence-transformers/clip-ViT-B-32` produces a
+normalised embedding for the full image and bounded candidate crops. The
+proposed implementation uses SentenceTransformers with a CPU-only PyTorch
+runtime because it provides supported image and text encoding without bespoke
+ONNX preprocessing code. The worker compares the image embedding with
+human-confirmed embeddings for existing items using cosine similarity.
 
 An exemplar result is eligible only when it passes all of:
 
@@ -449,10 +454,12 @@ store only after either 50,000 active exemplars or measured p95 retrieval over
 
 ### 7.7 Stage 4: broad visual category
 
-The same Nomic image embedding is compared with a versioned, controlled category
-taxonomy such as plumbing fitting, electrical component, hand tool, fastener,
-PPE, or packaging. Category text vectors are precomputed during the model build
-with the aligned `nomic-embed-text-v1.5`; the text model is not deployed.
+The same CLIP model encodes both the image input and controlled text prompts for
+a versioned broad-category taxonomy: plumbing fitting, electrical component,
+hand tool, fastener, PPE, and packaging. Category text embeddings are computed
+once during service startup and cached. Category scores are bounded similarity
+values, not calibrated probabilities; they are evidence for narrowing search,
+not an exact product identity.
 
 Category output narrows search and checks consistency. It is not an exact product
 identity and cannot create a catalogue item by itself. A separate ImageNet or
@@ -544,17 +551,18 @@ Even a Strong result requires confirmation.
 
 ## 8. Selected models and research basis
 
-All selected weights permit commercial integration under Apache 2.0; the WASM
-wrapper is MIT and ZXing-C++ is Apache 2.0. Exact revisions, checksums, conversion
-commands, licences, and notices are recorded in `models/manifest.lock.json` and
-the deployment SBOM.
+The entries below are S0 candidates rather than production defaults. The WASM
+wrapper is MIT and ZXing-C++ is Apache 2.0, but the exact licence and
+commercial-use terms of every selected model artefact must be verified and
+recorded during manifest promotion. Exact revisions, checksums, conversion
+commands, licences, and notices are recorded in `models/manifest.lock.json`.
 
-| Role                            | Selected artefact                                                                                                                                               | Why this is the production default                                                                                                                                                                                                                                                                                                                                                                           |
+| Role                            | S0 candidate artefact                                                                                                                                                                                                      | S0 rationale                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Browser barcode                 | [`zxing-wasm/reader`](https://github.com/Sec-ant/zxing-wasm)                                                                                                    | Multi-format ZXing-C++ WebAssembly, Web Worker compatible, with an approximately 1.04 MiB reader asset. Native [`BarcodeDetector`](https://developer.mozilla.org/en-US/docs/Web/API/BarcodeDetector) is used only as an opportunistic fast path because browser support is limited.                                                                                                                          |
 | Server barcode                  | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp)                                                                                                             | Mature, thread-safe, multi-format reader with browser/server parity and Apache 2.0 licensing.                                                                                                                                                                                                                                                                                                                |
 | OCR                             | [`PP-OCRv6_small_det`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det) + [`PP-OCRv6_small_rec`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec) | The [official OCR table](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md) reports 84.1 detection Hmean at 9.6 MB and 81.3 recognition accuracy at 20.4 MB. Small avoids the much larger medium models while materially outperforming the tiny recognition tier. The published v6 metrics use an internal set and must not be compared directly with v5 metrics. |
-| Adaptive retrieval and category | [`nomic-embed-vision-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5), official INT8 ONNX                                                        | Apache 2.0, 92.9M parameters, shared image/text space, and a [96.7 MB official INT8 ONNX](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5/tree/main/onnx). One model covers exemplar similarity and zero-shot category matching.                                                                                                                                                                     |
+| Adaptive retrieval and category | `sentence-transformers/clip-ViT-B-32`, local SentenceTransformers/PyTorch snapshot                                                                   | S0 candidate for a shared image/text vector space. One locally loaded CLIP model supports visual nearest-neighbour retrieval and broad-category matching by comparing image embeddings with cached controlled-prompt embeddings. The exact artefact revision, checksum, preprocessing identity, licence, and resource profile remain unverified until promotion. |
 | VLM fusion                      | [`Qwen3.5-0.8B`](https://huggingface.co/Qwen/Qwen3.5-0.8B), official [`ggml-org` Q4_0 GGUF](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF)                  | Apache 2.0, native vision input, small enough for Railway CPU, and stronger current public OCR/VQA evidence than the 500M fallback. The Qwen card reports non-thinking OCRBench 79.1, RealWorldQA 61.6, MMBench-EN 68.0, and RefCOCO average 77.8. The official Q4_0 text GGUF is about 563 MB; the matching multimodal projector is pinned and budgeted separately where the runtime requires it.           |
 | CPU runtime                     | Pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)                                                                      | CPU-native quantised inference and a multimodal OpenAI-compatible server. The exact commit is frozen because Qwen3.5 support is recent.                                                                                                                                                                                                                                                                      |
 | Web evidence                    | [Brave Search Web API](https://brave.com/search/api/)                                                                                                           | One deterministic search endpoint, $5 per 1,000 requests, and $5 monthly credit. StockControl retains control of extraction and VLM prompting rather than buying generated Answers.                                                                                                                                                                                                                          |
@@ -564,9 +572,11 @@ The evaluated but rejected initial defaults are:
 - `PP-OCRv6_tiny`: lower recognition accuracy is a poor trade for identity
   extraction; medium remains a measured fallback if the small tier misses the
   pilot gate.
-- SigLIP2 Base: strong general encoder but its official full artefact is roughly
-  1.5 GB, while Nomic provides a much smaller official INT8 ONNX and the same
-  image/text-space functions.
+- SigLIP2 Base: a strong alternative shared image/text encoder, but it remains
+  an S0 comparison candidate with a larger full snapshot and an unverified
+  licence/resource profile for this preparation. CLIP is the current S0
+  candidate because its SentenceTransformers image/text path is supported by
+  the dependency feasibility gate.
 - SmolVLM2-500M: Apache 2.0 and multi-image capable, but its official card is
   video-oriented and reports 1.8 GB GPU RAM; Qwen has more relevant current
   OCR/VQA results. It remains the rollback model behind the same contract.
@@ -604,12 +614,14 @@ array and text limits. Duplicate request IDs are safe because the service is
 stateless.
 
 The service is Python 3.12 with a minimal FastAPI/ASGI surface, `pyvips` for
-bounded decode/normalisation, the pinned ZXing-C++ Python binding, PaddleOCR 3.7,
-and ONNX Runtime with the OpenVINO CPU execution provider. The two PP-OCRv6 Small
-weights are reproducibly exported from their pinned official artefacts; Nomic
-uses its official INT8 ONNX. All models preload once, inference concurrency starts
-at one session, and intra-op threads are capped at four. S0 verifies exported
-OCR parity before the image is promotable.
+bounded decode/normalisation, the pinned ZXing-C++ Python binding, and the
+CPU-only SentenceTransformers/PyTorch path for the CLIP S0 candidate. PP-OCR is
+intended to use reproducibly exported ONNX models with ONNX Runtime. PaddleOCR
+is export/build tooling unless it is deliberately added as a runtime dependency
+later. OpenVINO is an optimisation candidate to benchmark at S0, not a provider
+currently installed by this repository. All promoted models must preload once,
+inference concurrency starts at one session, and intra-op threads are capped at
+four. S0 verifies OCR export parity and CLIP contract behaviour before promotion.
 
 `POST /v1/render-exemplar` accepts one already-validated image plus one of the
 normalised crop boxes returned by analysis and emits a small, EXIF-free WebP.

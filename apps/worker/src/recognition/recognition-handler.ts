@@ -32,7 +32,11 @@ import {
 import { FusionClient, type VlmCandidateAllowlistEntry, type VlmRequest } from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
 import type { RecognitionPipelineConfiguration } from "./recognition-configuration";
-import { encodeFloat16Buffer, findNearestNeighbours } from "./visual-index";
+import {
+  encodeFloat16Buffer,
+  findNearestNeighbours,
+  type VisualExample,
+} from "./visual-index";
 import { loadVisualIndex } from "./visual-index-store";
 import { gatherWebEvidence } from "./web-evidence";
 
@@ -180,6 +184,12 @@ interface AggregatedIdentifiers {
   readonly validatedGtin: string | null;
 }
 
+interface GatheredEvidence {
+  readonly results: readonly StageResult[];
+  readonly recognitionCoreManifestVersion: string | null;
+  readonly embeddingRevisions: readonly string[];
+}
+
 const aggregateIdentifiers = (
   photoResults: readonly CorePhotoResult[],
   localCodes: readonly { value: string; symbology: string }[],
@@ -285,8 +295,9 @@ const gatherEvidence = async (
   imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
-): Promise<readonly StageResult[]> => {
+): Promise<GatheredEvidence> => {
   const results: StageResult[] = [];
+  let recognitionCoreManifestVersion: string | null = null;
 
   let photoResults: readonly CorePhotoResult[] = [];
   if (configuration.recognitionCoreUrl !== undefined && verifiedImages.length > 0) {
@@ -302,6 +313,7 @@ const gatherEvidence = async (
     try {
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
+      recognitionCoreManifestVersion = analysed.modelManifestVersion;
       await persistImageEvidence(database, imageRows, photoResults);
     } catch (error: unknown) {
       logger.error({
@@ -334,23 +346,40 @@ const gatherEvidence = async (
     });
   }
 
-  const embeddingModel = photoResults.find((photo) => photo.embedding !== null)?.embedding
-    ?.modelRevision;
-  if (embeddingModel !== undefined) {
-    const index = await loadVisualIndex(database, embeddingModel).catch(() => []);
-    if (index.length > 0) {
-      for (const photo of photoResults) {
-        if (photo.embedding === null) continue;
-        const neighbours = findNearestNeighbours(
-          new Float32Array(photo.embedding.vector),
-          index,
-          5,
-        );
-        neighbours.forEach((neighbour, position) => {
-          results.push(visualStageResult(neighbour, photo.imageOrdinal, position + 1));
-        });
-      }
-    }
+  const embeddingRevisions = [
+    ...new Set(
+      photoResults.flatMap((photo) =>
+        photo.embedding === null ? [] : [photo.embedding.modelRevision],
+      ),
+    ),
+  ];
+  const indexesByRevision = new Map<string, Promise<readonly VisualExample[]>>();
+  const loadIndexForRevision = (revision: string) => {
+    const cached = indexesByRevision.get(revision);
+    if (cached !== undefined) return cached;
+    const loaded = loadVisualIndex(database, revision).catch(() => []);
+    indexesByRevision.set(revision, loaded);
+    return loaded;
+  };
+
+  if (embeddingRevisions.length > 1) {
+    logger.log({
+      event: "recognition.visual_multiple_model_revisions",
+      modelRevisions: embeddingRevisions,
+    });
+  }
+  for (const photo of photoResults) {
+    if (photo.embedding === null) continue;
+    const index = await loadIndexForRevision(photo.embedding.modelRevision);
+    if (index.length === 0) continue;
+    const neighbours = findNearestNeighbours(
+      new Float32Array(photo.embedding.vector),
+      index,
+      5,
+    );
+    neighbours.forEach((neighbour, position) => {
+      results.push(visualStageResult(neighbour, photo.imageOrdinal, position + 1));
+    });
   }
 
   const webOutcome = await gatherWebEvidence(
@@ -413,7 +442,11 @@ const gatherEvidence = async (
     }
   }
 
-  return results;
+  return {
+    results,
+    recognitionCoreManifestVersion,
+    embeddingRevisions,
+  };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -531,7 +564,7 @@ export const createRecognitionHandler = (
     if (!(await advanceStatus(database, sessionId, "ProcessingImages"))) return;
     if (!(await advanceStatus(database, sessionId, "Enriching"))) return;
 
-    const evidence = await gatherEvidence(
+    const gathered = await gatherEvidence(
       database,
       configuration,
       verifiedImages,
@@ -542,8 +575,14 @@ export const createRecognitionHandler = (
 
     if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
 
-    const outcome = runFusion(evidence);
-    const modelManifest = { fusionWeights: outcome.weightsVersion };
+    const outcome = runFusion(gathered.results);
+    const modelManifest = {
+      fusionWeights: outcome.weightsVersion,
+      recognitionCore: {
+        manifestVersion: gathered.recognitionCoreManifestVersion,
+        embeddingRevisions: gathered.embeddingRevisions,
+      },
+    };
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);
     if (!wrote) {

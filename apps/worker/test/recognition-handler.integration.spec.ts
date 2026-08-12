@@ -181,7 +181,6 @@ describe.sequential("recognition handler", () => {
         recognitionFusionTimeoutMilliseconds: 1_000,
         braveSearchApiKey: undefined,
         webFetchTimeoutMilliseconds: 1_000,
-        visualIndexEmbeddingModel: "unset",
       },
       logger: silentLogger(),
     });

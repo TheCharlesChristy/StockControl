@@ -105,6 +105,10 @@ const STAGE_OUTCOMES: readonly CoreStageOutcome[] = [
   "Unavailable",
   "Failed",
 ];
+// This is deliberately model-independent. The CLIP adapter enforces its
+// exact 512-dimensional output; the worker only prevents malformed responses
+// from allocating unbounded memory or database storage.
+export const MAX_EMBEDDING_VECTOR_LENGTH = 4096;
 const isStageOutcome = (value: unknown): value is CoreStageOutcome =>
   typeof value === "string" && (STAGE_OUTCOMES as readonly string[]).includes(value);
 
@@ -169,10 +173,19 @@ const parseEmbedding = (value: unknown): CoreEmbedding | null => {
   if (value === null || value === undefined) return null;
   if (!isRecord(value)) throw new RecognitionCoreUnavailableError("Malformed embedding.");
   const vector = value.vector;
-  if (!Array.isArray(vector) || !vector.every((entry) => typeof entry === "number")) {
+  const modelRevision = readString(value, "modelRevision");
+  if (modelRevision.trim().length === 0) {
+    throw new RecognitionCoreUnavailableError("Malformed embedding model revision.");
+  }
+  if (
+    !Array.isArray(vector) ||
+    vector.length === 0 ||
+    vector.length > MAX_EMBEDDING_VECTOR_LENGTH ||
+    !vector.every((entry) => typeof entry === "number" && Number.isFinite(entry))
+  ) {
     throw new RecognitionCoreUnavailableError("Malformed embedding vector.");
   }
-  return { modelRevision: readString(value, "modelRevision"), vector };
+  return { modelRevision, vector };
 };
 
 const parseCategory = (value: unknown): CoreCategoryLabel => {

@@ -35,8 +35,8 @@ class Settings:
     port: int
     inference_concurrency: int
     intra_op_threads: int
-    # Directory the build process copied verified ONNX exports into. Never a
-    # URL: this service downloads nothing at runtime.
+    # Directory the build process copied verified local model snapshots into.
+    # Never a URL: this service downloads nothing at runtime.
     model_directory: str
     max_images_per_request: int
     max_source_bytes: int

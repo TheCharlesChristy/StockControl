@@ -29,7 +29,6 @@ describe("loadRecognitionPipelineConfiguration", () => {
       RECOGNITION_FUSION_TIMEOUT_MS: "2000",
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_FETCH_TIMEOUT_MS: "3000",
-      VISUAL_INDEX_EMBEDDING_MODEL: "nomic-embed-vision-v1.5",
     });
 
     expect(configuration).toEqual({
@@ -40,17 +39,12 @@ describe("loadRecognitionPipelineConfiguration", () => {
       recognitionFusionTimeoutMilliseconds: 2_000,
       braveSearchApiKey: "brave-key",
       webFetchTimeoutMilliseconds: 3_000,
-      visualIndexEmbeddingModel: "nomic-embed-vision-v1.5",
     });
   });
 
   it("treats a blank string the same as unset", () => {
     const configuration = loadRecognitionPipelineConfiguration({ RECOGNITION_CORE_URL: "   " });
     expect(configuration.recognitionCoreUrl).toBeUndefined();
-  });
-
-  it("defaults the visual index embedding model to 'unset'", () => {
-    expect(loadRecognitionPipelineConfiguration({}).visualIndexEmbeddingModel).toBe("unset");
   });
 
   it.each(["RECOGNITION_CORE_TIMEOUT_MS", "RECOGNITION_FUSION_TIMEOUT_MS", "WEB_FETCH_TIMEOUT_MS"])(

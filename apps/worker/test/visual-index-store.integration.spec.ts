@@ -95,7 +95,7 @@ describe.sequential("visual index loading", () => {
         id: randomUUID(),
         item_id: input.itemId,
         embedding: buffer,
-        embedding_model: input.embeddingModel ?? "nomic-embed-vision-v1.5",
+        embedding_model: input.embeddingModel ?? "synthetic-visual-revision-a",
         verified_by_user_id: input.userId,
         quality_score: 0.9,
         ...(input.retired === true ? { retired_at: new Date() } : {}),
@@ -146,7 +146,7 @@ describe.sequential("visual index loading", () => {
     const itemId = await insertItem();
     await insertExample({ itemId, userId, vector: [1, 0, 0, 0] });
 
-    const index = await loadVisualIndex(database, "nomic-embed-vision-v1.5");
+    const index = await loadVisualIndex(database, "synthetic-visual-revision-a");
 
     expect(index.some((entry) => entry.itemId === itemId)).toBe(true);
     const loaded = index.find((entry) => entry.itemId === itemId);
@@ -158,7 +158,7 @@ describe.sequential("visual index loading", () => {
     const itemId = await insertItem();
     await insertExample({ itemId, userId, vector: [1, 0], embeddingModel: "old-model-v0" });
 
-    const index = await loadVisualIndex(database, "nomic-embed-vision-v1.5");
+    const index = await loadVisualIndex(database, "synthetic-visual-revision-a");
 
     expect(index.some((entry) => entry.itemId === itemId)).toBe(false);
   });
@@ -168,7 +168,7 @@ describe.sequential("visual index loading", () => {
     const itemId = await insertItem();
     await insertExample({ itemId, userId, vector: [1, 0], retired: true });
 
-    const index = await loadVisualIndex(database, "nomic-embed-vision-v1.5");
+    const index = await loadVisualIndex(database, "synthetic-visual-revision-a");
 
     expect(index.some((entry) => entry.itemId === itemId)).toBe(false);
   });
@@ -178,7 +178,7 @@ describe.sequential("visual index loading", () => {
     const itemId = await insertItem(false);
     await insertExample({ itemId, userId, vector: [1, 0] });
 
-    const index = await loadVisualIndex(database, "nomic-embed-vision-v1.5");
+    const index = await loadVisualIndex(database, "synthetic-visual-revision-a");
 
     expect(index.some((entry) => entry.itemId === itemId)).toBe(false);
   });

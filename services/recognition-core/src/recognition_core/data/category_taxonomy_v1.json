@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "plumbing-fitting",
+      "label": "plumbing fitting",
+      "prompt": "a photo of a plumbing fitting"
+    },
+    {
+      "id": "electrical-component",
+      "label": "electrical component",
+      "prompt": "a photo of an electrical component"
+    },
+    {
+      "id": "hand-tool",
+      "label": "hand tool",
+      "prompt": "a photo of a hand tool"
+    },
+    {
+      "id": "fastener",
+      "label": "fastener",
+      "prompt": "a photo of a fastener"
+    },
+    {
+      "id": "ppe",
+      "label": "PPE",
+      "prompt": "a photo of personal protective equipment"
+    },
+    {
+      "id": "packaging",
+      "label": "packaging",
+      "prompt": "a photo of product packaging"
+    }
+  ]
+}

@@ -35,6 +35,11 @@ benchmark (top-five recall, Strong-band precision, warm/cold latency,
 measured Railway cost — section 20) has not been run against real hardware or
 a consented evaluation set in the environment this commit was built in, and
 running it is the prerequisite for adding a reviewed entry to the manifest.
+The prepared CLIP path uses one local SentenceTransformers snapshot for both
+visual retrieval and broad-category evidence; it does not make Path B
+deployable by itself. Path B additionally requires real OCR and CLIP loaders,
+promoted OCR/CLIP/Qwen/projector artefacts, verified licences, and a passed S0
+benchmark on the consented evaluation set and Railway-equivalent hardware.
 Path B's steps are included below for when that happens; they are not
 something this runbook can complete on its own.
 
@@ -127,7 +132,7 @@ no longer exist in the `media` Bucket under `stock-capture/<sessionId>/`.
 ## Path B — add the recognition and fusion services
 
 Do this only once `models/manifest.lock.json` has a reviewed entry for each
-model these services need (recognition-core's OCR/embedding/category models;
+model these services need (recognition-core's OCR/CLIP embedding/category models;
 recognition-fusion's vision-language model and its multimodal projector) —
 the promotion workflow that adds those entries, and the S0 benchmark that
 must pass first, are outside this runbook. Until then, do not create these
@@ -180,13 +185,15 @@ Add to `worker` and redeploy it:
 RECOGNITION_CORE_URL=http://${{recognition-core.RAILWAY_PRIVATE_DOMAIN}}:8000
 RECOGNITION_FUSION_URL=http://${{recognition-fusion.RAILWAY_PRIVATE_DOMAIN}}:8000
 RECOGNITION_FUSION_API_KEY=<the same secret set on recognition-fusion>
-VISUAL_INDEX_EMBEDDING_MODEL=<the embedding model revision recognition-core reports>
 ```
 
 Optionally add `BRAVE_SEARCH_API_KEY` for the bounded web-evidence stage
 (specification section 7.4); leave it unset to skip that stage entirely.
 
-Every stage now has a service behind it. Re-run the smoke check in Path A
+Every stage now has a service behind it. The CLIP snapshot supplies both visual
+retrieval and broad-category evidence, while the manifest-derived model
+revision is authoritative; no worker embedding-model variable is configured.
+Re-run the smoke check in Path A
 step 4 against a photograph with no barcode: it should now return OCR,
 visual-similarity and VLM evidence rather than recommending manual entry
 outright, still ending at a person confirming identity, quantity and
