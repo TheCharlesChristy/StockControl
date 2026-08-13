@@ -142,8 +142,10 @@ export interface RecognitionSessionSummaryView {
 export interface CaptureUploadGrant {
   readonly imageId: string;
   readonly ordinal: number;
+  /** A same-origin API route that accepts the declared image bytes. */
   readonly url: string;
   readonly mediaType: CaptureImageMediaType;
+  /** The recognition session expiry; uploads are rejected after this point. */
   readonly expiresAt: string;
 }
 

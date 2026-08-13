@@ -133,9 +133,11 @@ export const normaliseImage = async (
   };
 };
 
-/** One PUT to the presigned URL the API issued. No credentials, no retry:
- * a failed upload surfaces as a normal error the person can act on by
- * retaking or resubmitting. */
+/**
+ * One PUT to the same-origin API route the server issued. The API applies the
+ * ordinary session and origin checks, then writes to the private bucket; the
+ * browser never needs object-storage CORS or bucket credentials.
+ */
 export const uploadToGrant = async (
   grant: { readonly url: string; readonly mediaType: CaptureImageMediaType },
   image: NormalisedImage,
@@ -143,6 +145,7 @@ export const uploadToGrant = async (
 ): Promise<void> => {
   const response = await fetchImplementation(grant.url, {
     method: "PUT",
+    credentials: "include",
     headers: { "content-type": grant.mediaType },
     body: image.file,
   });

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type {
+  CaptureImageMediaType,
   CaptureUploadGrant,
   CaptureUploadGrantResponse,
   CommitCaptureEntryRequest,
@@ -93,6 +94,14 @@ export interface RequestUploadsCommand {
   readonly actorUserId: string;
   readonly sessionId: string;
   readonly images: readonly DeclaredImage[];
+}
+
+export interface UploadCaptureImageCommand {
+  readonly actorUserId: string;
+  readonly sessionId: string;
+  readonly imageId: string;
+  readonly mediaType: CaptureImageMediaType;
+  readonly bytes: Buffer;
 }
 
 export interface CommitEntryCommand {
@@ -265,7 +274,7 @@ export class StockCaptureService {
   }
 
   /**
-   * Issues one short-lived write grant per declared photograph.
+   * Registers one same-origin upload route per declared photograph.
    *
    * Object keys are generated here and never accepted from the client. A
    * client-chosen key is a client-chosen destination, and a grant is a grant to
@@ -292,12 +301,6 @@ export class StockCaptureService {
       const imageId = randomUUID();
       const objectKey = `stock-capture/${command.sessionId}/${String(image.ordinal)}-${imageId}`;
 
-      const grant = await this.storage.createPresignedUpload({
-        key: objectKey,
-        mediaType: image.mediaType,
-        expiresInSeconds: this.configuration.uploadGrantSeconds,
-      });
-
       await this.database
         .withSchema(SCHEMA)
         .insertInto("stock_recognition_images")
@@ -320,13 +323,49 @@ export class StockCaptureService {
       grants.push({
         imageId,
         ordinal: image.ordinal,
-        url: grant.url,
+        url: `/api/v1/stock-capture/sessions/${command.sessionId}/uploads/${imageId}`,
         mediaType: image.mediaType === "image/webp" ? "image/webp" : "image/jpeg",
-        expiresAt: grant.expiresAt.toISOString(),
+        expiresAt: session.expires_at.toISOString(),
       });
     }
 
     return { session: this.presentSession(session), grants };
+  }
+
+  /**
+   * Stores one declared capture photograph through the authenticated API
+   * rather than exposing the browser to the object store. The declared size,
+   * media type and digest bind this write to the image row created above; the
+   * worker still performs the expensive image safety checks before inference.
+   */
+  public async uploadImage(command: UploadCaptureImageCommand): Promise<void> {
+    const session = await this.requireSession(command.sessionId, command.actorUserId);
+    if (session.status !== "AwaitingUpload") throw sessionNotReady();
+    if (session.expires_at.getTime() <= this.now().getTime()) throw sessionExpired();
+
+    const image = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["object_key", "sha256", "media_type", "byte_length"])
+      .where("id", "=", command.imageId)
+      .where("session_id", "=", command.sessionId)
+      .executeTakeFirst();
+
+    if (image === undefined) throw captureNotFound("That photograph");
+    if (image.media_type !== command.mediaType || image.byte_length !== command.bytes.length) {
+      throw uploadInvalid("That photograph no longer matches the declared upload.");
+    }
+
+    const digest = createHash("sha256").update(command.bytes).digest("hex");
+    if (digest !== image.sha256) {
+      throw uploadInvalid("That photograph no longer matches the declared upload.");
+    }
+
+    await this.storage.putObject({
+      key: image.object_key,
+      bytes: command.bytes,
+      mediaType: command.mediaType,
+    });
   }
 
   /**

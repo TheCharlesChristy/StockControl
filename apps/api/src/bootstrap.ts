@@ -95,6 +95,11 @@ export const createApiApplication = async (
   const fastify: FastifyInstance = app.getHttpAdapter().getInstance();
 
   await fastify.register(fastifyCookie);
+  fastify.addContentTypeParser(
+    /^image\/(?:jpeg|webp)(?:\s*;.*)?$/iu,
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
   registerCorrelationIdHook(fastify, context);
   registerSecurityHeadersHook(fastify);
   app.setGlobalPrefix(API_V1_PREFIX);
