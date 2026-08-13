@@ -1,12 +1,19 @@
-No third-party model weights are baked into any build of this repository.
+The model manifest records third-party artefacts that are fetched into local
+build contexts and baked into the recognition service images. Model weights
+are not committed to Git.
 
-manifest.lock.json's "models" list is empty by design: the S0 model-promotion
-workflow described in docs/stock-capture-technical-spec.md section 20 has not
-run in this environment, because doing so needs real hardware, a consented
-evaluation set, and reviewed licence terms this repository does not have.
+The following entries are pinned in manifest.lock.json:
 
-When that workflow adds an entry to manifest.lock.json, it must add that
-model's licence terms to this file in the same change. Until then,
-services/recognition-core/scripts/fetch_models.py has nothing to fetch, and
-every model-backed recognition stage reports "Unavailable" rather than a
-result.
+- PP-OCRv6_small_det and PP-OCRv6_small_rec official ONNX exports: Apache-2.0.
+- nomic-embed-vision-v1.5 official INT8 ONNX export: Apache-2.0.
+- LFM2.5-VL-3B Q4_0 GGUF and matching F16 multimodal projector from
+  unsloth/LFM2.5-VL-3B-GGUF: LFM Open License v1.0. The upstream license is
+  available at https://huggingface.co/LiquidAI/LFM2.5-VL-3B/blob/main/LICENSE
+  and permits commercial use only where the legal entity's annual revenue is
+  no more than USD 10 million, subject to the license notice and redistribution
+  conditions.
+
+The LFM files were selected by the user based on local performance testing.
+The consented evaluation set and sections 19/20 accuracy, latency, RSS, and
+soak gates have intentionally not been run, so this is a reproducible
+provisional artifact manifest, not a model-promotion record.

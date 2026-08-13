@@ -52,7 +52,7 @@ def test_the_output_directory_is_created_even_when_there_is_nothing_to_fetch(
     tmp_path: Path,
 ) -> None:
     # The image build COPYs this directory verbatim into the runtime stage;
-    # that COPY needs a source to exist even when the manifest is empty.
+    # that COPY needs a source to exist even for an empty fixture manifest.
     manifest = fetch_models.Manifest(schema_version=1, models=())
     output_dir = tmp_path / "models"
     assert not output_dir.exists()

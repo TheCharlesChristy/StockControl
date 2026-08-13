@@ -1,10 +1,9 @@
 #!/bin/sh
 # Fails fast and clearly when the image has not been given real model
 # weights, rather than letting llama-server's own error (a bare "failed to
-# load model") stand in for it. No model ships in the image: the S0 model
-# promotion workflow adds an entry to models/manifest.lock.json, the image
-# build fetches and verifies it, and only then do these paths exist — see
-# docs/operations/railway-stock-capture.md.
+# load model") stand in for it. The image build fetches and verifies the
+# reviewed manifest before these paths are copied into the runtime image —
+# see docs/operations/railway-stock-capture.md.
 set -eu
 
 : "${PORT:=8000}"

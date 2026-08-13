@@ -1,12 +1,9 @@
 """Fetches model weights at image-build time and verifies every digest.
 
-Specification section 20's S0 gate has not run in this environment — no
-consented evaluation set, no hardware to benchmark on — so
-`models/manifest.lock.json` currently lists no models, and running this
-script is a deliberate no-op. When the S0 promotion workflow adds a reviewed
-entry, this script becomes the only thing that downloads it: the runtime
-image never makes an outbound request, and nothing here trusts a filename
-enough to write outside the output directory.
+The manifest is the only source of model downloads: the runtime image never
+makes an outbound request, and nothing here trusts a filename enough to write
+outside the output directory. Accuracy and resource promotion gates are
+recorded separately from this reproducible artifact fetch.
 
 Not part of the installed `recognition_core` package: this lives under
 `scripts/` on purpose, so it is never shipped in the runtime image and never

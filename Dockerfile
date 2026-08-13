@@ -156,9 +156,8 @@ RUN uv sync --frozen --no-install-project --no-dev
 COPY services/recognition-core/src ./src
 RUN uv sync --frozen --no-dev
 
-# Verifies every digest against the reviewed manifest; a no-op today because
-# manifest.lock.json lists no models (specification section 20's S0 gate has
-# not run against real hardware). The runtime image below never downloads.
+# Verifies every digest against the reviewed manifest. The runtime image below
+# never downloads.
 COPY services/recognition-core/scripts ./scripts
 COPY models/manifest.lock.json ./models/manifest.lock.json
 RUN uv run python scripts/fetch_models.py --manifest models/manifest.lock.json --output /models
@@ -184,6 +183,7 @@ WORKDIR /app
 COPY --from=recognition-core-build --chown=recognition:recognition /app/.venv /app/.venv
 COPY --from=recognition-core-build --chown=recognition:recognition /app/src /app/src
 COPY --from=recognition-core-build --chown=recognition:recognition /models /models
+COPY --from=recognition-core-build --chown=recognition:recognition /app/models/manifest.lock.json /models/manifest.lock.json
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/src" \
@@ -231,7 +231,10 @@ RUN cmake -B build -G Ninja \
       -DLLAMA_CURL=OFF \
       -DLLAMA_BUILD_TESTS=OFF \
       -DLLAMA_BUILD_EXAMPLES=OFF \
-    && cmake --build build --target llama-server --parallel "$(nproc)"
+    # Keep the build within the small local/Railway builder memory envelope;
+    # llama.cpp's full multimodal server can otherwise make BuildKit disappear
+    # under parallel compiler pressure.
+    && cmake --build build --target llama-server --parallel 2
 
 # Reuses recognition-core's fetch script: it is manifest-driven and has
 # nothing recognition-core-specific in it, and models/manifest.lock.json
@@ -261,8 +264,15 @@ COPY --from=recognition-fusion-build --chown=fusion:fusion \
      /src/build/bin/llama-server /usr/local/bin/llama-server
 COPY --from=recognition-fusion-build --chown=fusion:fusion \
      /src/build/bin/*.so* /usr/local/lib/
-COPY --from=recognition-fusion-build --chown=fusion:fusion /models /models
+# Fusion needs only the VLM and projector. Keeping the OCR/embedding artefacts
+# out of this image reduces its resident footprint and avoids copying unrelated
+# model layers into the service.
+COPY --from=recognition-fusion-build --chown=fusion:fusion \
+     /models/lfm2.5-vl-3b-q4-0 /models/lfm2.5-vl-3b-q4-0
+COPY --from=recognition-fusion-build --chown=fusion:fusion \
+     /src/models/manifest.lock.json /models/manifest.lock.json
 COPY --chown=fusion:fusion --chmod=755 services/recognition-fusion/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
 

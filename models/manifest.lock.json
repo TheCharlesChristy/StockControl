@@ -1,4 +1,77 @@
 {
   "schemaVersion": 1,
-  "models": []
+  "models": [
+    {
+      "id": "pp-ocrv6-small-det",
+      "description": "Official PP-OCRv6 small text detector ONNX export.",
+      "repoId": "PaddlePaddle/PP-OCRv6_small_det_onnx",
+      "revision": "28fe5895c24fd108c19eb3e8479f4ab385fbfc62",
+      "licence": "Apache-2.0",
+      "preprocessingId": "pp-ocrv6-det-v1",
+      "files": [
+        {
+          "path": "inference.onnx",
+          "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+        },
+        {
+          "path": "inference.yml",
+          "sha256": "193f435274bf9f0b5f71a929bbfbcf148282df7e633b34e7c373e8f44741b516"
+        }
+      ]
+    },
+    {
+      "id": "pp-ocrv6-small-rec",
+      "description": "Official PP-OCRv6 small text recognition ONNX export.",
+      "repoId": "PaddlePaddle/PP-OCRv6_small_rec_onnx",
+      "revision": "b8f84f0b80c529de40b4fbb3544b84fa7233a513",
+      "licence": "Apache-2.0",
+      "preprocessingId": "pp-ocrv6-rec-v1",
+      "files": [
+        {
+          "path": "inference.onnx",
+          "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+        },
+        {
+          "path": "inference.yml",
+          "sha256": "ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1"
+        }
+      ]
+    },
+    {
+      "id": "nomic-embed-vision-v1.5-int8",
+      "description": "Official nomic-embed-vision-v1.5 INT8 ONNX export.",
+      "repoId": "nomic-ai/nomic-embed-vision-v1.5",
+      "revision": "e3a725bce72db07ca4adb1d83da08903f3ee02f8",
+      "licence": "Apache-2.0",
+      "preprocessingId": "nomic-embed-vision-v1.5-official-int8-v1",
+      "files": [
+        {
+          "path": "onnx/model_int8.onnx",
+          "sha256": "ba9107df6e412828dae8c675096209aa39f6536de8ec8d9a872665b54dc750c3"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "sha256": "77436fccc0108364dd52185181d65cace7e830113e3b81b2bad8009a47f59b34"
+        }
+      ]
+    },
+    {
+      "id": "lfm2.5-vl-3b-q4-0",
+      "description": "User-selected LFM2.5-VL-3B GGUF export with its matching F16 multimodal projector.",
+      "repoId": "unsloth/LFM2.5-VL-3B-GGUF",
+      "revision": "22f063714556bd4daa81c40dc1ff15ca37ae92ea",
+      "licence": "LFM Open License v1.0 (upstream LiquidAI; commercial-use threshold USD 10M annual revenue)",
+      "preprocessingId": "llama.cpp-lfm2.5-vl-image-v1",
+      "files": [
+        {
+          "path": "LFM2.5-VL-3B-Q4_0.gguf",
+          "sha256": "a6c27c994d73bdbdc84dc9f0c510947823429a1efe96644e4155118a42fa837e"
+        },
+        {
+          "path": "mmproj-F16.gguf",
+          "sha256": "234ce26278f7dbc2339e55614a28cf787424aae205711e5a143ce7ee5e1e0654"
+        }
+      ]
+    }
+  ]
 }
