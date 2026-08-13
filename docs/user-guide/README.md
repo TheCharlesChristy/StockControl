@@ -46,6 +46,7 @@ and [User details](user-details.md). Admins also manage accounts and edit the ma
 | [User details](user-details.md)                     | Editing one user and reviewing their activity                                 |
 | [Profile](profile.md)                               | Managing your profile photo                                                   |
 | [Scanning items](scan-an-item.md)                   | Camera, QR code, barcode, and handheld scanner workflows                      |
+| [Adding stock from photographs](add-stock.md)       | Assisted stock capture: photographing a delivery and confirming what arrived  |
 | [Reporting an issue](report-an-issue.md)            | Sending a problem report from any signed-in page                              |
 | [Troubleshooting](troubleshooting.md)               | Loading, error, access, not-found, validation, and stock-rule messages        |
 

@@ -26,7 +26,21 @@ export interface NormalisedImage {
 
 export class SourceImageRejectedError extends Error {}
 
+/** A failed PUT. `retryable` separates a connection that dropped or a server
+ *  that was briefly unwell from a refusal that will refuse again. */
+export class CaptureUploadError extends Error {
+  public constructor(
+    message: string,
+    public readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "CaptureUploadError";
+  }
+}
+
 const TARGET_QUALITY = 0.85;
+const UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_DELAY_MS = 500;
 
 /** The pieces of the browser's image pipeline this module depends on,
  * injectable so the orchestration logic can be tested without a real
@@ -44,8 +58,24 @@ export interface NormaliseDependencies {
 const toHex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const supportsWebp = (canvas: HTMLCanvasElement): boolean =>
-  canvas.toDataURL("image/webp").startsWith("data:image/webp");
+/*
+ * Asked of a one-pixel canvas, once. `toDataURL` genuinely encodes whatever it
+ * is given, so asking the full-size canvas — as this used to — spent a whole
+ * WebP encode and a base64 of the result on every photograph purely to learn
+ * something about the browser that cannot change between photographs.
+ */
+let webpSupported: boolean | null = null;
+
+const supportsWebp = (): boolean => {
+  if (webpSupported === null) {
+    const probe = document.createElement("canvas");
+    probe.width = 1;
+    probe.height = 1;
+    webpSupported = probe.toDataURL("image/webp").startsWith("data:image/webp");
+  }
+
+  return webpSupported;
+};
 
 const defaultEncode: NormaliseDependencies["encode"] = (bitmap, width, height) => {
   const canvas = document.createElement("canvas");
@@ -57,7 +87,7 @@ const defaultEncode: NormaliseDependencies["encode"] = (bitmap, width, height) =
   }
   context.drawImage(bitmap, 0, 0, width, height);
 
-  const mediaType: CaptureImageMediaType = supportsWebp(canvas) ? "image/webp" : "image/jpeg";
+  const mediaType: CaptureImageMediaType = supportsWebp() ? "image/webp" : "image/jpeg";
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -133,24 +163,66 @@ export const normaliseImage = async (
   };
 };
 
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const putOnce = async (
+  grant: { readonly url: string; readonly mediaType: CaptureImageMediaType },
+  image: NormalisedImage,
+  fetchImplementation: typeof fetch,
+): Promise<void> => {
+  let response: Response;
+
+  try {
+    response = await fetchImplementation(grant.url, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": grant.mediaType },
+      body: image.file,
+    });
+  } catch {
+    /* fetch only rejects when the request never completed — worth another go. */
+    throw new CaptureUploadError(
+      "That photograph could not be sent. Check your connection and try again.",
+      true,
+    );
+  }
+
+  if (!response.ok) {
+    throw new CaptureUploadError(
+      response.status >= 500
+        ? "StockControl could not store that photograph. Try again in a moment."
+        : "That photograph was not accepted. Take it again.",
+      response.status >= 500,
+    );
+  }
+};
+
 /**
  * One PUT to the same-origin API route the server issued. The API applies the
  * ordinary session and origin checks, then writes to the private bucket; the
  * browser never needs object-storage CORS or bucket credentials.
+ *
+ * Retried, because the alternative is losing four good photographs to one
+ * dropped packet on a stockroom's wifi. Only failures that could plausibly
+ * succeed next time are retried; a refusal is reported straight away.
  */
 export const uploadToGrant = async (
   grant: { readonly url: string; readonly mediaType: CaptureImageMediaType },
   image: NormalisedImage,
   fetchImplementation: typeof fetch = fetch,
+  wait: (ms: number) => Promise<void> = delay,
 ): Promise<void> => {
-  const response = await fetchImplementation(grant.url, {
-    method: "PUT",
-    credentials: "include",
-    headers: { "content-type": grant.mediaType },
-    body: image.file,
-  });
-
-  if (!response.ok) {
-    throw new Error("That photograph could not be uploaded. Check your connection and try again.");
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await putOnce(grant, image, fetchImplementation);
+      return;
+    } catch (caught) {
+      const retryable = caught instanceof CaptureUploadError && caught.retryable;
+      if (!retryable || attempt >= UPLOAD_ATTEMPTS) throw caught;
+      await wait(UPLOAD_RETRY_DELAY_MS * attempt);
+    }
   }
 };

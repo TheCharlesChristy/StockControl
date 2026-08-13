@@ -1,7 +1,9 @@
+import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
 import AddRounded from "@mui/icons-material/AddRounded";
 import FileDownloadRounded from "@mui/icons-material/FileDownloadRounded";
 import { Box, Button, Stack } from "@mui/material";
 import { useRef, useState, type ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { useCapability } from "../auth/useCapability";
@@ -10,8 +12,9 @@ import { LoadingRows, PageHeader } from "../components/DataStates";
 import { InventoryTable, type InventoryTableHandle } from "../components/InventoryTable";
 
 export function InventoryPage(): ReactElement {
-  const { user } = useAuth();
+  const { user, features } = useAuth();
   const canManageCatalogue = useCapability("manageCatalogue");
+  const canManageStock = useCapability("manageStock");
   const [creating, setCreating] = useState(false);
   const table = useRef<InventoryTableHandle>(null);
 
@@ -27,6 +30,18 @@ export function InventoryPage(): ReactElement {
         description="Search by item code, name, barcode or part number. Expand a row to see the per-location breakdown. Available is what is free to take: it counts stores only, never stock already dropped at a job site."
         actions={
           <Stack direction="row" spacing={1.5} data-help-target="inventory-actions">
+            {/* Assisted capture was reachable only from the sidebar, while the
+             *  capture page itself offers a way back here. */}
+            {features.stockCapture && canManageStock && (
+              <Button
+                component={RouterLink}
+                to="/stock-capture"
+                variant="outlined"
+                startIcon={<AddAPhotoRounded />}
+              >
+                Add stock
+              </Button>
+            )}
             <Button
               variant="outlined"
               data-help-target="inventory-export"

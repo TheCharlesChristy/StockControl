@@ -98,7 +98,7 @@ const photo = (ordinal: number): CapturedPhoto => ({
   ordinal,
   file: new File(["fake"], `photo-${String(ordinal)}.jpg`, { type: "image/jpeg" }),
   previewUrl: `blob:photo-${String(ordinal)}`,
-  mediaType: "image/jpeg",
+  sourceType: "image/jpeg",
   localCodes: [],
 });
 
@@ -220,6 +220,7 @@ describe("captureReducer", () => {
         kind: "AwaitingRecognition",
         batch: batch(),
         session: sessionSummary({ status: "Queued" }),
+        checkFailures: 0,
       });
     });
 
@@ -245,6 +246,7 @@ describe("captureReducer", () => {
       kind: "AwaitingRecognition",
       batch: batch(),
       session: sessionSummary({ status: "Queued" }),
+      checkFailures: 0,
     };
 
     it.each(["Queued", "ProcessingBarcode", "ProcessingImages", "Enriching", "Fusing"] as const)(
@@ -329,7 +331,11 @@ describe("captureReducer", () => {
           itemId: "item-1",
           candidateId: "candidate-1",
           label: "Widget",
+          reference: "ITM-0001",
+          unit: "ea",
+          onHand: "0",
         },
+        locationId: "location-1",
       });
       expect(next).toMatchObject({
         kind: "EnteringReceipt",
@@ -339,7 +345,7 @@ describe("captureReducer", () => {
     });
 
     it("starts manual entry with a blank NewItem selection", () => {
-      const next = captureReducer(reviewing, { type: "ManualEntryStarted" });
+      const next = captureReducer(reviewing, { type: "ManualEntryStarted", locationId: "" });
       expect(next).toMatchObject({
         kind: "EnteringReceipt",
         selection: { kind: "NewItem", candidateId: null, name: "", unit: "" },
@@ -352,7 +358,15 @@ describe("captureReducer", () => {
       kind: "EnteringReceipt",
       batch: batch(),
       session: sessionView({ status: "ReviewReady" }),
-      selection: { kind: "ExistingItem", itemId: "item-1", candidateId: null, label: "Widget" },
+      selection: {
+        kind: "ExistingItem",
+        itemId: "item-1",
+        candidateId: null,
+        label: "Widget",
+        reference: "ITM-0001",
+        unit: "ea",
+        onHand: "0",
+      },
       draft: { quantity: "", locationId: "", acknowledgedDuplicatePartNumber: false },
       submitting: false,
       error: null,
@@ -428,7 +442,15 @@ describe("captureReducer", () => {
       expect(
         captureReducer(elsewhere, {
           type: "SelectionChanged",
-          selection: { kind: "ExistingItem", itemId: "item-1", candidateId: null, label: "Widget" },
+          selection: {
+            kind: "ExistingItem",
+            itemId: "item-1",
+            candidateId: null,
+            label: "Widget",
+            reference: "ITM-0001",
+            unit: "ea",
+            onHand: "0",
+          },
         }),
       ).toBe(elsewhere);
     });
@@ -441,7 +463,7 @@ describe("captureReducer", () => {
         batch: batch({ committedEntryCount: 1 }),
       };
       const next = captureReducer(entering, { type: "CommitSucceeded", result });
-      expect(next).toEqual({ kind: "Committed", batch: result.batch, result });
+      expect(next).toEqual({ kind: "Committed", batch: result.batch, result, locationId: "" });
     });
   });
 
@@ -472,6 +494,7 @@ describe("captureReducer", () => {
         kind: "AwaitingRecognition",
         batch: batch(),
         session: sessionView({ status: "Fusing" }),
+        checkFailures: 0,
       });
     });
 
@@ -493,6 +516,7 @@ describe("captureReducer", () => {
         kind: "AwaitingRecognition",
         batch: batch(),
         session: sessionSummary(),
+        checkFailures: 0,
       };
       expect(
         captureReducer(elsewhere, {
@@ -509,6 +533,7 @@ describe("captureReducer", () => {
       kind: "AwaitingRecognition",
       batch: batch(),
       session: sessionSummary(),
+      checkFailures: 0,
     };
     expect(
       captureReducer(somewhere, {
@@ -535,6 +560,9 @@ describe("topCandidateSelection", () => {
   it("builds an ExistingItem selection from an internal candidate", () => {
     expect(topCandidateSelection([internalCandidate()])).toEqual({
       kind: "ExistingItem",
+      reference: "ITM-0001",
+      unit: "ea",
+      onHand: "0",
       itemId: "item-1",
       candidateId: "candidate-1",
       label: "Widget",
@@ -567,5 +595,90 @@ describe("topCandidateSelection", () => {
 
   it("returns null for an internal candidate missing its item", () => {
     expect(topCandidateSelection([internalCandidate({ item: null })])).toBeNull();
+  });
+});
+
+describe("failure and completion states", () => {
+  /*
+   * Closing a batch used to return to the batch overview holding a batch the
+   * server had just marked Completed, leaving "Add another item" pointing at
+   * something that could only fail.
+   */
+  it("moves to BatchCompleted when the batch is closed", () => {
+    const closed = batch({ status: "Completed", committedEntryCount: 2 });
+    const next = captureReducer(
+      { kind: "BatchOverview", batch: batch() },
+      { type: "BatchClosed", batch: closed },
+    );
+
+    expect(next).toEqual({ kind: "BatchCompleted", batch: closed });
+  });
+
+  it("counts consecutive failed status checks", () => {
+    const awaiting: CaptureStage = {
+      kind: "AwaitingRecognition",
+      batch: batch(),
+      session: sessionSummary({ status: "Queued" }),
+      checkFailures: 0,
+    };
+
+    const once = captureReducer(awaiting, { type: "SessionCheckFailed" });
+    const twice = captureReducer(once, { type: "SessionCheckFailed" });
+
+    expect(twice).toMatchObject({ kind: "AwaitingRecognition", checkFailures: 2 });
+  });
+
+  it("forgets the failures as soon as a check succeeds", () => {
+    const stalled: CaptureStage = {
+      kind: "AwaitingRecognition",
+      batch: batch(),
+      session: sessionSummary({ status: "Queued" }),
+      checkFailures: 4,
+    };
+
+    const next = captureReducer(stalled, {
+      type: "SessionPolled",
+      session: sessionView({ status: "Fusing" }),
+    });
+
+    expect(next).toMatchObject({ kind: "AwaitingRecognition", checkFailures: 0 });
+  });
+
+  it("ignores a failed check outside AwaitingRecognition", () => {
+    const overview: CaptureStage = { kind: "BatchOverview", batch: batch() };
+    expect(captureReducer(overview, { type: "SessionCheckFailed" })).toBe(overview);
+  });
+
+  /*
+   * A committed session used to reopen the review screen, inviting a second
+   * confirmation for stock that had already been received.
+   */
+  it("does not reopen review for a session that was already committed", () => {
+    const next = captureReducer(
+      { kind: "BatchOverview", batch: batch() },
+      {
+        type: "SessionResumed",
+        batch: batch(),
+        session: sessionView({ status: "Committed" }),
+      },
+    );
+
+    expect(next.kind).toBe("SessionUnavailable");
+  });
+
+  it("does not reopen review when a poll reports the session committed", () => {
+    const awaiting: CaptureStage = {
+      kind: "AwaitingRecognition",
+      batch: batch(),
+      session: sessionSummary({ status: "Queued" }),
+      checkFailures: 0,
+    };
+
+    const next = captureReducer(awaiting, {
+      type: "SessionPolled",
+      session: sessionView({ status: "Committed" }),
+    });
+
+    expect(next.kind).toBe("SessionUnavailable");
   });
 });

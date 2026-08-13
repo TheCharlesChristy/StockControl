@@ -165,10 +165,39 @@ export class ApiClient {
     );
 
     const text = await response.text();
-    const parsed: unknown = text.length === 0 ? undefined : JSON.parse(text);
+    /*
+     * Parsed defensively, and only after the status has been considered. A
+     * proxy in front of the API answers a 502 or a 504 with an HTML page, and
+     * parsing that before checking `response.ok` turned a reportable server
+     * failure into a raw SyntaxError that no caller was written to expect.
+     */
+    let parsed: unknown = undefined;
+    let readable = true;
+
+    if (text.length > 0) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        readable = false;
+      }
+    }
 
     if (!response.ok) {
-      throw toApiError(response.status, parsed);
+      throw readable
+        ? toApiError(response.status, parsed)
+        : new ApiError(
+            response.status,
+            `http.${String(response.status)}`,
+            "StockControl is not responding properly at the moment. Please try again.",
+          );
+    }
+
+    if (!readable) {
+      throw new ApiError(
+        response.status,
+        "response.unreadable",
+        "StockControl sent a reply this app could not read. Please try again.",
+      );
     }
 
     return parsed as Result;
