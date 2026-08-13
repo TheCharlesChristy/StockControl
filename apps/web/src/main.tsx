@@ -1,6 +1,13 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { ApplicationErrorBoundary } from "./app/ErrorBoundaries";
+import { installConsoleErrorCapture } from "./hooks/use-console-error-notifications";
+
+/*
+ * Installed before the app import so a console.error during that import — or
+ * during the very first render — still reaches the notification stack.
+ */
+installConsoleErrorCapture();
 
 /*
  * Keep the application import behind a boundary. A missing dependency or a

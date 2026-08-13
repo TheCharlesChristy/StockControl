@@ -27,6 +27,7 @@ import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-rout
 import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
+import { ConsoleErrorNotifications } from "../components/ConsoleErrorNotifications";
 import { ImagePreview } from "../components/ImagePreview";
 import { PageHelp } from "../components/PageHelp";
 import { ReportIssueDialog } from "../components/ReportIssueDialog";
@@ -400,6 +401,10 @@ export function AppShell(): ReactElement | null {
       {issueReportingEnabled && reportIssueOpen && (
         <ReportIssueDialog page={location.pathname} onClose={() => setReportIssueOpen(false)} />
       )}
+      <ConsoleErrorNotifications
+        page={location.pathname}
+        reportingEnabled={issueReportingEnabled}
+      />
     </Box>
   );
 }
