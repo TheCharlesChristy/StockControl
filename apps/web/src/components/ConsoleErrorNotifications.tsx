@@ -42,9 +42,9 @@ interface ConsoleErrorNotificationsProps {
 }
 
 /**
- * Surfaces `console.error` calls as dismissable cards in the top-right corner.
- * Each one can hand itself straight to the existing issue-reporting flow, pre
- * filled, so a user does not have to transcribe a stack trace by hand.
+ * Surfaces `console.error` calls as dismissible cards in the top-right corner.
+ * Each one can hand itself straight to the existing issue-reporting flow,
+ * pre-filled, so a user does not have to transcribe a stack trace by hand.
  */
 export function ConsoleErrorNotifications({
   page,
@@ -56,6 +56,8 @@ export function ConsoleErrorNotifications({
   if (entries.length === 0 && reporting === undefined) {
     return null;
   }
+
+  const prefill = reporting === undefined ? undefined : reportPrefill(reporting, page);
 
   return (
     <>
@@ -130,12 +132,12 @@ export function ConsoleErrorNotifications({
           ))}
         </Stack>
       </Box>
-      {reporting !== undefined && (
+      {prefill !== undefined && (
         <ReportIssueDialog
           page={page}
           onClose={() => setReporting(undefined)}
-          initialTitle={reportPrefill(reporting, page).title}
-          initialDescription={reportPrefill(reporting, page).description}
+          initialTitle={prefill.title}
+          initialDescription={prefill.description}
         />
       )}
     </>
