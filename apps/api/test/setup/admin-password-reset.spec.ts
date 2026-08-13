@@ -7,7 +7,7 @@ import {
 } from "../../src/setup/admin-password-reset";
 
 const validInput = {
-  email: " Admin.Owner@Example.com ",
+  username: " Admin.Owner ",
   password: "a different secure passphrase",
 };
 
@@ -22,7 +22,7 @@ describe("operator Admin password recovery", () => {
 
     expect(hasher).toHaveBeenCalledWith(validInput.password);
     expect(updateActiveAdminPassword).toHaveBeenCalledWith(
-      "admin.owner@example.com",
+      "admin.owner",
       "replacement-password-hash",
     );
   });
@@ -38,7 +38,7 @@ describe("operator Admin password recovery", () => {
   });
 
   it.each([
-    [{ ...validInput, email: "not-an-email" }, "InvalidEmail"],
+    [{ ...validInput, username: "not a username" }, "InvalidUsername"],
     [{ ...validInput, password: "too short" }, "PasswordPolicyUnmet"],
     [{ ...validInput, password: "x".repeat(129) }, "PasswordPolicyUnmet"],
   ] as const)("rejects invalid recovery input before hashing", async (input, code) => {

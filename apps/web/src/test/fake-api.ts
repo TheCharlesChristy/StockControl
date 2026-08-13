@@ -209,11 +209,23 @@ const users: UserListResponse = {
   users: [
     {
       id: "test-admin",
+      username: "admin",
       email: "admin@example.com",
       displayName: "Admin User",
       role: "Admin",
       isActive: true,
       createdAt: "2026-07-01T09:00:00.000Z",
+      profilePhotoUrl: null,
+    },
+    /* An account with no address, because that is now a state screens must render. */
+    {
+      id: "test-engineer",
+      username: "engineer.two",
+      email: null,
+      displayName: "Priya Kaur",
+      role: "Engineer",
+      isActive: true,
+      createdAt: "2026-07-02T09:00:00.000Z",
       profilePhotoUrl: null,
     },
   ],

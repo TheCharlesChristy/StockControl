@@ -210,8 +210,12 @@ fixed local-development names and passwords.
    Railway's SSH command), then run:
 
    ```text
-   node apps/api/dist/setup-first-admin.js --email <admin-email> --display-name "<admin name>"
+   node apps/api/dist/setup-first-admin.js --username <admin-username> --display-name "<admin name>"
    ```
+
+   Add `--email <admin-email>` if the Admin has an address worth recording. It
+   is contact information only — nothing is ever sent to it — and the account
+   works without one.
 
    Enter and confirm the password at the hidden terminal prompts. Production
    passwords must contain 15 to 128 Unicode characters. The setup refuses to
@@ -279,17 +283,17 @@ Then verify in a browser:
 
 ## Admin password recovery
 
-Self-service email reset is deferred for the MVP. If the Admin loses their
+Self-service password reset is deferred for the MVP. If the Admin loses their
 password, open an interactive shell in the private API deployment and run:
 
 ```text
-node apps/api/dist/reset-admin-password.js --email <admin-email>
+node apps/api/dist/reset-admin-password.js --username <admin-username>
 ```
 
 Enter and confirm the replacement at the hidden prompts. The command requires
-the normalized email to identify one active Admin, enforces the same
+the normalized username to identify one active Admin, enforces the same
 15-to-128-character policy, updates the hash atomically and revokes every
-session for that account. It does not print the email or password. Record the
+session for that account. It does not print the username or password. Record the
 operator, time and reason in the incident or support record without recording
 the secret.
 

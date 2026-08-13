@@ -8,11 +8,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * parallel with the journey against the same seeded database.
  */
 
-const OFFICE = { email: "office.desk@example.com", password: "demo-password" };
-const ENGINEER = { email: "engineer.one@example.com", password: "demo-password" };
+const OFFICE = { username: "office.desk", password: "demo-password" };
+const ENGINEER = { username: "engineer.one", password: "demo-password" };
 
 interface Credentials {
-  readonly email: string;
+  readonly username: string;
   readonly password: string;
 }
 
@@ -29,7 +29,7 @@ function newPassword(page: Page): Locator {
 
 async function signIn(page: Page, who: Credentials): Promise<void> {
   await page.goto("/sign-in");
-  await page.getByLabel("Work email").fill(who.email);
+  await page.getByLabel("Username").fill(who.username);
   await page.getByLabel("Password", { exact: true }).fill(who.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => !url.pathname.includes("sign-in"));
@@ -90,17 +90,17 @@ test.describe("signing in", () => {
      * Through the API rather than the form: the point is the server's limit,
      * and driving the form ten times would mostly be testing the form. The
      * account limit is five in fifteen minutes, so the sixth must be refused.
-     * A unique address keeps this from throttling a real demo account.
+     * A unique name keeps this from throttling a real demo account.
      */
-    const address = `throttle-${String(Date.now())}@example.com`;
-    const statuses = await page.evaluate(async (email) => {
+    const address = `throttle-${String(Date.now())}`;
+    const statuses = await page.evaluate(async (username) => {
       const attempts: number[] = [];
       for (let attempt = 0; attempt < 7; attempt += 1) {
         const response = await fetch("/api/v1/auth/sign-in", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ email, password: "definitely-not-the-password" }),
+          body: JSON.stringify({ username, password: "definitely-not-the-password" }),
         });
         attempts.push(response.status);
       }
@@ -113,14 +113,14 @@ test.describe("signing in", () => {
 
   test("says the same thing for an unknown account as for a wrong password", async ({ page }) => {
     await page.goto("/sign-in");
-    await page.getByLabel("Work email").fill("nobody.here@example.com");
+    await page.getByLabel("Username").fill("nobody.here");
     await page.getByLabel("Password", { exact: true }).fill("definitely-not-the-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     const unknownAccount = await page.getByRole("alert").innerText();
 
     await page.goto("/sign-in");
-    await page.getByLabel("Work email").fill(OFFICE.email);
+    await page.getByLabel("Username").fill(OFFICE.username);
     await page.getByLabel("Password", { exact: true }).fill("definitely-not-the-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 

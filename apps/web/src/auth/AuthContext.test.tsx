@@ -36,6 +36,7 @@ interface Deferred<T> {
 
 const officeUser: AuthenticatedUser = {
   id: "user-office-1",
+  username: "office",
   email: "office@example.com",
   displayName: "Office User",
   role: "Office",
@@ -84,11 +85,11 @@ function AuthProbe(): ReactElement {
   return (
     <>
       <output aria-label="Authentication status">{status}</output>
-      <output aria-label="Authenticated user">{user?.email ?? "none"}</output>
+      <output aria-label="Authenticated user">{user?.username ?? "none"}</output>
       <button
         type="button"
         onClick={() => {
-          void signIn("  OFFICE.OWNER@EXAMPLE.COM  ", "unchanged-password");
+          void signIn("  OFFICE.OWNER  ", "unchanged-password");
         }}
       >
         Sign in through context
@@ -139,9 +140,7 @@ describe("AuthProvider", () => {
     await waitFor(() => {
       expect(statusText()).toBe("authenticated");
     });
-    expect(screen.getByRole("status", { name: "Authenticated user" })).toHaveTextContent(
-      "office@example.com",
-    );
+    expect(screen.getByRole("status", { name: "Authenticated user" })).toHaveTextContent("office");
   });
 
   it("falls back to anonymous when the session lookup fails", async () => {
@@ -154,7 +153,7 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("normalizes the email before signing in and becomes authenticated", async () => {
+  it("normalizes the username before signing in and becomes authenticated", async () => {
     const harness = createAuthClient();
     renderProbe(harness.client);
     await waitFor(() => {
@@ -167,7 +166,7 @@ describe("AuthProvider", () => {
       expect(statusText()).toBe("authenticated");
     });
     expect(harness.signIn).toHaveBeenCalledWith({
-      email: "office.owner@example.com",
+      username: "office.owner",
       password: "unchanged-password",
     });
   });

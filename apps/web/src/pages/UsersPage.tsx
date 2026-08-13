@@ -67,6 +67,7 @@ function CreateUserDialog({
   readonly onDone: () => void;
 }): ReactElement {
   const api = useApi();
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<UserRole>("Engineer");
@@ -80,7 +81,13 @@ function CreateUserDialog({
     setError(undefined);
 
     void api
-      .createUser({ email, displayName, role, password })
+      .createUser({
+        username,
+        ...(email.trim().length === 0 ? {} : { email }),
+        displayName,
+        role,
+        password,
+      })
       .then(() => {
         onDone();
         onClose();
@@ -103,13 +110,24 @@ function CreateUserDialog({
             <TextField
               required
               autoFocus
+              type="text"
+              label="Username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              disabled={submitting}
+              error={error?.fieldError("username") !== undefined}
+              helperText={error?.fieldError("username") ?? "This is what they sign in with."}
+            />
+            <TextField
               type="email"
-              label="Work email"
+              label="Work email (optional)"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               disabled={submitting}
               error={error?.fieldError("email") !== undefined}
-              helperText={error?.fieldError("email")}
+              helperText={
+                error?.fieldError("email") ?? "Contact details only. Leave blank if they have none."
+              }
             />
             <TextField
               required
@@ -197,7 +215,7 @@ export function UsersPage(): ReactElement {
     term.length === 0
       ? allUsers
       : allUsers.filter((row) =>
-          [row.displayName, row.email, row.role].some((field) =>
+          [row.displayName, row.username, row.email ?? "", row.role].some((field) =>
             field.toLowerCase().includes(term),
           ),
         );
@@ -267,7 +285,7 @@ export function UsersPage(): ReactElement {
         label="Search the team"
         value={search}
         onChange={(event) => setSearch(event.target.value)}
-        placeholder="Name, email or role"
+        placeholder="Name, username, email or role"
         slotProps={{
           input: {
             startAdornment: (
@@ -295,7 +313,7 @@ export function UsersPage(): ReactElement {
       {users.data !== undefined && rows.length === 0 && (
         <EmptyState
           title="Nobody matched that search"
-          description="Try part of a name, an email address, or a role such as Engineer."
+          description="Try part of a name, a username, an email address, or a role such as Engineer."
         />
       )}
 
@@ -315,6 +333,7 @@ export function UsersPage(): ReactElement {
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
+                  <TableCell>Username</TableCell>
                   <TableCell>Email</TableCell>
                   <TableCell>Role</TableCell>
                   <TableCell>Created</TableCell>
@@ -354,7 +373,8 @@ export function UsersPage(): ReactElement {
                           )}
                         </Stack>
                       </TableCell>
-                      <TableCell>{row.email}</TableCell>
+                      <TableCell>{row.username}</TableCell>
+                      <TableCell>{row.email ?? "—"}</TableCell>
                       <TableCell>
                         <TextField
                           select

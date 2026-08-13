@@ -12,6 +12,7 @@ import { SignInRateLimiter } from "../../src/auth/sign-in-rate-limiter";
 const session: AuthenticatedSession = {
   user: {
     id: "user-1",
+    username: "sam",
     email: "sam@example.com",
     displayName: "Sam Field",
     role: "Engineer",

@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { normaliseUsername } from "@stockcontrol/contracts";
+
 import { createDefaultAuthClient } from "./AuthClient";
 import type {
   AuthClient,
@@ -28,7 +30,7 @@ interface AuthContextValue {
   readonly session: AuthenticatedSession | null;
   readonly user: AuthenticatedUser | null;
   readonly features: SessionFeatures;
-  readonly signIn: (email: string, password: string) => Promise<void>;
+  readonly signIn: (username: string, password: string) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly refresh: () => Promise<void>;
 }
@@ -90,9 +92,9 @@ export function AuthProvider({
   }, [client]);
 
   const signIn = useCallback(
-    async (email: string, password: string): Promise<void> => {
+    async (username: string, password: string): Promise<void> => {
       const outcome = await client.signIn({
-        email: email.trim().toLowerCase(),
+        username: normaliseUsername(username),
         password,
       });
 

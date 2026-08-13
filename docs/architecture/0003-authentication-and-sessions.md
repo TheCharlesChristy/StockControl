@@ -3,6 +3,13 @@
 - Status: Accepted
 - Date: 2026-07-29
 - Production MVP exception (2026-08-03): password-only authentication is approved for the first small Railway installation. It enforces 15-to-128-character passwords, strengthened scrypt hashing, opaque session tokens stored only as hashes, exact-origin checks, and sign-in throttling. Application MFA, invitations, self-service/email password resets, recent-authentication, and durable security-event storage remain follow-up work. A narrowly scoped operator Admin recovery command is implemented for this MVP and atomically revokes that Admin's sessions; this ADR records the target design.
+- Identifier amendment (2026-08-13): the sign-in identifier is a **username**,
+  not an email address, and an address is optional contact information that is
+  never accepted as a credential. The MVP sends no email of any kind, so an
+  address bought nothing and obliged every engineer to hold a mailbox before
+  they could be given a job. Usernames are stored lowercase and are unique;
+  addresses are unique among the accounts that have one. Where the decision
+  below says "email", read "username".
 - Requirements: Archived [product requirements v1.0](../archive/product-requirements-full-v1.md) 9.2, 9.3, and 12.3
 
 ## Context
@@ -13,9 +20,9 @@ invalidate active sessions. Sensitive actions require recent authentication.
 
 ## Decision
 
-Implement email/password authentication inside the Identity and Permissions
+Implement username/password authentication inside the Identity and Permissions
 module using a maintained password-hashing library configured for Argon2id.
-Store only normalised email identifiers and password hashes. Parameters are
+Store only normalised username identifiers and password hashes. Parameters are
 versioned so hashes can be upgraded after successful authentication.
 
 Use TOTP as the MVP second factor. Encrypt TOTP seeds with an application
@@ -35,6 +42,8 @@ a password reset revokes all sessions in the same transaction. Authentication,
 MFA, recovery, rate-limit, and revocation events create security audit records.
 
 Invitations and password resets use single-use, short-lived, hashed tokens.
+Any future delivery of those tokens by email applies only to accounts that have
+recorded an address; an account without one is recovered by an Admin.
 Rate limits are keyed by account and network source without creating persistent
 device fingerprints.
 

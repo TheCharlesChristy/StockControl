@@ -62,6 +62,7 @@ describe.sequential("recognition handler", () => {
       .insertInto("users")
       .values({
         id,
+        username: `worker.${id.slice(0, 23)}`,
         email: `${id}@example.invalid`,
         display_name: "Recognition Handler Test User",
         role: "Office",

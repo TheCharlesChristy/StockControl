@@ -46,6 +46,6 @@ describe("PageHelp", () => {
     await user.click(screen.getByRole("button", { name: "How to use this page" }));
 
     expect(screen.getByRole("heading", { name: /Sign in/u })).toBeInTheDocument();
-    expect(screen.getByText(/Select the Work email field/u)).toBeInTheDocument();
+    expect(screen.getByText(/Select the Username field/u)).toBeInTheDocument();
   });
 });
