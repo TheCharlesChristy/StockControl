@@ -36,8 +36,9 @@ The selected production components are:
 - `PP-OCRv6_small_det` plus `PP-OCRv6_small_rec` for OCR;
 - `nomic-ai/nomic-embed-vision-v1.5` INT8 ONNX for visual examples and broad
   category similarity;
-- `Qwen/Qwen3.5-0.8B`, using the official ggml-org Q4_0 GGUF and a pinned
-  CPU-only `llama.cpp` runtime, for one item-level fusion proposal;
+- `unsloth/LFM2.5-VL-3B-GGUF`, using its Q4_0 GGUF and matching F16 multimodal
+  projector with a pinned CPU-only `llama.cpp` runtime, for one item-level
+  fusion proposal;
 - Brave Search Web API for one bounded item-level search when a reliable query
   can be constructed; and
 - the existing StockControl API, PostgreSQL database, private Railway Bucket,
@@ -196,7 +197,7 @@ flowchart LR
     Worker -->|read temporary images| Bucket
     Worker -->|bounded image bytes| Core[recognition-core<br/>ZXing + OCR + embeddings]
     Worker -->|strong identifiers only| Brave[Brave Search API]
-    Worker -->|images + bounded evidence| Fusion[recognition-fusion<br/>Qwen3.5-0.8B]
+    Worker -->|images + bounded evidence| Fusion[recognition-fusion<br/>LFM2.5-VL-3B]
     Core --> Worker
     Brave --> Worker
     Fusion --> Worker
@@ -251,7 +252,7 @@ apps/web                         browser capture and review
 apps/api                         auth, uploads, session state and stock commit
 apps/worker                      durable recognition orchestration
 services/recognition-core        Python OCR/barcode/embedding HTTP service
-services/recognition-fusion      pinned llama.cpp/Qwen runtime configuration
+services/recognition-fusion      pinned llama.cpp/LFM runtime configuration
 packages/contracts               browser/API transport contracts
 packages/modules/stock-capture   deterministic domain/fusion rules
 models/manifest.lock.json        model revisions, hashes and preprocessing IDs
@@ -495,7 +496,7 @@ The worker calls `recognition-fusion` once with:
 - visual neighbours and category results; and
 - bounded web evidence.
 
-Qwen runs in non-thinking, greedy mode with a 4,096-token context cap and a
+LFM runs in non-thinking, greedy mode with a 4,096-token context cap and a
 256-token output cap. A JSON grammar/schema permits only:
 
 - references to supplied opaque internal candidate IDs;
@@ -544,10 +545,12 @@ Even a Strong result requires confirmation.
 
 ## 8. Selected models and research basis
 
-All selected weights permit commercial integration under Apache 2.0; the WASM
-wrapper is MIT and ZXing-C++ is Apache 2.0. Exact revisions, checksums, conversion
-commands, licences, and notices are recorded in `models/manifest.lock.json` and
-the deployment SBOM.
+The OCR and Nomic weights permit commercial integration under Apache 2.0; the
+WASM wrapper is MIT and ZXing-C++ is Apache 2.0. The selected LFM weights use
+the upstream LFM Open License v1.0, including its USD 10 million annual
+revenue threshold for commercial use. Exact revisions, checksums, conversion
+commands, licences, and notices are recorded in `models/manifest.lock.json`
+and the deployment SBOM.
 
 | Role                            | Selected artefact                                                                                                                                               | Why this is the production default                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -555,8 +558,8 @@ the deployment SBOM.
 | Server barcode                  | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp)                                                                                                             | Mature, thread-safe, multi-format reader with browser/server parity and Apache 2.0 licensing.                                                                                                                                                                                                                                                                                                                |
 | OCR                             | [`PP-OCRv6_small_det`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det) + [`PP-OCRv6_small_rec`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec) | The [official OCR table](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md) reports 84.1 detection Hmean at 9.6 MB and 81.3 recognition accuracy at 20.4 MB. Small avoids the much larger medium models while materially outperforming the tiny recognition tier. The published v6 metrics use an internal set and must not be compared directly with v5 metrics. |
 | Adaptive retrieval and category | [`nomic-embed-vision-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5), official INT8 ONNX                                                        | Apache 2.0, 92.9M parameters, shared image/text space, and a [96.7 MB official INT8 ONNX](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5/tree/main/onnx). One model covers exemplar similarity and zero-shot category matching.                                                                                                                                                                     |
-| VLM fusion                      | [`Qwen3.5-0.8B`](https://huggingface.co/Qwen/Qwen3.5-0.8B), official [`ggml-org` Q4_0 GGUF](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF)                  | Apache 2.0, native vision input, small enough for Railway CPU, and stronger current public OCR/VQA evidence than the 500M fallback. The Qwen card reports non-thinking OCRBench 79.1, RealWorldQA 61.6, MMBench-EN 68.0, and RefCOCO average 77.8. The official Q4_0 text GGUF is about 563 MB; the matching multimodal projector is pinned and budgeted separately where the runtime requires it.           |
-| CPU runtime                     | Pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)                                                                      | CPU-native quantised inference and a multimodal OpenAI-compatible server. The exact commit is frozen because Qwen3.5 support is recent.                                                                                                                                                                                                                                                                      |
+| VLM fusion                      | [`unsloth/LFM2.5-VL-3B-GGUF`](https://huggingface.co/unsloth/LFM2.5-VL-3B-GGUF), pinned Q4_0 GGUF plus matching F16 multimodal projector                  | User-tested CPU performance and native multimodal llama.cpp support. The selected files are about 1.6 GB and 854 MB respectively. This is licensed under the upstream LFM Open License v1.0 rather than Apache 2.0, so the commercial-use threshold must be checked before deployment.           |
+| CPU runtime                     | Pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)                                                                      | CPU-native quantised inference and a multimodal OpenAI-compatible server. The exact commit is frozen because LFM2.5 multimodal support is runtime-sensitive.                                                                                                                                                                                                                                             |
 | Web evidence                    | [Brave Search Web API](https://brave.com/search/api/)                                                                                                           | One deterministic search endpoint, $5 per 1,000 requests, and $5 monthly credit. StockControl retains control of extraction and VLM prompting rather than buying generated Answers.                                                                                                                                                                                                                          |
 
 The evaluated but rejected initial defaults are:
@@ -568,9 +571,9 @@ The evaluated but rejected initial defaults are:
   1.5 GB, while Nomic provides a much smaller official INT8 ONNX and the same
   image/text-space functions.
 - SmolVLM2-500M: Apache 2.0 and multi-image capable, but its official card is
-  video-oriented and reports 1.8 GB GPU RAM; Qwen has more relevant current
-  OCR/VQA results. It remains the rollback model behind the same contract.
-- A larger Qwen model: better public benchmark scores do not justify the added
+  video-oriented and reports 1.8 GB GPU RAM. It remains a rollback model behind
+  the same contract if the selected LFM ensemble fails the measured gates.
+- A larger VLM model: better public benchmark scores do not justify the added
   CPU latency and resident memory until the selected ensemble fails the
   StockControl pilot set.
 - An AI accelerator: [Railway currently has no GPU
@@ -578,11 +581,12 @@ The evaluated but rejected initial defaults are:
   intentionally uses CPU-compatible models. No Raspberry Pi or accelerator is
   required at the client.
 
-The Qwen model card describes the 0.8B model as intended for prototyping,
-task-specific tuning, and research. StockControl mitigates that limitation by
-using it only as one bounded proposal source, validating it on the actual product
-mix, discarding self-confidence, and requiring a person for every decision. It is
-not promoted if it misses the gates in section 20.
+The selected LFM model is used only as one bounded proposal source, with
+confidence discarded, a person required for every decision, and no promotion
+claim until the gates in section 20 are measured. The user-selected model
+decision and exact artefact metadata are captured in `models/manifest.lock.json`
+and `models/NOTICE.txt`; the evaluation set remains an explicit launch blocker
+for accuracy and resource claims.
 
 ## 9. Service contracts
 
@@ -1276,7 +1280,7 @@ and updated cost. StockControl remains manual/partial-assist until one passes.
 | S1    | Contracts, migration, job lease framework, and worker activation                                    | Real-PG claim/retry/ownership/privilege tests                                                                |
 | S2    | Photo UX, local barcode, presigned upload, and exact early return                                   | Phone/browser tests; invalid upload suite; no-upload exact path                                              |
 | S3    | `recognition-core`, identifier parser, catalogue retrieval, and visual index                        | Per-stage evaluation and private-service smoke tests                                                         |
-| S4    | Brave evidence, Qwen fusion service, deterministic fusion, and review candidates                    | Injection/SSRF/schema tests and top-five evaluation                                                          |
+| S4    | Brave evidence, LFM fusion service, deterministic fusion, and review candidates                      | Injection/SSRF/schema tests and top-five evaluation                                                          |
 | S5    | Review UX, transaction writers, atomic commit, feedback, and exemplars                              | Existing/new/retry E2E and real-PG rollback/concurrency tests                                                |
 | S6    | Cleanup, observability, cost alerts, runbooks, and failure modes                                    | 24-hour deletion proof, soak, cold start, rollback, and spend-limit rehearsal                                |
 | S7    | Customer pilot and calibrated thresholds                                                            | Timed 10% value gate, error comparison, go/no-go record                                                      |

@@ -7,27 +7,40 @@ with everything else that assumes a public audience.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 from fastapi import FastAPI, Response
 
 from recognition_core.backend import Backends, load_backends
 from recognition_core.config import Settings, load_settings
 from recognition_core.routes import build_router
 
-# Replaced by the S0 model-promotion workflow once real weights are baked
-# into the build; every response until then reports this literal value.
-MODEL_MANIFEST_VERSION = "unset"
+
+def _manifest_version(model_directory: str) -> str:
+    path = Path(model_directory) / "manifest.lock.json"
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return "unset"
 
 
 def create_app(settings: Settings | None = None, backends: Backends | None = None) -> FastAPI:
     resolved_settings = settings if settings is not None else load_settings()
     resolved_backends = (
-        backends if backends is not None else load_backends(resolved_settings.model_directory)
+        backends
+        if backends is not None
+        else load_backends(
+            resolved_settings.model_directory,
+            intra_op_threads=resolved_settings.intra_op_threads,
+        )
     )
+    manifest_version = _manifest_version(resolved_settings.model_directory)
 
     app = FastAPI(title="recognition-core", docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(
         build_router(
-            resolved_settings, resolved_backends, model_manifest_version=MODEL_MANIFEST_VERSION
+            resolved_settings, resolved_backends, model_manifest_version=manifest_version
         )
     )
 

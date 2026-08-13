@@ -29,14 +29,12 @@ person can always type the item in by hand.
 commit. It needs `worker` and the database migration, nothing else.
 
 **Path B — the full recognition pipeline** additionally needs
-`recognition-core` and `recognition-fusion`, which need real model weights.
-`models/manifest.lock.json` currently lists none: the specification's S0
-benchmark (top-five recall, Strong-band precision, warm/cold latency,
-measured Railway cost — section 20) has not been run against real hardware or
-a consented evaluation set in the environment this commit was built in, and
-running it is the prerequisite for adding a reviewed entry to the manifest.
-Path B's steps are included below for when that happens; they are not
-something this runbook can complete on its own.
+`recognition-core` and `recognition-fusion`, which now have a reproducible
+provisional model manifest. The specification's S0 benchmark (top-five recall,
+Strong-band precision, warm/cold latency, measured Railway cost — section 20)
+has not been run because no consented evaluation set was provided. Path B can
+verify the real runtime locally, but it must not be described as having passed
+the accuracy/resource promotion gates until that evidence exists.
 
 ## Path A — deploy the worker and turn the flag on
 
@@ -126,14 +124,11 @@ no longer exist in the `media` Bucket under `stock-capture/<sessionId>/`.
 
 ## Path B — add the recognition and fusion services
 
-Do this only once `models/manifest.lock.json` has a reviewed entry for each
-model these services need (recognition-core's OCR/embedding/category models;
-recognition-fusion's vision-language model and its multimodal projector) —
-the promotion workflow that adds those entries, and the S0 benchmark that
-must pass first, are outside this runbook. Until then, do not create these
-services: `recognition-fusion`'s entrypoint refuses to start at all without
-real model files at the paths below, and `recognition-core` would start but
-permanently report `/health/ready` as `503`.
+Do this only with the reviewed manifest revision intended for the deployment.
+The current manifest includes recognition-core's OCR/embedding artefacts and
+recognition-fusion's LFM2.5-VL-3B model/projector. It is provisional because
+the S0 accuracy and resource benchmark was skipped; deployment must retain the
+manual/partial-assist posture until those measurements are supplied.
 
 ### 1. Create `recognition-core`
 
@@ -159,8 +154,8 @@ Retained, private, no public domain. Config as Code path
 
 ```text
 RUNTIME_TARGET=recognition-fusion
-RECOGNITION_FUSION_MODEL_PATH=/models/<path the manifest entry declares>
-RECOGNITION_FUSION_MMPROJ_PATH=/models/<the same entry's projector file>
+RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-3b-q4-0/LFM2.5-VL-3B-Q4_0.gguf
+RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-3b-q4-0/mmproj-F16.gguf
 RECOGNITION_FUSION_API_KEY=<a fresh 64-hex-character secret>
 ```
 
