@@ -28,6 +28,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { Kysely, Transaction } from "kysely";
 
 import { createItemInTransaction } from "../inventory/catalogue-writer";
+import { matchesStoredPhoto } from "../media/photos.service";
 import { requireQuantity } from "../inventory/stock.service";
 import { receiveInTransaction, requireLocation } from "../inventory/stock-writer";
 import { S3PrivateObjectStorage, type PresigningObjectStorage } from "../media/media-storage";
@@ -352,12 +353,10 @@ export class StockCaptureService {
       .executeTakeFirst();
 
     if (image === undefined) throw captureNotFound("That photograph");
-    if (image.media_type !== command.mediaType || image.byte_length !== command.bytes.length) {
-      throw uploadInvalid("That photograph no longer matches the declared upload.");
-    }
-
-    const digest = createHash("sha256").update(command.bytes).digest("hex");
-    if (digest !== image.sha256) {
+    if (
+      image.media_type !== command.mediaType ||
+      !matchesStoredPhoto(command.bytes, image.byte_length, image.sha256)
+    ) {
       throw uploadInvalid("That photograph no longer matches the declared upload.");
     }
 
