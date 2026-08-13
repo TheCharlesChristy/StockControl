@@ -1,17 +1,24 @@
 import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
 import DeleteRounded from "@mui/icons-material/DeleteRounded";
+import PhotoLibraryRounded from "@mui/icons-material/PhotoLibraryRounded";
 import { Alert, Box, Button, Card, CardMedia, IconButton, Stack, Typography } from "@mui/material";
-import { CAPTURE_MAX_PHOTOS, type CaptureImageMediaType } from "@stockcontrol/contracts";
+import { CAPTURE_MAX_PHOTOS } from "@stockcontrol/contracts";
 import { useCallback, useRef, useState, type ChangeEvent, type ReactElement } from "react";
 
 import { createBarcodeProvider, type BarcodeProvider } from "./barcode/provider";
 import { CaptureGuidance } from "./CaptureGuidance";
 import type { CapturedPhoto } from "./capture-reducer";
 
-const ACCEPTED_MEDIA_TYPES: readonly CaptureImageMediaType[] = ["image/jpeg", "image/webp"];
+/*
+ * What a camera roll may offer, which is not the same list as what may be
+ * uploaded: everything here is re-encoded to JPEG or WebP by `normaliseImage`
+ * before it leaves the device, so PNG is a fine thing to accept and not a
+ * `CaptureImageMediaType`. Conflating the two used to type a PNG as a media
+ * type the contract does not contain.
+ */
+const ACCEPTED_SOURCE_TYPES: readonly string[] = ["image/jpeg", "image/webp", "image/png"];
 
-const isCaptureMediaType = (type: string): type is CaptureImageMediaType =>
-  (ACCEPTED_MEDIA_TYPES as readonly string[]).includes(type) || type === "image/png";
+const isAcceptedSource = (type: string): boolean => ACCEPTED_SOURCE_TYPES.includes(type);
 
 interface CapturePhotosProps {
   readonly photos: readonly CapturedPhoto[];
@@ -40,7 +47,6 @@ export function CapturePhotos({
   barcodeProvider,
 }: CapturePhotosProps): ReactElement {
   const provider = useRef(barcodeProvider ?? createBarcodeProvider()).current;
-  const inputRef = useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
@@ -54,13 +60,13 @@ export function CapturePhotos({
       if (files.length === 0) return;
 
       const budget = CAPTURE_MAX_PHOTOS - photos.length;
-      const accepted = files.filter((file) => isCaptureMediaType(file.type)).slice(0, budget);
+      const accepted = files.filter((file) => isAcceptedSource(file.type)).slice(0, budget);
 
       if (accepted.length < files.length) {
         setLocalMessage(
           budget <= 0
             ? `You can add at most ${String(CAPTURE_MAX_PHOTOS)} photographs.`
-            : "Only JPEG or WebP photographs can be added.",
+            : "Only JPEG, WebP or PNG photographs can be added.",
         );
       } else {
         setLocalMessage(null);
@@ -86,7 +92,7 @@ export function CapturePhotos({
             ordinal,
             file,
             previewUrl: URL.createObjectURL(file),
-            mediaType: isCaptureMediaType(file.type) ? file.type : "image/jpeg",
+            sourceType: file.type,
             localCodes,
           });
         }),
@@ -135,25 +141,46 @@ export function CapturePhotos({
           </Card>
         ))}
 
+        {/*
+         * Two inputs, because `capture` is not a hint: a phone given it opens
+         * the camera and offers no way to reach a photograph already taken.
+         * Section 5.1 step 3 allows either, so both are offered.
+         */}
         {photos.length < CAPTURE_MAX_PHOTOS && (
-          <Button
-            component="label"
-            variant="outlined"
-            startIcon={<AddAPhotoRounded />}
-            disabled={scanning}
-            sx={{ width: 120, height: 120, flexDirection: "column" }}
-          >
-            {scanning ? "Scanning…" : "Add photo"}
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/jpeg,image/webp,image/png"
-              multiple
-              capture="environment"
-              hidden
-              onChange={handleFiles}
-            />
-          </Button>
+          <Stack spacing={1} sx={{ width: 120 }}>
+            <Button
+              component="label"
+              variant="outlined"
+              startIcon={<AddAPhotoRounded />}
+              disabled={scanning}
+              sx={{ height: 74, flexDirection: "column", px: 1 }}
+            >
+              {scanning ? "Scanning…" : "Take a photo"}
+              <input
+                type="file"
+                accept={ACCEPTED_SOURCE_TYPES.join(",")}
+                multiple
+                capture="environment"
+                hidden
+                onChange={handleFiles}
+              />
+            </Button>
+            <Button
+              component="label"
+              startIcon={<PhotoLibraryRounded />}
+              disabled={scanning}
+              sx={{ height: 38, px: 1 }}
+            >
+              Choose
+              <input
+                type="file"
+                accept={ACCEPTED_SOURCE_TYPES.join(",")}
+                multiple
+                hidden
+                onChange={handleFiles}
+              />
+            </Button>
+          </Stack>
         )}
       </Box>
 

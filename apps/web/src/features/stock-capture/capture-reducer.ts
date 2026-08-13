@@ -1,5 +1,4 @@
 import type {
-  CaptureImageMediaType,
   CommitCaptureEntryResponse,
   LocalBarcodeObservation,
   RecognitionCandidateView,
@@ -24,7 +23,9 @@ export interface CapturedPhoto {
   readonly ordinal: number;
   readonly file: File;
   readonly previewUrl: string;
-  readonly mediaType: CaptureImageMediaType;
+  /** What the camera or picker produced. The media type that is actually
+   *  uploaded is decided by `normaliseImage`, which re-encodes every file. */
+  readonly sourceType: string;
   readonly localCodes: readonly LocalBarcodeObservation[];
 }
 
@@ -34,6 +35,11 @@ export type ReceiptSelection =
       readonly itemId: string;
       readonly candidateId: string | null;
       readonly label: string;
+      /* Carried for the confirmation screen, which section 5.2 step 12 says
+       * must show the item and its unit — not the commit, which sends an id. */
+      readonly reference: string;
+      readonly unit: string;
+      readonly onHand: string;
     }
   | {
       readonly kind: "NewItem";
@@ -55,6 +61,12 @@ export type CaptureStage =
   | { readonly kind: "StartingBatch" }
   | { readonly kind: "BatchFailed"; readonly message: string }
   | { readonly kind: "BatchOverview"; readonly batch: StockCaptureBatchView }
+  /*
+   * A closed batch is not a batch overview. Leaving it on that screen left
+   * "Add another item" pointing at a batch the server would refuse, which is
+   * a dead end reachable by pressing the only other button on the page.
+   */
+  | { readonly kind: "BatchCompleted"; readonly batch: StockCaptureBatchView }
   | {
       readonly kind: "CapturingPhotos";
       readonly batch: StockCaptureBatchView;
@@ -73,6 +85,9 @@ export type CaptureStage =
       readonly kind: "AwaitingRecognition";
       readonly batch: StockCaptureBatchView;
       readonly session: RecognitionSessionSummaryView;
+      /** Consecutive failed status checks. A dropped connection used to leave
+       *  the progress bar turning with nothing behind it. */
+      readonly checkFailures: number;
     }
   | {
       readonly kind: "ReviewingCandidates";
@@ -95,6 +110,9 @@ export type CaptureStage =
       readonly kind: "Committed";
       readonly batch: StockCaptureBatchView;
       readonly result: CommitCaptureEntryResponse;
+      /** Where the person said it went, so the success screen can name it
+       *  rather than guessing from the item's balances. */
+      readonly locationId: string;
     }
   | {
       readonly kind: "SessionUnavailable";
@@ -102,9 +120,19 @@ export type CaptureStage =
       readonly session: RecognitionSessionSummaryView;
     };
 
+/** The item this visit added, kept so the batch can list what is in it. */
+export interface AddedEntry {
+  readonly itemId: string;
+  readonly reference: string;
+  readonly name: string;
+  readonly quantity: string;
+  readonly unit: string;
+}
+
 export type CaptureAction =
   | { readonly type: "BatchStartFailed"; readonly message: string }
   | { readonly type: "BatchReady"; readonly batch: StockCaptureBatchView }
+  | { readonly type: "BatchClosed"; readonly batch: StockCaptureBatchView }
   | { readonly type: "StartNewItem"; readonly batch: StockCaptureBatchView }
   | {
       readonly type: "SessionResumed";
@@ -129,9 +157,16 @@ export type CaptureAction =
       readonly message: string;
     }
   | { readonly type: "SessionPolled"; readonly session: RecognitionSessionView }
+  | { readonly type: "SessionCheckFailed" }
   | { readonly type: "ToggleAnalysisDetails" }
-  | { readonly type: "CandidateSelected"; readonly selection: ReceiptSelection }
-  | { readonly type: "ManualEntryStarted" }
+  /** `locationId` seeds the receipt from the batch default the person chose,
+   *  so a delivery into one store is not re-picked for every item in it. */
+  | {
+      readonly type: "CandidateSelected";
+      readonly selection: ReceiptSelection;
+      readonly locationId: string;
+    }
+  | { readonly type: "ManualEntryStarted"; readonly locationId: string }
   | { readonly type: "SelectionChanged"; readonly selection: ReceiptSelection }
   | { readonly type: "ReceiptDraftChanged"; readonly draft: Partial<ReceiptDraft> }
   | { readonly type: "ReceiptBackToCandidates" }
@@ -146,6 +181,9 @@ export type CaptureAction =
   | { readonly type: "ReturnToBatch"; readonly batch: StockCaptureBatchView };
 
 export const initialCaptureStage: CaptureStage = { kind: "StartingBatch" };
+
+const isCommitted = (session: RecognitionSessionSummaryView): boolean =>
+  session.status === "Committed";
 
 const EMPTY_DRAFT: ReceiptDraft = {
   quantity: "",
@@ -166,6 +204,9 @@ export const topCandidateSelection = (
       itemId: top.item.id,
       candidateId: top.id,
       label: top.item.name,
+      reference: top.item.reference,
+      unit: top.item.unit,
+      onHand: top.item.onHand,
     };
   }
 
@@ -192,6 +233,9 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
     case "BatchReady":
       return { kind: "BatchOverview", batch: action.batch };
 
+    case "BatchClosed":
+      return { kind: "BatchCompleted", batch: action.batch };
+
     case "StartNewItem":
       return {
         kind: "CapturingPhotos",
@@ -205,15 +249,20 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
       if (stage.kind !== "BatchOverview") return stage;
       const { session } = action;
 
-      if (session.status === "ReviewReady" || session.status === "Committed") {
+      if (session.status === "ReviewReady") {
         return { kind: "ReviewingCandidates", batch: action.batch, session, showDetails: false };
       }
 
-      if (session.status === "Failed" || session.status === "Expired") {
+      /*
+       * `Committed` used to land on the review screen, which invited a second
+       * confirmation for stock that had already been received — the server
+       * refuses it, but only after the person has filled the form in again.
+       */
+      if (session.status === "Failed" || session.status === "Expired" || isCommitted(session)) {
         return { kind: "SessionUnavailable", batch: action.batch, session };
       }
 
-      return { kind: "AwaitingRecognition", batch: action.batch, session };
+      return { kind: "AwaitingRecognition", batch: action.batch, session, checkFailures: 0 };
     }
 
     case "PhotoAdded": {
@@ -257,7 +306,12 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
 
     case "UploadsCompleted": {
       if (stage.kind !== "Uploading") return stage;
-      return { kind: "AwaitingRecognition", batch: stage.batch, session: action.session };
+      return {
+        kind: "AwaitingRecognition",
+        batch: stage.batch,
+        session: action.session,
+        checkFailures: 0,
+      };
     }
 
     case "UploadFailed": {
@@ -278,7 +332,7 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
 
       const { session } = action;
 
-      if (session.status === "ReviewReady" || session.status === "Committed") {
+      if (session.status === "ReviewReady") {
         return {
           kind: "ReviewingCandidates",
           batch: stage.batch,
@@ -287,11 +341,16 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
         };
       }
 
-      if (session.status === "Failed" || session.status === "Expired") {
+      if (session.status === "Failed" || session.status === "Expired" || isCommitted(session)) {
         return { kind: "SessionUnavailable", batch: stage.batch, session };
       }
 
-      return { kind: "AwaitingRecognition", batch: stage.batch, session };
+      return { kind: "AwaitingRecognition", batch: stage.batch, session, checkFailures: 0 };
+    }
+
+    case "SessionCheckFailed": {
+      if (stage.kind !== "AwaitingRecognition") return stage;
+      return { ...stage, checkFailures: stage.checkFailures + 1 };
     }
 
     case "ToggleAnalysisDetails": {
@@ -306,7 +365,7 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
         batch: stage.batch,
         session: stage.session,
         selection: action.selection,
-        draft: { ...EMPTY_DRAFT, locationId: stage.batch.defaultLocationId ?? "" },
+        draft: { ...EMPTY_DRAFT, locationId: action.locationId },
         submitting: false,
         error: null,
         duplicatePartNumberConflict: false,
@@ -328,7 +387,7 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
           barcode: null,
           partNumber: null,
         },
-        draft: { ...EMPTY_DRAFT, locationId: stage.batch.defaultLocationId ?? "" },
+        draft: { ...EMPTY_DRAFT, locationId: action.locationId },
         submitting: false,
         error: null,
         duplicatePartNumberConflict: false,
@@ -375,8 +434,10 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
       };
     }
 
-    case "CommitSucceeded":
-      return { kind: "Committed", batch: action.result.batch, result: action.result };
+    case "CommitSucceeded": {
+      const locationId = stage.kind === "EnteringReceipt" ? stage.draft.locationId : "";
+      return { kind: "Committed", batch: action.result.batch, result: action.result, locationId };
+    }
 
     case "SessionCancelled":
       return { kind: "BatchOverview", batch: action.batch };

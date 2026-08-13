@@ -1,4 +1,5 @@
 import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
+import CheckCircleOutlineRounded from "@mui/icons-material/CheckCircleOutlineRounded";
 import {
   Alert,
   Button,
@@ -6,19 +7,30 @@ import {
   CardActionArea,
   CardContent,
   Chip,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  MenuItem,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import type {
+  LocationView,
   RecognitionSessionStatus,
   RecognitionSessionSummaryView,
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
+
+import { formatQuantity } from "../../components/DataStates";
+import type { AddedEntry } from "./capture-reducer";
 
 const statusLabels: Readonly<Record<RecognitionSessionStatus, string>> = {
-  AwaitingUpload: "Uploading",
-  Queued: "Queued",
+  AwaitingUpload: "Sending photographs",
+  Queued: "Waiting its turn",
   ProcessingBarcode: "Working",
   ProcessingImages: "Working",
   Enriching: "Working",
@@ -39,8 +51,14 @@ const terminalStatuses: ReadonlySet<RecognitionSessionStatus> = new Set([
 
 interface BatchSummaryProps {
   readonly batch: StockCaptureBatchView;
+  readonly added: readonly AddedEntry[];
+  readonly locations: readonly LocationView[];
+  readonly defaultLocationId: string;
+  readonly notice: string | null;
   readonly error: string | null;
   readonly finishing: boolean;
+  readonly onDefaultLocationChange: (locationId: string) => void;
+  readonly onDismissNotice: () => void;
   readonly onStartNewItem: () => void;
   readonly onResumeSession: (session: RecognitionSessionSummaryView) => void;
   readonly onFinishBatch: () => void;
@@ -53,25 +71,120 @@ interface BatchSummaryProps {
  */
 export function BatchSummary({
   batch,
+  added,
+  locations,
+  defaultLocationId,
+  notice,
   error,
   finishing,
+  onDefaultLocationChange,
+  onDismissNotice,
   onStartNewItem,
   onResumeSession,
   onFinishBatch,
 }: BatchSummaryProps): ReactElement {
   const unresolved = batch.sessions.filter((session) => !terminalStatuses.has(session.status));
+  const stores = locations.filter((location) => location.kind === "Store" && location.isActive);
+  const empty = batch.committedEntryCount === 0;
+  /*
+   * Sessions committed before this visit have no item name to show — the batch
+   * view carries a count and an id, not a catalogue row. Rather than fetch one
+   * item at a time, those fall back to a plain row that still links through.
+   */
+  const earlierCommitted = batch.sessions.filter(
+    (session) =>
+      session.status === "Committed" &&
+      session.committedItemId !== null &&
+      !added.some((entry) => entry.itemId === session.committedItemId),
+  );
 
   return (
     <Stack spacing={2.5}>
+      {notice !== null && (
+        <Alert severity="info" onClose={onDismissNotice}>
+          {notice}
+        </Alert>
+      )}
+
       <Typography variant="body1">
-        {batch.committedEntryCount === 0
+        {empty
           ? "Nothing has been added to stock yet in this batch."
           : `${String(batch.committedEntryCount)} ${
               batch.committedEntryCount === 1 ? "item has" : "items have"
             } been added to stock in this batch.`}
       </Typography>
 
-      {error !== null && <Alert severity="error">{error}</Alert>}
+      {error !== null && (
+        <Alert severity="error" role="alert">
+          {error}
+        </Alert>
+      )}
+
+      {/*
+       * Specification section 5.1 step 2. One delivery usually lands in one
+       * store, and picking it here means it is not picked again for every
+       * item in the delivery.
+       */}
+      <TextField
+        select
+        label="Where this delivery is going"
+        value={defaultLocationId}
+        helperText="Used as the starting point for each item. You can change it per item."
+        sx={{ maxWidth: 420 }}
+        onChange={(event) => onDefaultLocationChange(event.target.value)}
+      >
+        <MenuItem value="">No default — choose per item</MenuItem>
+        {stores.map((store) => (
+          <MenuItem key={store.id} value={store.id}>
+            {store.code} — {store.name}
+          </MenuItem>
+        ))}
+      </TextField>
+
+      {added.length > 0 && (
+        <Stack spacing={0.5}>
+          <Typography variant="subtitle2">Added in this batch</Typography>
+          <List dense disablePadding>
+            {added.map((entry) => (
+              <ListItem key={`${entry.itemId}-${entry.reference}-${entry.quantity}`} disableGutters>
+                <ListItemIcon sx={{ minWidth: 34 }}>
+                  <CheckCircleOutlineRounded color="success" fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={`${formatQuantity(entry.quantity)} ${entry.unit} — ${entry.name}`}
+                  secondary={entry.reference}
+                />
+                <Button size="small" component={RouterLink} to={`/inventory/${entry.itemId}`}>
+                  View
+                </Button>
+              </ListItem>
+            ))}
+          </List>
+        </Stack>
+      )}
+
+      {earlierCommitted.length > 0 && (
+        <Stack spacing={0.5}>
+          <Typography variant="subtitle2">Added earlier in this batch</Typography>
+          <List dense disablePadding>
+            {earlierCommitted.map((session) => (
+              <ListItem key={session.id} disableGutters>
+                <ListItemIcon sx={{ minWidth: 34 }}>
+                  <CheckCircleOutlineRounded color="success" fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Item added" />
+                <Button
+                  size="small"
+                  component={RouterLink}
+                  to={`/inventory/${session.committedItemId ?? ""}`}
+                >
+                  View
+                </Button>
+              </ListItem>
+            ))}
+          </List>
+        </Stack>
+      )}
 
       {unresolved.length > 0 && (
         <Stack spacing={1.5}>
@@ -97,7 +210,7 @@ export function BatchSummary({
 
       <Stack direction="row" spacing={1.5} justifyContent="space-between">
         <Button variant="contained" startIcon={<AddAPhotoRounded />} onClick={onStartNewItem}>
-          Add another item
+          {empty ? "Photograph an item" : "Add another item"}
         </Button>
         <Button onClick={onFinishBatch} disabled={finishing}>
           {finishing ? "Finishing…" : "Finish this batch"}

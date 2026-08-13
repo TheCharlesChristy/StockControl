@@ -1,11 +1,22 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
-import { Alert, Box, Button, LinearProgress, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  LinearProgress,
+  Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  Typography,
+} from "@mui/material";
 import type {
   CommitCaptureEntryRequest,
   LocationView,
   RecognitionSessionSummaryView,
 } from "@stockcontrol/contracts";
-import { useCallback, useEffect, useReducer, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
 import { ApiError } from "../../api/ApiClient";
@@ -15,23 +26,66 @@ import type { BarcodeProvider } from "./barcode/provider";
 import { BatchSummary } from "./BatchSummary";
 import { CandidateReview } from "./CandidateReview";
 import { CapturePhotos } from "./CapturePhotos";
-import { captureReducer, initialCaptureStage, type CapturedPhoto } from "./capture-reducer";
+import {
+  captureReducer,
+  initialCaptureStage,
+  type AddedEntry,
+  type CaptureStage,
+  type CapturedPhoto,
+} from "./capture-reducer";
 import { clearCaptureProgress, loadCaptureProgress, saveCaptureProgress } from "./capture-storage";
+import { createIdempotencyKeeper } from "./idempotency";
 import { ReceiptConfirmation } from "./ReceiptConfirmation";
 import { RecognitionProgress } from "./RecognitionProgress";
-import { normaliseImage, uploadToGrant } from "./upload/normalise";
+import { SessionUnavailable } from "./SessionUnavailable";
+import { CaptureSuccess } from "./CaptureSuccess";
+import {
+  CaptureUploadError,
+  normaliseImage,
+  SourceImageRejectedError,
+  uploadToGrant,
+} from "./upload/normalise";
 
 const POLL_INITIAL_MS = 2_000;
 const POLL_MAX_MS = 10_000;
 const POLL_BACKOFF_STEP_MS = 1_000;
 
+/*
+ * `messageFor` used to trust only ApiError, which quietly threw away the two
+ * most useful messages the upload leg produces — "that photograph is too
+ * large" and "check your connection" — and replaced both with a generic line
+ * that tells the person nothing they can act on.
+ */
 const messageFor = (caught: unknown, fallback: string): string =>
-  caught instanceof ApiError ? caught.message : fallback;
+  caught instanceof ApiError ||
+  caught instanceof SourceImageRejectedError ||
+  caught instanceof CaptureUploadError
+    ? caught.message
+    : fallback;
 
 const newClientId = (): string => crypto.randomUUID();
 
 const revokePreviews = (photos: readonly CapturedPhoto[]): void => {
   for (const photo of photos) URL.revokeObjectURL(photo.previewUrl);
+};
+
+const STEPS = ["Photos", "Suggestions", "Confirm"] as const;
+
+/** Which of the three steps a stage belongs to, or null where the stepper
+ *  would be noise — the batch screen is not part of one item's journey. */
+const stepFor = (stage: CaptureStage): number | null => {
+  switch (stage.kind) {
+    case "CapturingPhotos":
+    case "Uploading":
+      return 0;
+    case "AwaitingRecognition":
+    case "ReviewingCandidates":
+      return 1;
+    case "EnteringReceipt":
+      return 2;
+    default:
+      return null;
+  }
 };
 
 /**
@@ -54,6 +108,18 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
   const pollDelayRef = useRef(POLL_INITIAL_MS);
   const [finishing, setFinishing] = useState(false);
   const [batchActionError, setBatchActionError] = useState<string | null>(null);
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
+  const [defaultLocationId, setDefaultLocationId] = useState("");
+  const [addedEntries, setAddedEntries] = useState<readonly AddedEntry[]>([]);
+  const [checkNonce, setCheckNonce] = useState(0);
+
+  /*
+   * Specification section 12. Both keys are held rather than minted per
+   * attempt: a retry after a lost response must be recognisable to the server
+   * as the same command, or one delivery becomes two stock receipts.
+   */
+  const sessionKeys = useRef(createIdempotencyKeeper()).current;
+  const entryKeys = useRef(createIdempotencyKeeper()).current;
 
   const loadLocations = useCallback((signal: AbortSignal) => api.listLocations(signal), [api]);
   const locations = useResource(loadLocations);
@@ -75,6 +141,7 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
           defaultLocationId: null,
         });
         saveCaptureProgress({ batchId: batch.id, sessionId: null });
+        setDefaultLocationId(batch.defaultLocationId ?? "");
         dispatch({ type: "BatchReady", batch });
       } catch (caught) {
         dispatch({
@@ -94,13 +161,19 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         const batch = await api.getCaptureBatch(progress.batchId);
         dispatch({ type: "BatchReady", batch });
         saveCaptureProgress({ batchId: batch.id, sessionId: progress.sessionId });
+        setDefaultLocationId(batch.defaultLocationId ?? "");
 
         if (progress.sessionId !== null) {
           const session = await api.getCaptureSession(progress.sessionId);
           dispatch({ type: "SessionResumed", batch, session });
         }
       } catch {
+        /* Losing the previous batch is worth saying out loud: its photographs
+         * and part-finished items are not in the new one. */
         clearCaptureProgress();
+        setBatchNotice(
+          "The batch you had open could not be reopened, so this is a new one. Anything already added to stock is safe.",
+        );
         await startFreshBatch();
       }
     };
@@ -116,6 +189,9 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     if (stage.kind !== "Uploading") return;
 
     if (stage.session.status !== "AwaitingUpload") {
+      /* The barcode short cut reaches here having uploaded nothing, so this is
+       * the only place its previews are ever released. */
+      revokePreviews(photosRef.current);
       dispatch({ type: "UploadsCompleted", session: stage.session });
       return;
     }
@@ -208,7 +284,11 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         .then((session) => {
           if (!cancelled) dispatch({ type: "SessionPolled", session });
         })
-        .catch(() => undefined)
+        .catch(() => {
+          /* Swallowing this left a progress bar turning over a connection
+           * that had gone away, with nothing on screen ever saying so. */
+          if (!cancelled) dispatch({ type: "SessionCheckFailed" });
+        })
         .finally(() => {
           if (cancelled) return;
           if (!firstCheck) {
@@ -227,7 +307,7 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [api, awaitingSessionId]);
+  }, [api, awaitingSessionId, checkNonce]);
 
   useEffect(() => {
     return (): void => {
@@ -238,9 +318,11 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
   const startNewItem = useCallback((): void => {
     if (stage.kind !== "BatchOverview") return;
     photosRef.current = [];
+    sessionKeys.reset();
     setBatchActionError(null);
+    setBatchNotice(null);
     dispatch({ type: "StartNewItem", batch: stage.batch });
-  }, [stage]);
+  }, [sessionKeys, stage]);
 
   const finishBatch = useCallback((): void => {
     if (stage.kind !== "BatchOverview") return;
@@ -250,7 +332,7 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
       .completeCaptureBatch(stage.batch.id)
       .then((batch) => {
         clearCaptureProgress();
-        dispatch({ type: "BatchReady", batch });
+        dispatch({ type: "BatchClosed", batch });
       })
       .catch((caught: unknown) => {
         setBatchActionError(messageFor(caught, "The batch could not be finished."));
@@ -259,6 +341,31 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         setFinishing(false);
       });
   }, [api, stage]);
+
+  const startAnotherBatch = useCallback((): void => {
+    clearCaptureProgress();
+    setAddedEntries([]);
+    setBatchNotice(null);
+    setBatchActionError(null);
+    startedRef.current = false;
+    entryKeys.reset();
+    sessionKeys.reset();
+    api
+      .startCaptureBatch({ clientBatchId: newClientId(), defaultLocationId: null })
+      .then((batch) => {
+        saveCaptureProgress({ batchId: batch.id, sessionId: null });
+        setDefaultLocationId(batch.defaultLocationId ?? "");
+        startedRef.current = true;
+        dispatch({ type: "BatchReady", batch });
+      })
+      .catch((caught: unknown) => {
+        startedRef.current = true;
+        dispatch({
+          type: "BatchStartFailed",
+          message: messageFor(caught, "A capture batch could not be started."),
+        });
+      });
+  }, [api, entryKeys, sessionKeys]);
 
   const resumeSession = useCallback(
     (summary: RecognitionSessionSummaryView): void => {
@@ -298,12 +405,19 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     photosRef.current = photos;
     dispatch({ type: "SessionSubmitting" });
 
+    const localCodes = photos.flatMap((photo) => photo.localCodes);
+    const clientSessionId = sessionKeys.keyFor({
+      batchId: batch.id,
+      photoCount: photos.length,
+      localCodes,
+    });
+
     api
       .startCaptureSession({
-        clientSessionId: newClientId(),
+        clientSessionId,
         batchId: batch.id,
         photoCount: photos.length,
-        localCodes: photos.flatMap((photo) => photo.localCodes),
+        localCodes,
       })
       .then(({ session }) => {
         saveCaptureProgress({ batchId: batch.id, sessionId: session.id });
@@ -316,19 +430,48 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
           message: messageFor(caught, "The session could not be started."),
         });
       });
-  }, [api, stage]);
+  }, [api, sessionKeys, stage]);
 
   const cancelSession = useCallback((): void => {
     if (stage.kind !== "AwaitingRecognition" && stage.kind !== "ReviewingCandidates") return;
     const { batch, session } = stage;
     saveCaptureProgress({ batchId: batch.id, sessionId: null });
+    sessionKeys.reset();
     api
       .cancelCaptureSession(session.id)
-      .catch(() => undefined)
+      .catch((caught: unknown) => {
+        /* The screen returns to the batch either way — but if the server did
+         * not accept the cancellation, its photographs are still queued. */
+        setBatchActionError(
+          messageFor(
+            caught,
+            "That item was closed here, but the server may still be working on it.",
+          ),
+        );
+      })
       .finally(() => {
         dispatch({ type: "SessionCancelled", batch });
       });
-  }, [api, stage]);
+  }, [api, sessionKeys, stage]);
+
+  const abandonSession = useCallback((): void => {
+    if (stage.kind !== "SessionUnavailable") return;
+    sessionKeys.reset();
+    saveCaptureProgress({ batchId: stage.batch.id, sessionId: null });
+    dispatch({ type: "ReturnToBatch", batch: stage.batch });
+  }, [sessionKeys, stage]);
+
+  const retrySession = useCallback((): void => {
+    if (stage.kind !== "SessionUnavailable") return;
+    photosRef.current = [];
+    sessionKeys.reset();
+    saveCaptureProgress({ batchId: stage.batch.id, sessionId: null });
+    dispatch({ type: "StartNewItem", batch: stage.batch });
+  }, [sessionKeys, stage]);
+
+  const checkNow = useCallback((): void => {
+    setCheckNonce((nonce) => nonce + 1);
+  }, []);
 
   const toggleDetails = useCallback((): void => {
     dispatch({ type: "ToggleAnalysisDetails" });
@@ -339,14 +482,17 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     const { batch, session, selection, draft } = stage;
     dispatch({ type: "CommitSubmitting" });
 
-    const request: CommitCaptureEntryRequest = {
-      clientEntryId: newClientId(),
+    const command = {
       sessionId: session.id,
       selection:
         selection.kind === "ExistingItem"
-          ? { kind: "ExistingItem", itemId: selection.itemId, candidateId: selection.candidateId }
+          ? {
+              kind: "ExistingItem" as const,
+              itemId: selection.itemId,
+              candidateId: selection.candidateId,
+            }
           : {
-              kind: "NewItem",
+              kind: "NewItem" as const,
               candidateId: selection.candidateId,
               reference: selection.reference,
               name: selection.name,
@@ -359,10 +505,30 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
       acknowledgedDuplicatePartNumber: draft.acknowledgedDuplicatePartNumber,
     };
 
+    const request: CommitCaptureEntryRequest = {
+      clientEntryId: entryKeys.keyFor(command),
+      ...command,
+    };
+
     api
       .commitCaptureEntry(batch.id, request)
       .then((result) => {
-        clearCaptureProgress();
+        /* Not cleared: the batch is still open and still worth returning to.
+         * Clearing it here meant a refresh straight after adding an item
+         * silently abandoned the batch that item went into. */
+        saveCaptureProgress({ batchId: result.batch.id, sessionId: null });
+        entryKeys.reset();
+        sessionKeys.reset();
+        setAddedEntries((current) => [
+          ...current,
+          {
+            itemId: result.item.id,
+            reference: result.item.reference,
+            name: result.item.name,
+            quantity: draft.quantity,
+            unit: result.item.unit,
+          },
+        ]);
         dispatch({ type: "CommitSucceeded", result });
       })
       .catch((caught: unknown) => {
@@ -374,7 +540,9 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
           duplicatePartNumberConflict: partNumberError !== undefined,
         });
       });
-  }, [api, stage]);
+  }, [api, entryKeys, sessionKeys, stage]);
+
+  const activeStep = useMemo(() => stepFor(stage), [stage]);
 
   return (
     <Box>
@@ -393,19 +561,66 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         description="Photograph an item and let StockControl suggest what it is. Nothing changes in stock until you confirm it."
       />
 
+      {activeStep !== null && (
+        <Stepper activeStep={activeStep} sx={{ mb: 3, maxWidth: 560 }}>
+          {STEPS.map((label) => (
+            <Step key={label}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+      )}
+
       {stage.kind === "StartingBatch" && <LoadingRows rows={6} label="Starting capture" />}
 
-      {stage.kind === "BatchFailed" && <Alert severity="error">{stage.message}</Alert>}
+      {stage.kind === "BatchFailed" && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={startAnotherBatch}>
+              Try again
+            </Button>
+          }
+        >
+          {stage.message}
+        </Alert>
+      )}
 
       {stage.kind === "BatchOverview" && (
         <BatchSummary
           batch={stage.batch}
+          added={addedEntries}
+          locations={locationList}
+          defaultLocationId={defaultLocationId}
+          notice={batchNotice}
           error={batchActionError}
           finishing={finishing}
+          onDefaultLocationChange={setDefaultLocationId}
+          onDismissNotice={() => setBatchNotice(null)}
           onStartNewItem={startNewItem}
           onResumeSession={resumeSession}
           onFinishBatch={finishBatch}
         />
+      )}
+
+      {stage.kind === "BatchCompleted" && (
+        <Stack spacing={2.5}>
+          <Alert severity="success">
+            {stage.batch.committedEntryCount === 0
+              ? "That batch is finished. Nothing was added to stock."
+              : `That batch is finished. ${String(stage.batch.committedEntryCount)} ${
+                  stage.batch.committedEntryCount === 1 ? "item was" : "items were"
+                } added to stock.`}
+          </Alert>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <Button variant="contained" onClick={startAnotherBatch}>
+              Start another batch
+            </Button>
+            <Button component={RouterLink} to="/inventory" variant="outlined">
+              Back to inventory
+            </Button>
+          </Stack>
+        </Stack>
       )}
 
       {stage.kind === "CapturingPhotos" && (
@@ -429,13 +644,21 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
             sx={{ width: "100%", maxWidth: 360 }}
           />
           <Typography role="status" aria-live="polite">
-            Uploading photographs — {stage.uploadedCount} of {stage.totalCount}
+            Sending photographs — {stage.uploadedCount} of {stage.totalCount}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Keep this page open until they have all been sent.
           </Typography>
         </Stack>
       )}
 
       {stage.kind === "AwaitingRecognition" && (
-        <RecognitionProgress status={stage.session.status} onCancel={cancelSession} />
+        <RecognitionProgress
+          status={stage.session.status}
+          checkFailures={stage.checkFailures}
+          onCheckNow={checkNow}
+          onCancel={cancelSession}
+        />
       )}
 
       {stage.kind === "ReviewingCandidates" && (
@@ -443,8 +666,12 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
           session={stage.session}
           showDetails={stage.showDetails}
           onToggleDetails={toggleDetails}
-          onSelect={(selection) => dispatch({ type: "CandidateSelected", selection })}
-          onManualEntry={() => dispatch({ type: "ManualEntryStarted" })}
+          onSelect={(selection) =>
+            dispatch({ type: "CandidateSelected", selection, locationId: defaultLocationId })
+          }
+          onManualEntry={() =>
+            dispatch({ type: "ManualEntryStarted", locationId: defaultLocationId })
+          }
           onCancel={cancelSession}
         />
       )}
@@ -454,6 +681,8 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
           selection={stage.selection}
           draft={stage.draft}
           locations={locationList}
+          locationsFailed={locations.status === "error"}
+          onReloadLocations={locations.reload}
           submitting={stage.submitting}
           error={stage.error}
           duplicatePartNumberConflict={stage.duplicatePartNumberConflict}
@@ -465,38 +694,20 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
       )}
 
       {stage.kind === "SessionUnavailable" && (
-        <Alert
-          severity="warning"
-          action={
-            <Button
-              color="inherit"
-              size="small"
-              onClick={() => dispatch({ type: "ReturnToBatch", batch: stage.batch })}
-            >
-              Back to batch
-            </Button>
-          }
-        >
-          {stage.session.status === "Expired"
-            ? "This item took too long and was not recognised. Start again."
-            : "This item could not be recognised. Start again, or enter it yourself."}
-        </Alert>
+        <SessionUnavailable
+          session={stage.session}
+          onRetry={retrySession}
+          onBackToBatch={abandonSession}
+        />
       )}
 
       {stage.kind === "Committed" && (
-        <Stack spacing={2}>
-          <Alert severity="success">
-            {stage.result.createdItem ? "New item created and stock received." : "Stock received."}
-          </Alert>
-          <Box>
-            <Button
-              variant="contained"
-              onClick={() => dispatch({ type: "ReturnToBatch", batch: stage.batch })}
-            >
-              Back to batch
-            </Button>
-          </Box>
-        </Stack>
+        <CaptureSuccess
+          result={stage.result}
+          locationId={stage.locationId}
+          locations={locationList}
+          onBackToBatch={() => dispatch({ type: "ReturnToBatch", batch: stage.batch })}
+        />
       )}
     </Box>
   );

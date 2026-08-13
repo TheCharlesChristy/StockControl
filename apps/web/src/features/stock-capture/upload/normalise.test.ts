@@ -126,10 +126,73 @@ describe("uploadToGrant", () => {
 
     await expect(
       uploadToGrant(
-        { url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1", mediaType: "image/webp" },
+        {
+          url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1",
+          mediaType: "image/webp",
+        },
         image,
         fetchImplementation,
       ),
-    ).rejects.toThrow("could not be uploaded");
+    ).rejects.toThrow("could not store that photograph");
+  });
+
+  /*
+   * A stockroom's wifi drops packets. Failing the whole session on the first
+   * one threw away every photograph already taken and sent.
+   */
+  it("retries a dropped connection and succeeds on a later attempt", async () => {
+    let attempts = 0;
+    const fetchImplementation = vi.fn().mockImplementation(() => {
+      attempts += 1;
+      return attempts < 3
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve(new Response(null, { status: 200 }));
+    });
+    const image = await normaliseImage(sourceFile(), fakeDependencies());
+
+    await uploadToGrant(
+      { url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1", mediaType: "image/webp" },
+      image,
+      fetchImplementation,
+      () => Promise.resolve(),
+    );
+
+    expect(attempts).toBe(3);
+  });
+
+  it("gives up rather than retrying a refusal that will refuse again", async () => {
+    const fetchImplementation = vi.fn().mockResolvedValue(new Response(null, { status: 415 }));
+    const image = await normaliseImage(sourceFile(), fakeDependencies());
+
+    await expect(
+      uploadToGrant(
+        {
+          url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1",
+          mediaType: "image/webp",
+        },
+        image,
+        fetchImplementation as unknown as typeof fetch,
+        () => Promise.resolve(),
+      ),
+    ).rejects.toThrow("was not accepted");
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+  });
+
+  it("stops retrying a server failure after a bounded number of attempts", async () => {
+    const fetchImplementation = vi.fn().mockResolvedValue(new Response(null, { status: 500 }));
+    const image = await normaliseImage(sourceFile(), fakeDependencies());
+
+    await expect(
+      uploadToGrant(
+        {
+          url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1",
+          mediaType: "image/webp",
+        },
+        image,
+        fetchImplementation as unknown as typeof fetch,
+        () => Promise.resolve(),
+      ),
+    ).rejects.toThrow("could not store that photograph");
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
   });
 });

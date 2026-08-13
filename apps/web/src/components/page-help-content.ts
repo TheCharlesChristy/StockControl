@@ -162,6 +162,31 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
     );
   }
 
+  if (path === "/stock-capture") {
+    return content(
+      "Add stock",
+      "Photograph an item, check what StockControl thinks it is, then confirm the quantity and where it went.",
+      [
+        guidedStep(
+          "Set where the delivery is going",
+          "Choose the store once for the whole batch. Each item starts from that store, and you can still change it for any single item.",
+        ),
+        guidedStep(
+          "Photograph the item",
+          "Take one to five photographs, or choose ones you have already taken. Extra angles and a close-up of a label or barcode help. A readable barcode usually identifies the item on its own, without waiting.",
+        ),
+        guidedStep(
+          "Check the suggestion",
+          "The best match is marked. Strong, Possible and Weak describe how much the evidence supports each one. Show analysis details lists what was checked for every photograph. Choose None are correct to type the item in yourself.",
+        ),
+        guidedStep(
+          "Confirm the receipt",
+          "Enter the quantity and confirm the store. Nothing changes in stock until you select Confirm receipt, and the next screen shows the item's reference and its new balance.",
+        ),
+      ],
+    );
+  }
+
   if (path.startsWith("/inventory/")) {
     return content(
       "Item details",

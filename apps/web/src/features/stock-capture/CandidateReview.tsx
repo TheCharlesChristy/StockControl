@@ -12,14 +12,22 @@ import {
 } from "@mui/material";
 import type { ConfidenceBand, RecognitionSessionView } from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { AnalysisDetails } from "./AnalysisDetails";
-import type { ReceiptSelection } from "./capture-reducer";
+import { topCandidateSelection, type ReceiptSelection } from "./capture-reducer";
 
 const confidenceColor: Readonly<Record<ConfidenceBand, "success" | "info" | "default">> = {
   Strong: "success",
   Possible: "info",
   Weak: "default",
+};
+
+/* A band is only useful if the reader knows what it is claiming. */
+const confidenceMeaning: Readonly<Record<ConfidenceBand, string>> = {
+  Strong: "the evidence points clearly at this item",
+  Possible: "it matches, but check it before confirming",
+  Weak: "a long shot — check it carefully",
 };
 
 const selectionFor = (
@@ -31,6 +39,9 @@ const selectionFor = (
       itemId: candidate.item.id,
       candidateId: candidate.id,
       label: candidate.item.name,
+      reference: candidate.item.reference,
+      unit: candidate.item.unit,
+      onHand: candidate.item.onHand,
     };
   }
 
@@ -72,23 +83,40 @@ export function CandidateReview({
   onManualEntry,
   onCancel,
 }: CandidateReviewProps): ReactElement {
+  /* Five cards of equal weight is a decision, not a suggestion. Naming the one
+   * the pipeline actually ranked first turns it back into a suggestion. */
+  const best = topCandidateSelection(session.candidates);
+  const bestCandidateId = best === null ? null : best.candidateId;
+
   return (
     <Stack spacing={2}>
       {session.candidates.length === 0 && (
         <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
           {session.recommendManualEntry
-            ? "Nothing was recognised. Enter the item yourself below."
+            ? "Nothing was recognised. Choose “None are correct” to type the item in yourself."
             : "No suggestions yet."}
         </Alert>
+      )}
+
+      {session.candidates.length > 0 && (
+        <Typography variant="body2" color="text.secondary">
+          Choose the item these photographs show. Nothing changes in stock until you confirm it on
+          the next screen.
+        </Typography>
       )}
 
       <Stack spacing={1.5}>
         {session.candidates.map((candidate) => {
           const selection = selectionFor(candidate);
           const archived = candidate.item !== null && !candidate.item.isActive;
+          const isBest = bestCandidateId !== null && candidate.id === bestCandidateId;
 
           return (
-            <Card key={candidate.id} variant="outlined">
+            <Card
+              key={candidate.id}
+              variant="outlined"
+              sx={isBest ? { borderColor: "primary.main", borderWidth: 2 } : undefined}
+            >
               <CardActionArea
                 disabled={!candidate.selectable || selection === null}
                 onClick={() => {
@@ -98,12 +126,20 @@ export function CandidateReview({
                 <CardContent>
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                     <Stack spacing={0.5}>
+                      {isBest && (
+                        <Chip
+                          size="small"
+                          color="primary"
+                          label="Best match"
+                          sx={{ alignSelf: "flex-start" }}
+                        />
+                      )}
                       <Typography variant="subtitle1">
                         {candidate.item?.name ?? candidate.identity.name}
                       </Typography>
                       {candidate.item !== null && (
                         <Typography variant="body2" color="text.secondary">
-                          {candidate.item.reference}
+                          {candidate.item.reference} · {candidate.item.unit}
                         </Typography>
                       )}
                       <Stack direction="row" spacing={0.75} flexWrap="wrap">
@@ -118,7 +154,8 @@ export function CandidateReview({
                       </Stack>
                       {archived && (
                         <Typography variant="body2" color="warning.main">
-                          This item is archived and cannot receive stock directly.
+                          This item is archived and cannot receive stock. Bring it back into use
+                          first.
                         </Typography>
                       )}
                     </Stack>
@@ -130,10 +167,30 @@ export function CandidateReview({
                   </Stack>
                 </CardContent>
               </CardActionArea>
+              {archived && (
+                <Box sx={{ px: 2, pb: 1.5 }}>
+                  <Button
+                    size="small"
+                    component={RouterLink}
+                    to={`/inventory/${candidate.item.id}`}
+                  >
+                    Open this item
+                  </Button>
+                </Box>
+              )}
             </Card>
           );
         })}
       </Stack>
+
+      {session.candidates.length > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          {(["Strong", "Possible", "Weak"] as const)
+            .map((band) => `${band} — ${confidenceMeaning[band]}`)
+            .join(". ")}
+          .
+        </Typography>
+      )}
 
       <Box>
         <Button size="small" onClick={onToggleDetails}>
