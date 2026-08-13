@@ -98,20 +98,24 @@ describe("normaliseImage", () => {
 });
 
 describe("uploadToGrant", () => {
-  it("PUTs the encoded file with the declared content type", async () => {
+  it("PUTs the encoded file through the authenticated same-origin route", async () => {
     const fetchImplementation = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     const dependencies = fakeDependencies();
     const image = await normaliseImage(sourceFile(), dependencies);
 
     await uploadToGrant(
-      { url: "https://example.invalid/upload", mediaType: "image/webp" },
+      { url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1", mediaType: "image/webp" },
       image,
       fetchImplementation,
     );
 
     expect(fetchImplementation).toHaveBeenCalledWith(
-      "https://example.invalid/upload",
-      expect.objectContaining({ method: "PUT", headers: { "content-type": "image/webp" } }),
+      "/api/v1/stock-capture/sessions/session-1/uploads/image-1",
+      expect.objectContaining({
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": "image/webp" },
+      }),
     );
   });
 
@@ -122,7 +126,7 @@ describe("uploadToGrant", () => {
 
     await expect(
       uploadToGrant(
-        { url: "https://example.invalid/upload", mediaType: "image/webp" },
+        { url: "/api/v1/stock-capture/sessions/session-1/uploads/image-1", mediaType: "image/webp" },
         image,
         fetchImplementation,
       ),

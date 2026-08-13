@@ -492,7 +492,7 @@ describe("assisted stock capture", () => {
   });
 
   describe("uploads", () => {
-    it("issues one presigned grant per declared photograph", async () => {
+    it("issues one same-origin upload route per declared photograph", async () => {
       const batchId = await openBatch(office);
       const { session } = await startSession(office, batchId, { photoCount: 2 });
 
@@ -507,7 +507,9 @@ describe("assisted stock capture", () => {
       const body = uploads.body as CaptureUploadGrantResponse;
       expect(body.grants).toHaveLength(2);
       for (const grant of body.grants) {
-        expect(grant.url).toMatch(/^https?:\/\//u);
+        expect(grant.url).toBe(
+          `/api/v1/stock-capture/sessions/${session?.id}/uploads/${grant.imageId}`,
+        );
         expect(new Date(grant.expiresAt).getTime()).toBeGreaterThan(Date.now());
       }
     });

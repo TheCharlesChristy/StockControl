@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Put, Req } from "@nestjs/common";
 import type {
   CaptureUploadGrantResponse,
   CaptureImageMediaType,
@@ -146,6 +146,38 @@ export class StockCaptureController {
     });
   }
 
+  /**
+   * Receives image bytes on the application's own origin, then the API writes
+   * them to its private object store. Railway Buckets do not currently expose
+   * a durable project-level CORS policy, so this keeps browser authentication,
+   * origin enforcement, and the bucket credentials on their proper sides of
+   * the boundary.
+   */
+  @Put("stock-capture/sessions/:sessionId/uploads/:imageId")
+  public async uploadImage(
+    @Req() request: FastifyRequest,
+    @Param("sessionId") sessionId: string,
+    @Param("imageId") imageId: string,
+    @Body() bytes: unknown,
+  ): Promise<{ readonly uploaded: true }> {
+    const user = requireCapability(request, "manageStock");
+    const mediaType = captureMediaTypeFrom(request.headers["content-type"]);
+
+    if (!Buffer.isBuffer(bytes) || mediaType === undefined) {
+      throw uploadInvalid("Upload a JPEG or WebP photograph.");
+    }
+
+    await this.capture.uploadImage({
+      actorUserId: user.id,
+      sessionId: requireUuidParameter(sessionId, "session"),
+      imageId: requireUuidParameter(imageId, "image"),
+      mediaType,
+      bytes,
+    });
+
+    return { uploaded: true };
+  }
+
   @Post("stock-capture/sessions/:sessionId/uploads/complete")
   public async completeUploads(
     @Req() request: FastifyRequest,
@@ -258,6 +290,14 @@ export const readPhotoCount = (body: ParsedBody): number => {
 
 const isCaptureMediaType = (value: unknown): value is CaptureImageMediaType =>
   (captureImageMediaTypes as readonly string[]).includes(value as string);
+
+const captureMediaTypeFrom = (
+  value: string | string[] | undefined,
+): CaptureImageMediaType | undefined => {
+  if (typeof value !== "string") return undefined;
+  const mediaType = value.split(";", 1)[0]?.trim().toLowerCase();
+  return isCaptureMediaType(mediaType) ? mediaType : undefined;
+};
 
 export const readDeclaredImages = (body: ParsedBody): readonly DeclaredImage[] => {
   const raw = readBoundedArray(body, "images", CAPTURE_MAX_PHOTOS);

@@ -6,7 +6,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-import type { ImageMediaType } from "@stockcontrol/contracts";
+import type { CaptureImageMediaType, ImageMediaType } from "@stockcontrol/contracts";
+
+type StoredImageMediaType = ImageMediaType | CaptureImageMediaType;
 
 /**
  * A short-lived grant to write exactly one object.
@@ -27,7 +29,7 @@ export interface PrivateObjectStorage {
   putObject(input: {
     readonly key: string;
     readonly bytes: Buffer;
-    readonly mediaType: ImageMediaType;
+    readonly mediaType: StoredImageMediaType;
   }): Promise<void>;
   getObject(key: string): Promise<{ readonly bytes: Buffer; readonly mediaType: string }>;
   deleteObject(key: string): Promise<void>;
@@ -145,7 +147,7 @@ export class S3PrivateObjectStorage implements PresigningObjectStorage {
   public async putObject(input: {
     readonly key: string;
     readonly bytes: Buffer;
-    readonly mediaType: ImageMediaType;
+    readonly mediaType: StoredImageMediaType;
   }): Promise<void> {
     const { bucket, client } = this.configuredStorage();
     await client.send(
