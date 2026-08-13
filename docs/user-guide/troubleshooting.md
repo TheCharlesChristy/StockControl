@@ -20,7 +20,7 @@ reached, check your connection or contact your administrator.
 Required fields must be completed before the submit button becomes available. Common requirements
 include:
 
-- valid work email for sign-in or user creation;
+- a valid username for sign-in or user creation, and a valid work email if one is given;
 - a positive quantity in the item’s unit;
 - a reason for adjustments, reservation releases, and rejected requests;
 - a job number/name/customer when creating a job;

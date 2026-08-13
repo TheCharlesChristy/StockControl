@@ -24,7 +24,13 @@ import type { FastifyReply } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
 import { currentUser, requireCapability } from "../auth/request-context";
-import { bodyOf, readBoolean, readText, requireText } from "../inventory/request-parsing";
+import {
+  bodyOf,
+  readBoolean,
+  readClearableText,
+  readText,
+  requireText,
+} from "../inventory/request-parsing";
 import type { UsersService } from "./users.service";
 
 function readRole(value: string): UserRole | undefined {
@@ -109,10 +115,12 @@ export class UsersController {
   ): Promise<UserResponse> {
     requireCapability(request, "manageUsers");
     const body = bodyOf(rawBody);
+    const email = readText(body, "email");
 
     return {
       user: await this.users.create({
-        email: readText(body, "email"),
+        username: readText(body, "username"),
+        ...(email.length === 0 ? {} : { email }),
         displayName: readText(body, "displayName"),
         role: readText(body, "role"),
         password: typeof body["password"] === "string" ? body["password"] : "",
@@ -146,11 +154,14 @@ export class UsersController {
     }
 
     const displayName = readText(body, "displayName");
-    const email = readText(body, "email");
+    const username = readText(body, "username");
+    /* Emptying the address removes it, so blank cannot mean "unchanged" here. */
+    const email = readClearableText(body, "email");
 
     return {
       user: await this.users.update(id, {
-        ...(email.length === 0 ? {} : { email }),
+        ...(username.length === 0 ? {} : { username }),
+        ...(email === undefined ? {} : { email }),
         ...(displayName.length === 0 ? {} : { displayName }),
         ...(role === undefined ? {} : { role }),
         ...(isActive === undefined ? {} : { isActive }),

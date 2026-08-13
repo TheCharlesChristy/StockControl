@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { AuthenticatedSession, UserRole } from "@stockcontrol/contracts";
+import { normaliseUsername } from "@stockcontrol/contracts";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
@@ -58,7 +59,8 @@ const createSessionIdentity = (): { readonly key: string; readonly token: string
 
 export interface CurrentUser {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
+  readonly email: string | null;
   readonly displayName: string;
   readonly role: UserRole;
 }
@@ -79,14 +81,15 @@ export class SessionService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  public async signIn(email: string, password: string): Promise<SignInOutcome | null> {
-    const normalisedEmail = email.trim().toLowerCase();
+  public async signIn(username: string, password: string): Promise<SignInOutcome | null> {
+    const normalisedUsername = normaliseUsername(username);
     const user = await this.database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .leftJoin("user_profile_photos", "user_profile_photos.user_id", "users.id")
       .select([
         "users.id as id",
+        "users.username as username",
         "users.email as email",
         "users.display_name as display_name",
         "users.role as role",
@@ -95,11 +98,11 @@ export class SessionService {
         "users.must_change_password as must_change_password",
         "user_profile_photos.id as profile_photo_id",
       ])
-      .where("email", "=", normalisedEmail)
+      .where("username", "=", normalisedUsername)
       .executeTakeFirst();
 
     /*
-     * An unknown email still pays for one password verification, so the
+     * An unknown username still pays for one password verification, so the
      * response time does not distinguish "no such account" from "wrong
      * password".
      */
@@ -130,6 +133,7 @@ export class SessionService {
       session: {
         user: {
           id: user.id,
+          username: user.username,
           email: user.email,
           displayName: user.display_name,
           role: user.role,
@@ -160,6 +164,7 @@ export class SessionService {
         "sessions.issued_at as issued_at",
         "sessions.expires_at as expires_at",
         "users.id as user_id",
+        "users.username as username",
         "users.email as email",
         "users.display_name as display_name",
         "users.role as role",
@@ -177,6 +182,7 @@ export class SessionService {
     return {
       user: {
         id: row.user_id,
+        username: row.username,
         email: row.email,
         displayName: row.display_name,
         role: row.role,

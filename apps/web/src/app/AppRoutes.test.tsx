@@ -19,6 +19,7 @@ import { AppRoutes } from "./AppRoutes";
 function userForRole(role: UserRole): AuthenticatedUser {
   return {
     id: `test-${role.toLowerCase()}`,
+    username: role.toLowerCase(),
     email: `${role.toLowerCase()}@example.com`,
     displayName: `${role} User`,
     role,
@@ -99,8 +100,8 @@ function renderSignInWithRedirect(
 
 async function completeValidSignIn(): Promise<void> {
   const user = userEvent.setup();
-  fireEvent.change(await screen.findByLabelText("Work email"), {
-    target: { value: "office@example.com" },
+  fireEvent.change(await screen.findByLabelText("Username"), {
+    target: { value: "office" },
   });
   fireEvent.change(screen.getByLabelText("Password"), {
     target: { value: "password123" },
@@ -113,7 +114,7 @@ describe("StockControl application routes", () => {
     renderRoute("/inventory");
 
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Work email")).toHaveAttribute("autocomplete", "email");
+    expect(screen.getByLabelText("Username")).toHaveAttribute("autocomplete", "username");
     expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
   });
 
@@ -121,11 +122,13 @@ describe("StockControl application routes", () => {
     const user = userEvent.setup();
     renderRoute("/sign-in");
 
-    await user.type(await screen.findByLabelText("Work email"), "invalid-email");
+    await user.type(await screen.findByLabelText("Username"), "not a username");
     await user.type(screen.getByLabelText("Password"), "password123");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Enter a valid work email address.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Use letters, numbers, dots, hyphens and underscores only",
+    );
   });
 
   it("requires a password before calling the authentication service", async () => {
@@ -134,7 +137,7 @@ describe("StockControl application routes", () => {
     const signIn = vi.spyOn(client, "signIn");
     renderRoute("/sign-in", client);
 
-    await user.type(await screen.findByLabelText("Work email"), "office@example.com");
+    await user.type(await screen.findByLabelText("Username"), "office");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter your password.");
@@ -171,7 +174,7 @@ describe("StockControl application routes", () => {
       "We could not sign you in. Check your details and try again.",
     );
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
-    expect(screen.getByLabelText("Work email")).toBeEnabled();
+    expect(screen.getByLabelText("Username")).toBeEnabled();
   });
 
   /*
@@ -237,8 +240,8 @@ describe("StockControl application routes", () => {
     const user = userEvent.setup();
     renderRoute("/sign-in", new FakeAuthClient(null, userForRole("Admin")));
 
-    fireEvent.change(await screen.findByLabelText("Work email"), {
-      target: { value: "admin.owner@example.com" },
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "admin.owner" },
     });
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "password123" },

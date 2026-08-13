@@ -16,6 +16,7 @@ import { AppRoutes } from "./AppRoutes";
 
 const adminUser: AuthenticatedUser = {
   id: "accessibility-admin",
+  username: "admin",
   email: "admin@example.com",
   displayName: "Accessibility Admin",
   role: "Admin",

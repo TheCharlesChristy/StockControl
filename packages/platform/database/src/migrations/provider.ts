@@ -13,6 +13,7 @@ import {
   assistedStockCaptureMigration,
   assistedStockCaptureMigrationIntegrity,
 } from "./0007-assisted-stock-capture";
+import { usernamesMigration, usernamesMigrationIntegrity } from "./0008-usernames";
 import type { MigrationIntegrityDescriptor } from "./integrity";
 
 export const MIGRATION_NAMES = [
@@ -23,6 +24,7 @@ export const MIGRATION_NAMES = [
   "0005_photos",
   "0006_password_management",
   "0007_assisted_stock_capture",
+  "0008_usernames",
 ] as const;
 
 const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> = Object.freeze({
@@ -33,6 +35,7 @@ const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> 
   "0005_photos": photosMigration,
   "0006_password_management": passwordManagementMigration,
   "0007_assisted_stock_capture": assistedStockCaptureMigration,
+  "0008_usernames": usernamesMigration,
 });
 
 export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
@@ -43,6 +46,7 @@ export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
   "0005_photos": photosMigrationIntegrity,
   "0006_password_management": passwordManagementMigrationIntegrity,
   "0007_assisted_stock_capture": assistedStockCaptureMigrationIntegrity,
+  "0008_usernames": usernamesMigrationIntegrity,
 }) satisfies Readonly<Record<(typeof MIGRATION_NAMES)[number], MigrationIntegrityDescriptor>>;
 
 export class StockControlMigrationProvider implements MigrationProvider {

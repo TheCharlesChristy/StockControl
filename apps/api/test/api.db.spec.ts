@@ -36,7 +36,7 @@ const PASSWORD = "integration-password";
 
 interface Actor {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
   readonly cookie: string;
 }
 
@@ -49,14 +49,14 @@ let engineer: Actor;
 const schema = (): ReturnType<Kysely<StockControlDatabase>["withSchema"]> =>
   migrator.withSchema(STOCKCONTROL_SCHEMA);
 
-async function signIn(email: string): Promise<string> {
+async function signIn(username: string): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/api/v1/auth/sign-in",
-    payload: { email, password: PASSWORD },
+    payload: { username, password: PASSWORD },
   });
 
-  expect(response.statusCode, `sign-in for ${email}: ${response.body}`).toBe(201);
+  expect(response.statusCode, `sign-in for ${username}: ${response.body}`).toBe(201);
   const cookie = response.cookies.find((candidate) => candidate.name === "stockcontrol.session");
   expect(cookie).toBeDefined();
 
@@ -64,16 +64,17 @@ async function signIn(email: string): Promise<string> {
 }
 
 async function createUser(
-  email: string,
+  username: string,
   role: "Engineer" | "Office" | "Admin",
-): Promise<{ readonly id: string; readonly email: string }> {
+): Promise<{ readonly id: string; readonly username: string }> {
   const id = randomUUID();
 
   await schema()
     .insertInto("users")
     .values({
       id,
-      email,
+      username,
+      email: `${username}@example.com`,
       display_name: `${role} user`,
       role,
       password_hash: await hashPassword(PASSWORD),
@@ -81,7 +82,7 @@ async function createUser(
     })
     .execute();
 
-  return { id, email };
+  return { id, username };
 }
 
 async function request(
@@ -194,15 +195,15 @@ beforeAll(async () => {
   await schema().deleteFrom("user_profile_photos").execute();
   await schema().deleteFrom("users").execute();
 
-  const adminUser = await createUser("integration.admin@example.com", "Admin");
-  const officeUser = await createUser("integration.office@example.com", "Office");
-  const engineerUser = await createUser("integration.engineer@example.com", "Engineer");
+  const adminUser = await createUser("integration.admin", "Admin");
+  const officeUser = await createUser("integration.office", "Office");
+  const engineerUser = await createUser("integration.engineer", "Engineer");
 
   app = await createApiApplication();
 
-  admin = { ...adminUser, cookie: await signIn(adminUser.email) };
-  office = { ...officeUser, cookie: await signIn(officeUser.email) };
-  engineer = { ...engineerUser, cookie: await signIn(engineerUser.email) };
+  admin = { ...adminUser, cookie: await signIn(adminUser.username) };
+  office = { ...officeUser, cookie: await signIn(officeUser.username) };
+  engineer = { ...engineerUser, cookie: await signIn(engineerUser.username) };
 });
 
 afterAll(async () => {
@@ -231,7 +232,7 @@ describe("authentication", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/auth/sign-in",
-      payload: { email: office.email, password: "not-the-password" },
+      payload: { username: office.username, password: "not-the-password" },
     });
 
     expect(response.statusCode).toBe(401);
@@ -242,7 +243,7 @@ describe("authentication", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/auth/sign-in",
-      payload: { email: "nobody@example.com", password: PASSWORD },
+      payload: { username: "nobody", password: PASSWORD },
     });
 
     expect(response.statusCode).toBe(401);
@@ -269,7 +270,7 @@ describe("authentication", () => {
   });
 
   it("ends the session on sign-out", async () => {
-    const cookie = await signIn(office.email);
+    const cookie = await signIn(office.username);
     const actor: Actor = { ...office, cookie };
 
     expect((await request(actor, "GET", "/items")).status).toBe(200);
@@ -641,9 +642,10 @@ describe("concurrency", () => {
 
 describe("users", () => {
   it("creates a user who can then sign in", async () => {
-    const email = `new.user.${Date.now()}@example.com`;
+    const username = `new.user.${Date.now()}`;
     const created = await request(admin, "POST", "/users", {
-      email,
+      username,
+      email: `${username}@example.com`,
       displayName: "New User",
       role: "Office",
       password: "another-long-password",
@@ -654,14 +656,14 @@ describe("users", () => {
     const signedIn = await app.inject({
       method: "POST",
       url: "/api/v1/auth/sign-in",
-      payload: { email, password: "another-long-password" },
+      payload: { username, password: "another-long-password" },
     });
     expect(signedIn.statusCode).toBe(201);
   });
 
   it("rejects a short password", async () => {
     const response = await request(admin, "POST", "/users", {
-      email: "short@example.com",
+      username: "short",
       displayName: "Short",
       role: "Office",
       password: "short",
@@ -670,17 +672,91 @@ describe("users", () => {
     expect(response.status).toBe(422);
   });
 
-  it("ends active sessions when a user is disabled", async () => {
-    const email = `disabled.${Date.now()}@example.com`;
+  it("creates an account with no email address", async () => {
+    const username = `no.address.${Date.now()}`;
     const created = await request(admin, "POST", "/users", {
-      email,
+      username,
+      displayName: "No Address",
+      role: "Engineer",
+      password: "another-long-password",
+    });
+
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect((created.body as { user: { email: string | null } }).user.email).toBeNull();
+
+    const signedIn = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/sign-in",
+      payload: { username, password: "another-long-password" },
+    });
+    expect(signedIn.statusCode).toBe(201);
+  });
+
+  /* Emptying the field removes the address; it does not mean "leave it alone". */
+  it("removes an email address when the field is emptied", async () => {
+    const username = `clearable.${Date.now()}`;
+    const created = await request(admin, "POST", "/users", {
+      username,
+      email: `${username}@example.com`,
+      displayName: "Clearable",
+      role: "Engineer",
+      password: "another-long-password",
+    });
+    const userId = (created.body as { user: { id: string } }).user.id;
+
+    const cleared = await request(admin, "PATCH", `/users/${userId}`, { email: "" });
+
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    expect((cleared.body as { user: { email: string | null } }).user.email).toBeNull();
+  });
+
+  it("refuses a second account with the same username", async () => {
+    const username = `taken.${Date.now()}`;
+    const first = await request(admin, "POST", "/users", {
+      username,
+      displayName: "First",
+      role: "Engineer",
+      password: "another-long-password",
+    });
+    expect(first.status).toBe(201);
+
+    const second = await request(admin, "POST", "/users", {
+      username,
+      displayName: "Second",
+      role: "Engineer",
+      password: "another-long-password",
+    });
+
+    expect(second.status).toBe(422);
+    expect(JSON.stringify(second.body)).toContain("That username is already taken.");
+  });
+
+  /*
+   * Sign-in takes a username only. Accepting an address here would give one
+   * account two identifiers and reintroduce the mailbox requirement by the
+   * back door.
+   */
+  it("refuses an email address at the sign-in field", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/sign-in",
+      payload: { username: "integration.office@example.com", password: PASSWORD },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("ends active sessions when a user is disabled", async () => {
+    const username = `disabled.${Date.now()}`;
+    const created = await request(admin, "POST", "/users", {
+      username,
       displayName: "To Disable",
       role: "Office",
       password: "another-long-password",
     });
     const userId = (created.body as { user: { id: string } }).user.id;
-    const cookie = `stockcontrol.session=${await sessionValueFor(email)}`;
-    const actor: Actor = { id: userId, email, cookie };
+    const cookie = `stockcontrol.session=${await sessionValueFor(username)}`;
+    const actor: Actor = { id: userId, username, cookie };
 
     expect((await request(actor, "GET", "/items")).status).toBe(200);
 
@@ -697,11 +773,11 @@ describe("users", () => {
   });
 });
 
-async function sessionValueFor(email: string): Promise<string> {
+async function sessionValueFor(username: string): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/api/v1/auth/sign-in",
-    payload: { email, password: "another-long-password" },
+    payload: { username, password: "another-long-password" },
   });
 
   return response.cookies.find((cookie) => cookie.name === "stockcontrol.session")?.value ?? "";

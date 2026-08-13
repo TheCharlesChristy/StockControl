@@ -7,6 +7,7 @@ import {
 } from "../../src/setup/initial-admin";
 
 const validInput = {
+  username: " First.Admin ",
   email: " First.Admin@Example.com ",
   displayName: " First Admin ",
   password: "a unique secure passphrase",
@@ -24,15 +25,35 @@ describe("initial Admin setup", () => {
     expect(hasher).toHaveBeenCalledWith(validInput.password);
     expect(insertWhenUsersEmpty).toHaveBeenCalledWith({
       id: expect.any(String),
+      username: "first.admin",
       email: "first.admin@example.com",
       displayName: "First Admin",
       passwordHash: "secure-password-hash",
     });
     expect(result).toEqual({
       id: expect.any(String),
+      username: "first.admin",
       email: "first.admin@example.com",
       displayName: "First Admin",
     });
+  });
+
+  /* An address is optional here too, so setup must work without one. */
+  it("creates the first Admin without an email address", async () => {
+    const insertWhenUsersEmpty = vi.fn<InitialAdminRepository["insertWhenUsersEmpty"]>(() =>
+      Promise.resolve(true),
+    );
+    const result = await createInitialAdmin(
+      { insertWhenUsersEmpty },
+      {
+        username: validInput.username,
+        displayName: validInput.displayName,
+        password: validInput.password,
+      },
+      () => Promise.resolve("secure-password-hash"),
+    );
+
+    expect(result.email).toBeNull();
   });
 
   it("refuses to create an Admin once any user exists", async () => {
@@ -46,6 +67,7 @@ describe("initial Admin setup", () => {
   });
 
   it.each([
+    [{ ...validInput, username: "not a username" }, "InvalidUsername"],
     [{ ...validInput, email: "not-an-email" }, "InvalidEmail"],
     [{ ...validInput, displayName: "   " }, "InvalidDisplayName"],
     [{ ...validInput, password: "too short" }, "PasswordPolicyUnmet"],

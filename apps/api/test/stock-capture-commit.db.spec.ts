@@ -40,7 +40,7 @@ const PASSWORD = "integration-password";
 
 interface Actor {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
   readonly cookie: string;
 }
 
@@ -56,31 +56,32 @@ let inactiveLocationId: string;
 const schema = (): ReturnType<Kysely<StockControlDatabase>["withSchema"]> =>
   migrator.withSchema(STOCKCONTROL_SCHEMA);
 
-async function signIn(email: string): Promise<string> {
+async function signIn(username: string): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/api/v1/auth/sign-in",
-    payload: { email, password: PASSWORD },
+    payload: { username, password: PASSWORD },
   });
   const cookie = response.cookies.find((candidate) => candidate.name === "stockcontrol.session");
-  expect(cookie, `sign-in for ${email}: ${response.body}`).toBeDefined();
+  expect(cookie, `sign-in for ${username}: ${response.body}`).toBeDefined();
   return `stockcontrol.session=${cookie?.value ?? ""}`;
 }
 
-async function createUser(email: string, role: "Engineer" | "Office" | "Admin"): Promise<Actor> {
+async function createUser(username: string, role: "Engineer" | "Office" | "Admin"): Promise<Actor> {
   const id = randomUUID();
   await schema()
     .insertInto("users")
     .values({
       id,
-      email,
+      username,
+      email: `${username}@example.invalid`,
       display_name: `${role} commit fixture`,
       role,
       password_hash: await hashPassword(PASSWORD),
       is_active: true,
     })
     .execute();
-  return { id, email, cookie: await signIn(email) };
+  return { id, username, cookie: await signIn(username) };
 }
 
 async function request(
@@ -227,7 +228,7 @@ describe("assisted stock capture: commitEntry", () => {
 
     app = await createApiApplication();
 
-    office = await createUser("commit.office@example.invalid", "Office");
+    office = await createUser("commit.office", "Office");
 
     activeItemId = await seedItem({ reference: "COMMIT-ACTIVE", barcode: ACTIVE_ITEM_BARCODE });
 

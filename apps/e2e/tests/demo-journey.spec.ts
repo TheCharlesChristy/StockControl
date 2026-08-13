@@ -11,17 +11,17 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * could be changing at the same moment.
  */
 
-const OFFICE = { email: "office.desk@example.com", password: "demo-password" };
-const ENGINEER = { email: "engineer.one@example.com", password: "demo-password" };
+const OFFICE = { username: "office.desk", password: "demo-password" };
+const ENGINEER = { username: "engineer.one", password: "demo-password" };
 
 interface Credentials {
-  readonly email: string;
+  readonly username: string;
   readonly password: string;
 }
 
 async function signIn(page: Page, who: Credentials): Promise<void> {
   await page.goto("/sign-in");
-  await page.getByLabel("Work email").fill(who.email);
+  await page.getByLabel("Username").fill(who.username);
   await page.getByLabel("Password", { exact: true }).fill(who.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => !url.pathname.includes("sign-in"));
@@ -105,7 +105,7 @@ test("an anonymous visitor is sent to sign in", async ({ page }) => {
 
 test("wrong details are refused without saying which detail was wrong", async ({ page }) => {
   await page.goto("/sign-in");
-  await page.getByLabel("Work email").fill(OFFICE.email);
+  await page.getByLabel("Username").fill(OFFICE.username);
   await page.getByLabel("Password", { exact: true }).fill("not-the-password");
   await page.getByRole("button", { name: "Sign in" }).click();
 
@@ -355,7 +355,7 @@ test("a scanned item opens after signing in, on a phone", async ({ page, context
    */
   await expect(page).toHaveURL(/\/sign-in\?next=/u);
 
-  await page.getByLabel("Work email").fill(ENGINEER.email);
+  await page.getByLabel("Username").fill(ENGINEER.username);
   await page.getByLabel("Password", { exact: true }).fill(ENGINEER.password);
   await page.getByRole("button", { name: "Sign in" }).click();
 
@@ -458,7 +458,7 @@ test("the user screen is reachable by an Admin and refused to an Office user", a
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
 
-  await signIn(page, { email: "admin.owner@example.com", password: "demo-password" });
+  await signIn(page, { username: "admin.owner", password: "demo-password" });
   await page.goto("/team");
   await expect(page.getByRole("table", { name: "Users" })).toBeVisible();
 });
@@ -560,7 +560,7 @@ test("the API is database-ready with a caller correlation identifier", async ({ 
   });
 });
 
-const ADMIN = { email: "admin.owner@example.com", password: "demo-password" };
+const ADMIN = { username: "admin.owner", password: "demo-password" };
 
 test("an admin nests a location by drawing it inside another, with no parent to pick", async ({
   page,

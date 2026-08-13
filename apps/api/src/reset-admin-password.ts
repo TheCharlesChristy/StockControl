@@ -14,7 +14,8 @@ import {
   promptForConfirmedPassword,
 } from "./setup/confirmed-password-prompt";
 
-type AdminPasswordResetCliErrorCode = "DuplicateArgument" | "MissingArgument" | "UnknownArgument";
+type AdminPasswordResetCliErrorCode =
+  "DuplicateArgument" | "MissingArgument" | "UnknownArgument" | "UseUsernameArgument";
 
 class AdminPasswordResetCliError extends Error {
   public constructor(public readonly code: AdminPasswordResetCliErrorCode) {
@@ -23,43 +24,53 @@ class AdminPasswordResetCliError extends Error {
   }
 }
 
-const parseEmailArgument = (arguments_: readonly string[]): string => {
+/*
+ * This is the only account recovery the product has, and an operator reaches
+ * for it from a printed runbook at the worst possible moment. `--email` gets
+ * its own code rather than falling into "unknown argument", so somebody
+ * following an older runbook is told the flag was renamed instead of being
+ * told, accurately but uselessly, that nothing matched.
+ */
+const parseUsernameArgument = (arguments_: readonly string[]): string => {
   if (arguments_.length === 0) {
     throw new AdminPasswordResetCliError("MissingArgument");
   }
 
-  let email: string | undefined;
+  let username: string | undefined;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if (argument !== "--email") {
+    if (argument === "--email") {
+      throw new AdminPasswordResetCliError("UseUsernameArgument");
+    }
+    if (argument !== "--username") {
       throw new AdminPasswordResetCliError("UnknownArgument");
     }
-    if (email !== undefined) {
+    if (username !== undefined) {
       throw new AdminPasswordResetCliError("DuplicateArgument");
     }
 
-    email = arguments_[index + 1];
-    if (email === undefined || email.startsWith("--")) {
+    username = arguments_[index + 1];
+    if (username === undefined || username.startsWith("--")) {
       throw new AdminPasswordResetCliError("MissingArgument");
     }
     index += 1;
   }
 
-  if (email === undefined) {
+  if (username === undefined) {
     throw new AdminPasswordResetCliError("MissingArgument");
   }
 
-  return email;
+  return username;
 };
 
 const run = async (): Promise<void> => {
-  const email = parseEmailArgument(process.argv.slice(2));
+  const username = parseUsernameArgument(process.argv.slice(2));
   const password = await promptForConfirmedPassword(
     process.stdin,
     process.stderr,
     "New Admin password",
   );
-  const input = validateAdminPasswordResetInput({ email, password });
+  const input = validateAdminPasswordResetInput({ username, password });
   const runtimeConfiguration = loadRuntimeDatabaseConfiguration();
   const database = createRuntimeDatabase({
     ...runtimeConfiguration,

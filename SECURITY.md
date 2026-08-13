@@ -58,8 +58,10 @@ Worth knowing before you spend time on it:
   `SameSite=Lax`, `Secure`, `__Host-` prefixed cookie on an HTTPS deployment.
 - State-changing requests are checked against a single configured browser
   origin.
-- Passwords are scrypt-hashed. An unknown email still pays for a verification,
-  so timing does not distinguish it from a wrong password.
+- Sign-in identifies an account by username. An email address is optional
+  contact information and is never accepted as a credential.
+- Passwords are scrypt-hashed. An unknown username still pays for a
+  verification, so timing does not distinguish it from a wrong password.
 - Sign-in is throttled per account, per source, and globally.
 - The API runs with a restricted database role that cannot change the schema.
 - Uploaded images are validated by magic bytes and dimensions, stored

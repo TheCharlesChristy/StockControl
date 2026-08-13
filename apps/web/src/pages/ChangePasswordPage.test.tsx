@@ -14,6 +14,7 @@ import { ChangePasswordPage } from "./ChangePasswordPage";
 const sessionWith = (mustChangePassword: boolean): AuthenticatedSession => ({
   user: {
     id: "user-1",
+    username: "sam",
     email: "sam@example.com",
     displayName: "Sam Field",
     role: "Engineer",

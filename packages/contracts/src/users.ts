@@ -5,7 +5,8 @@ import type { StockRequestView } from "./stock-requests";
 
 export interface UserView {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
+  readonly email: string | null;
   readonly displayName: string;
   readonly role: UserRole;
   readonly isActive: boolean;
@@ -20,14 +21,17 @@ export interface UserListResponse {
 }
 
 export interface CreateUserRequest {
-  readonly email: string;
+  readonly username: string;
+  readonly email?: string;
   readonly displayName: string;
   readonly role: UserRole;
   readonly password: string;
 }
 
 export interface UpdateUserRequest {
-  readonly email?: string;
+  readonly username?: string;
+  /** `null` removes the address; absent leaves it alone. */
+  readonly email?: string | null;
   readonly displayName?: string;
   readonly role?: UserRole;
   readonly isActive?: boolean;

@@ -7,9 +7,12 @@ import type {
   UserView,
 } from "@stockcontrol/contracts";
 import {
+  emailFormatErrors,
+  normaliseUsername,
   passwordPolicyErrors,
   resourceUnavailable,
   userRoles,
+  usernameFormatErrors,
   validationFailed,
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
@@ -26,20 +29,36 @@ import {
 } from "../persistence/read-models";
 
 const SCHEMA = "stockcontrol" as const;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 export interface NewUser {
-  readonly email: string;
+  readonly username: string;
+  readonly email?: string | undefined;
   readonly displayName: string;
   readonly role: string;
   readonly password: string;
 }
 
 export interface UserChanges {
-  readonly email?: string | undefined;
+  readonly username?: string | undefined;
+  /** `null` removes the address; `undefined` leaves it as it was. */
+  readonly email?: string | null | undefined;
   readonly displayName?: string | undefined;
   readonly role?: UserRole | undefined;
   readonly isActive?: boolean | undefined;
+}
+
+/**
+ * Two unique constraints now share the 23505 code, and the wrong message sends
+ * an Admin to edit a field that was never the problem. The constraint name is
+ * read deliberately; the driver's message is not, because driver messages carry
+ * connection details.
+ */
+function duplicateFieldErrors(error: unknown): Record<string, readonly string[]> {
+  const constraint = (error as { readonly constraint?: string }).constraint;
+
+  return constraint === "users_username_key"
+    ? { username: ["That username is already taken."] }
+    : { email: ["That email address already has an account."] };
 }
 
 const ACTIVITY_LIMIT = 20;
@@ -55,7 +74,7 @@ export class UsersService {
     const rows = await this.database
       .withSchema(SCHEMA)
       .selectFrom("users")
-      .select(["id", "email", "display_name", "role", "is_active", "created_at"])
+      .select(["id", "username", "email", "display_name", "role", "is_active", "created_at"])
       .orderBy("display_name")
       .execute();
 
@@ -65,13 +84,22 @@ export class UsersService {
   }
 
   public async create(input: NewUser): Promise<UserView> {
-    const email = input.email.trim().toLowerCase();
+    const username = normaliseUsername(input.username);
+    const email = input.email === undefined ? "" : input.email.trim().toLowerCase();
     const displayName = input.displayName.trim();
     const { password, role } = input;
     const errors: Record<string, readonly string[]> = {};
 
-    if (!EMAIL_PATTERN.test(email)) {
-      errors["email"] = ["Enter a valid email address."];
+    const usernameErrors = usernameFormatErrors(username);
+    if (usernameErrors.length > 0) {
+      errors["username"] = usernameErrors;
+    }
+    /* An address is optional, so only one that was actually supplied is judged. */
+    if (email.length > 0) {
+      const emailErrors = emailFormatErrors(email);
+      if (emailErrors.length > 0) {
+        errors["email"] = emailErrors;
+      }
     }
     if (displayName.length === 0) {
       errors["displayName"] = ["Enter a name."];
@@ -96,7 +124,8 @@ export class UsersService {
         .insertInto("users")
         .values({
           id,
-          email,
+          username,
+          email: email.length === 0 ? null : email,
           display_name: displayName,
           role: role as UserRole,
           password_hash: await hashPassword(password),
@@ -107,9 +136,7 @@ export class UsersService {
         .execute();
     } catch (error: unknown) {
       if ((error as { readonly code?: string }).code === "23505") {
-        throw new ApplicationFailureException(
-          validationFailed({ email: ["That email address already has an account."] }),
-        );
+        throw new ApplicationFailureException(validationFailed(duplicateFieldErrors(error)));
       }
 
       throw error;
@@ -160,7 +187,9 @@ export class UsersService {
     const existing = await this.require(userId);
     const displayName = input.displayName;
     const { role, isActive } = input;
-    const email = input.email?.trim().toLowerCase();
+    const username = input.username === undefined ? undefined : normaliseUsername(input.username);
+    /* `null` is a request to remove the address, not a malformed one. */
+    const email = input.email === null ? null : input.email?.trim().toLowerCase();
 
     if (role !== undefined && !userRoles.includes(role)) {
       throw new ApplicationFailureException(
@@ -168,10 +197,14 @@ export class UsersService {
       );
     }
 
-    if (email !== undefined && !EMAIL_PATTERN.test(email)) {
+    if (username !== undefined && usernameFormatErrors(username).length > 0) {
       throw new ApplicationFailureException(
-        validationFailed({ email: ["Enter a valid email address."] }),
+        validationFailed({ username: usernameFormatErrors(username) }),
       );
+    }
+
+    if (email !== undefined && email !== null && emailFormatErrors(email).length > 0) {
+      throw new ApplicationFailureException(validationFailed({ email: emailFormatErrors(email) }));
     }
 
     /*
@@ -197,6 +230,7 @@ export class UsersService {
         .withSchema(SCHEMA)
         .updateTable("users")
         .set({
+          ...(username === undefined ? {} : { username }),
           ...(email === undefined ? {} : { email }),
           ...(displayName === undefined || displayName.length === 0
             ? {}
@@ -209,9 +243,7 @@ export class UsersService {
         .execute();
     } catch (error: unknown) {
       if ((error as { readonly code?: string }).code === "23505") {
-        throw new ApplicationFailureException(
-          validationFailed({ email: ["That email address already has an account."] }),
-        );
+        throw new ApplicationFailureException(validationFailed(duplicateFieldErrors(error)));
       }
 
       throw error;
@@ -350,7 +382,7 @@ export class UsersService {
     const row = await this.database
       .withSchema(SCHEMA)
       .selectFrom("users")
-      .select(["id", "email", "display_name", "role", "is_active", "created_at"])
+      .select(["id", "username", "email", "display_name", "role", "is_active", "created_at"])
       .where("id", "=", userId)
       .executeTakeFirst();
 
@@ -367,7 +399,8 @@ export class UsersService {
 function toView(
   row: {
     readonly id: string;
-    readonly email: string;
+    readonly username: string;
+    readonly email: string | null;
     readonly display_name: string;
     readonly role: UserRole;
     readonly is_active: boolean;
@@ -377,6 +410,7 @@ function toView(
 ): UserView {
   return {
     id: row.id,
+    username: row.username,
     email: row.email,
     displayName: row.display_name,
     role: row.role,

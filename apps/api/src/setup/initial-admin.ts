@@ -1,17 +1,24 @@
 import { randomUUID } from "node:crypto";
 
-import { passwordPolicyErrors } from "@stockcontrol/contracts";
+import {
+  emailFormatErrors,
+  normaliseUsername,
+  passwordPolicyErrors,
+  usernameFormatErrors,
+} from "@stockcontrol/contracts";
 import { STOCKCONTROL_SCHEMA, type StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely } from "kysely";
 
 import { hashPassword } from "../auth/password";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-const MAXIMUM_EMAIL_CHARACTERS = 320;
 const MAXIMUM_DISPLAY_NAME_CHARACTERS = 200;
 
 export type InitialAdminSetupErrorCode =
-  "InvalidEmail" | "InvalidDisplayName" | "PasswordPolicyUnmet" | "UsersAlreadyExist";
+  | "InvalidUsername"
+  | "InvalidEmail"
+  | "InvalidDisplayName"
+  | "PasswordPolicyUnmet"
+  | "UsersAlreadyExist";
 
 export class InitialAdminSetupError extends Error {
   public constructor(public readonly code: InitialAdminSetupErrorCode) {
@@ -21,14 +28,16 @@ export class InitialAdminSetupError extends Error {
 }
 
 export interface InitialAdminInput {
-  readonly email: string;
+  readonly username: string;
+  readonly email?: string | undefined;
   readonly displayName: string;
   readonly password: string;
 }
 
 export interface InitialAdminResult {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
+  readonly email: string | null;
   readonly displayName: string;
 }
 
@@ -43,10 +52,16 @@ export interface InitialAdminRepository {
 export type PasswordHasher = (password: string) => Promise<string>;
 
 export const validateInitialAdminInput = (input: InitialAdminInput): InitialAdminInput => {
-  const email = input.email.trim().toLowerCase();
+  const username = normaliseUsername(input.username);
+  const email = input.email === undefined ? undefined : input.email.trim().toLowerCase();
   const displayName = input.displayName.trim();
 
-  if (!EMAIL_PATTERN.test(email) || [...email].length > MAXIMUM_EMAIL_CHARACTERS) {
+  if (usernameFormatErrors(username).length > 0) {
+    throw new InitialAdminSetupError("InvalidUsername");
+  }
+
+  /* An address is optional here too; only a supplied one has to be plausible. */
+  if (email !== undefined && emailFormatErrors(email).length > 0) {
     throw new InitialAdminSetupError("InvalidEmail");
   }
 
@@ -58,7 +73,12 @@ export const validateInitialAdminInput = (input: InitialAdminInput): InitialAdmi
     throw new InitialAdminSetupError("PasswordPolicyUnmet");
   }
 
-  return { email, displayName, password: input.password };
+  return {
+    username,
+    ...(email === undefined ? {} : { email }),
+    displayName,
+    password: input.password,
+  };
 };
 
 export class PostgresInitialAdminRepository implements InitialAdminRepository {
@@ -89,6 +109,7 @@ export class PostgresInitialAdminRepository implements InitialAdminRepository {
         .insertInto("users")
         .values({
           id: user.id,
+          username: user.username,
           email: user.email,
           display_name: user.displayName,
           role: "Admin",
@@ -111,7 +132,8 @@ export const createInitialAdmin = async (
 
   const user = {
     id: randomUUID(),
-    email: validatedInput.email,
+    username: validatedInput.username,
+    email: validatedInput.email ?? null,
     displayName: validatedInput.displayName,
     passwordHash: await passwordHasher(validatedInput.password),
   };
@@ -122,6 +144,7 @@ export const createInitialAdmin = async (
 
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     displayName: user.displayName,
   };

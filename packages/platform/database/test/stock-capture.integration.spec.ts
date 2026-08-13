@@ -41,6 +41,7 @@ describe.sequential("assisted stock capture schema", () => {
       .insertInto("users")
       .values({
         id: userId,
+        username: `capture.${userId.slice(0, 23)}`,
         email: `capture.${userId}@example.invalid`,
         display_name: "Capture fixture",
         role: "Office",

@@ -7,16 +7,19 @@ Roles are fixed: Engineer, Office, and Admin. There are no per-user permission o
 
 ## Find a person
 
-Use **Search the team** to search by name, email, or role. The table shows name, email, role, created
-date, and whether the account is active. Select a person’s name to open [User details](user-details.md).
+Use **Search the team** to search by name, username, email, or role. The table shows name, username,
+email, role, created date, and whether the account is active. An account with no email address shows
+a dash. Select a person’s name to open [User details](user-details.md).
 
 ## Create a user
 
 1. Select **New user**.
-2. Enter **Work email** and **Name**.
-3. Choose a **Role**.
-4. Set an **Initial password** of 15–128 characters. A unique passphrase is a good choice.
-5. Select **Create user**.
+2. Enter a **Username** and **Name**. The username is what the person signs in with.
+3. Optionally enter a **Work email**. It is contact information only — StockControl never sends to
+   it — so leave it blank for anyone without an address.
+4. Choose a **Role**.
+5. Set an **Initial password** of 15–128 characters. A unique passphrase is a good choice.
+6. Select **Create user**.
 
 Tell the person their initial password securely. StockControl does not send an invitation or password
 email.

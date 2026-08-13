@@ -2,16 +2,16 @@
 
 ## Who uses this page?
 
-Everyone signs in through `/sign-in`. You need a work email and password issued by your
-StockControl administrator.
+Everyone signs in through `/sign-in`. You need a username and password issued by your
+StockControl administrator. You do not need an email address.
 
 ## Sign in
 
-1. Enter your **Work email**.
+1. Enter your **Username**.
 2. Enter your **Password**.
 3. Select **Sign in**.
 
-StockControl trims spaces around the email and checks that it looks like an email address before
+StockControl trims spaces around the username and lowercases it, then checks its format before
 submitting. If the details are refused, the page shows a general message. Check both fields and
 try again; the message deliberately does not identify which credential was wrong.
 

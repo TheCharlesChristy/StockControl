@@ -1,15 +1,16 @@
-import { passwordPolicyErrors } from "@stockcontrol/contracts";
+import {
+  normaliseUsername,
+  passwordPolicyErrors,
+  usernameFormatErrors,
+} from "@stockcontrol/contracts";
 import { STOCKCONTROL_SCHEMA, type StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely } from "kysely";
 
 import { hashPassword } from "../auth/password";
 import type { PasswordHasher } from "./initial-admin";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-const MAXIMUM_EMAIL_CHARACTERS = 320;
-
 export type AdminPasswordResetErrorCode =
-  "ActiveAdminNotFound" | "InvalidEmail" | "PasswordPolicyUnmet";
+  "ActiveAdminNotFound" | "InvalidUsername" | "PasswordPolicyUnmet";
 
 export class AdminPasswordResetError extends Error {
   public constructor(public readonly code: AdminPasswordResetErrorCode) {
@@ -19,25 +20,25 @@ export class AdminPasswordResetError extends Error {
 }
 
 export interface AdminPasswordResetInput {
-  readonly email: string;
+  readonly username: string;
   readonly password: string;
 }
 
 export interface AdminPasswordResetRepository {
-  updateActiveAdminPassword(email: string, passwordHash: string): Promise<boolean>;
+  updateActiveAdminPassword(username: string, passwordHash: string): Promise<boolean>;
 }
 
 export class PostgresAdminPasswordResetRepository implements AdminPasswordResetRepository {
   public constructor(private readonly database: Kysely<StockControlDatabase>) {}
 
-  public async updateActiveAdminPassword(email: string, passwordHash: string): Promise<boolean> {
+  public async updateActiveAdminPassword(username: string, passwordHash: string): Promise<boolean> {
     return this.database.transaction().execute(async (transaction) => {
       await sql`select pg_advisory_xact_lock(1398034255, 1381191758)`.execute(transaction);
       const admin = await transaction
         .withSchema(STOCKCONTROL_SCHEMA)
         .selectFrom("users")
         .select(["id", "role", "is_active"])
-        .where("email", "=", email)
+        .where("username", "=", username)
         .executeTakeFirst();
 
       if (admin === undefined || admin.role !== "Admin" || !admin.is_active) {
@@ -64,17 +65,17 @@ export class PostgresAdminPasswordResetRepository implements AdminPasswordResetR
 export const validateAdminPasswordResetInput = (
   input: AdminPasswordResetInput,
 ): AdminPasswordResetInput => {
-  const email = input.email.trim().toLowerCase();
+  const username = normaliseUsername(input.username);
 
-  if (!EMAIL_PATTERN.test(email) || [...email].length > MAXIMUM_EMAIL_CHARACTERS) {
-    throw new AdminPasswordResetError("InvalidEmail");
+  if (usernameFormatErrors(username).length > 0) {
+    throw new AdminPasswordResetError("InvalidUsername");
   }
 
   if (passwordPolicyErrors(input.password).length > 0) {
     throw new AdminPasswordResetError("PasswordPolicyUnmet");
   }
 
-  return { email, password: input.password };
+  return { username, password: input.password };
 };
 
 export const resetAdminPassword = async (
@@ -85,7 +86,7 @@ export const resetAdminPassword = async (
   const validatedInput = validateAdminPasswordResetInput(input);
   const passwordHash = await passwordHasher(validatedInput.password);
 
-  if (!(await repository.updateActiveAdminPassword(validatedInput.email, passwordHash))) {
+  if (!(await repository.updateActiveAdminPassword(validatedInput.username, passwordHash))) {
     throw new AdminPasswordResetError("ActiveAdminNotFound");
   }
 };

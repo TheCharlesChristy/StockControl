@@ -19,7 +19,8 @@ The page also contains Recent activity, Open reservations, and Stock requests fo
 
 In **Details**, an Admin can change:
 
-- Work email
+- Username
+- Work email, which is optional; emptying the field removes the address
 - Name
 - Role, except for their own account
 - Account is active, except for their own account

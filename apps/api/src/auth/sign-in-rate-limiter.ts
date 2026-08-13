@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { normaliseUsername } from "@stockcontrol/contracts";
+
 const DEFAULT_WINDOW_MILLISECONDS = 15 * 60 * 1_000;
 const DEFAULT_ACCOUNT_LIMIT = 5;
 const DEFAULT_SOURCE_LIMIT = 20;
@@ -36,7 +38,7 @@ const keyFor = (namespace: "account" | "source", value: string): string =>
 
 /**
  * A bounded, in-process throttle for the single API replica used by the MVP.
- * It never stores raw email addresses or IP addresses. A later multi-replica
+ * It never stores raw usernames or IP addresses. A later multi-replica
  * deployment can replace this provider with a shared implementation.
  *
  * Three buckets, because the first two can each be sidestepped. Spreading
@@ -64,10 +66,10 @@ export class SignInRateLimiter {
     }
   }
 
-  public check(email: string, source: string): SignInRateLimitDecision {
+  public check(username: string, source: string): SignInRateLimitDecision {
     const now = this.now();
     this.prune(now);
-    const account = this.current(keyFor("account", this.normaliseEmail(email)), now);
+    const account = this.current(keyFor("account", normaliseUsername(username)), now);
     const sourceWindow = this.current(keyFor("source", source), now);
     const global = this.current(GLOBAL_KEY, now);
     const blockedUntil = Math.max(
@@ -88,19 +90,15 @@ export class SignInRateLimiter {
     };
   }
 
-  public recordFailure(email: string, source: string): void {
+  public recordFailure(username: string, source: string): void {
     const now = this.now();
-    this.increment(keyFor("account", this.normaliseEmail(email)), now);
+    this.increment(keyFor("account", normaliseUsername(username)), now);
     this.increment(keyFor("source", source), now);
     this.increment(GLOBAL_KEY, now);
   }
 
-  public recordSuccess(email: string): void {
-    this.attempts.delete(keyFor("account", this.normaliseEmail(email)));
-  }
-
-  private normaliseEmail(email: string): string {
-    return email.trim().toLowerCase();
+  public recordSuccess(username: string): void {
+    this.attempts.delete(keyFor("account", normaliseUsername(username)));
   }
 
   private current(key: string, now: number): AttemptWindow | undefined {
