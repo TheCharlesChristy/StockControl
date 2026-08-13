@@ -184,7 +184,10 @@ attributes. It restricts public privileges and creates the migrator/runtime
 boundary without printing connection strings or passwords. On a safe rerun it
 does not rotate compatible existing-role passwords; instead, it connects
 through both supplied role URLs and verifies their identity/database, so a
-wrong or stale secret fails closed. Copy the migrator URL to `migrate` and the
+wrong or stale secret fails closed. During a deliberate credential rotation,
+set `DATABASE_ROLE_BOOTSTRAP_ROTATE_PASSWORDS=true` only for this temporary
+service; it rotates both compatible application-role passwords, then performs
+the same identity checks. Copy the migrator URL to `migrate` and the
 runtime URL to `api`, then delete the entire temporary `bootstrap` service.
 This removes `DATABASE_ADMIN_URL` from the application deployment surface.
 

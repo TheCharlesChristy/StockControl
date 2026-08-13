@@ -16,7 +16,7 @@
     ]
   },
   "deploy": {
-    "startCommand": "node -e \"const{Client}=require('pg');const run=async()=>{const c=new Client({connectionString:process.env.DATABASE_ADMIN_URL});await c.connect();const q=String.fromCharCode(39);await c.query('alter role stockcontrol_migrator password '+q+process.env.NEW_MIGRATOR_PASSWORD+q);await c.query('alter role stockcontrol_app password '+q+process.env.NEW_RUNTIME_PASSWORD+q);await c.end();console.log(JSON.stringify({event:'database.roles.passwords.rotated'}));};run().catch(()=>{console.error(JSON.stringify({event:'database.roles.passwords.rotation.failed'}));process.exit(1);});\"",
+    "startCommand": "node packages/platform/database/dist/bootstrap-roles.js",
     "restartPolicyType": "NEVER",
     "multiRegionConfig": {
       "europe-west4-drams3a": {
