@@ -205,9 +205,7 @@ describe("RecognitionCoreClient.renderExemplar", () => {
     );
 
     const error = await client
-      .analyseSession("req-1", [
-        { ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" },
-      ])
+      .analyseSession("req-1", [{ ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" }])
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(RecognitionCoreUnavailableError);
@@ -221,9 +219,7 @@ describe("RecognitionCoreClient.renderExemplar", () => {
     );
 
     const error = await client
-      .analyseSession("req-1", [
-        { ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" },
-      ])
+      .analyseSession("req-1", [{ ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" }])
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(RecognitionCoreUnavailableError);

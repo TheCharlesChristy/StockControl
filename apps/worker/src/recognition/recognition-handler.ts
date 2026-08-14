@@ -319,9 +319,7 @@ const gatherEvidence = async (
             stage: "Barcode",
             outcome: photo.barcodeOutcome,
             imageOrdinal: photo.imageOrdinal,
-            observations: photo.barcodes.map(
-              (barcode) => `${barcode.symbology}: ${barcode.value}`,
-            ),
+            observations: photo.barcodes.map((barcode) => `${barcode.symbology}: ${barcode.value}`),
           },
           {
             stage: "Ocr",

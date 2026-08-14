@@ -59,9 +59,7 @@ const isRecognitionStageOutcome = (
 ): value is RecognitionStageReportView["outcome"] =>
   typeof value === "string" && (recognitionStageOutcomes as readonly string[]).includes(value);
 
-export const stageReportsFromManifest = (
-  value: unknown,
-): readonly RecognitionStageReportView[] => {
+export const stageReportsFromManifest = (value: unknown): readonly RecognitionStageReportView[] => {
   if (typeof value !== "object" || value === null) return [];
   const reports = (value as Record<string, unknown>).stageReports;
   if (!Array.isArray(reports)) return [];

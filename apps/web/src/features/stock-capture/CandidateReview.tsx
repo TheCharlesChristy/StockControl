@@ -99,9 +99,7 @@ export function CandidateReview({
   const best = topCandidateSelection(session.candidates);
   const bestCandidateId = best === null ? null : best.candidateId;
   const automaticRecognitionUnavailable = session.stageReports.some(
-    (report) =>
-      report.outcome === "Unavailable" &&
-      AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
+    (report) => report.outcome === "Unavailable" && AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
   );
 
   return (
