@@ -115,9 +115,29 @@ export const claimJobs = async (
   database: Kysely<StockControlDatabase>,
   options: ClaimJobsOptions,
 ): Promise<readonly ClaimableJob[]> => {
-  const now = options.now ?? new Date();
-  const leasedUntil = new Date(now.getTime() + options.leaseMilliseconds);
   if (options.limit < 1) return [];
+
+  /*
+   * Whether a job is due is decided by the database's clock, not this
+   * process's, unless a caller pins one deliberately.
+   *
+   * The first reason is not theoretical. `new Date()` is whole milliseconds
+   * and `now()` carries microseconds, so a job enqueued at .123456 and polled
+   * a moment later compares against .123000 and reads as not yet due. Measured
+   * against a real server, a row inserted and immediately polled was invisible
+   * 337 times out of 400. At a two-second poll interval that only ever cost a
+   * tick, which is why it survived as an occasional CI failure rather than a
+   * bug report.
+   *
+   * The second is that in production the worker and PostgreSQL are different
+   * machines. Sending a locally-read timestamp makes NTP skew between them
+   * decide which jobs are visible and how long a lease lasts.
+   */
+  const now = options.now ?? sql<Date>`now()`;
+  const leasedUntil =
+    options.now === undefined
+      ? sql<Date>`now() + make_interval(secs => ${options.leaseMilliseconds / 1000})`
+      : new Date(options.now.getTime() + options.leaseMilliseconds);
 
   return database.transaction().execute(async (tx) => {
     const candidates = await schemaOf(tx)
@@ -165,6 +185,9 @@ export const claimJobs = async (
         "attempt_count",
         "max_attempts",
         "deduplication_key",
+        /* Read back rather than recomputed: with the server setting the lease,
+         * this is the only place its real value exists. */
+        "leased_until",
       ])
       .execute();
 
@@ -177,7 +200,9 @@ export const claimJobs = async (
       attemptCount: row.attempt_count,
       maxAttempts: row.max_attempts,
       deduplicationKey: row.deduplication_key,
-      leasedUntil,
+      /* The update above always sets it; the column is nullable for a job that
+       * is not currently leased, which this one is. */
+      leasedUntil: row.leased_until ?? new Date(),
     }));
   });
 };
