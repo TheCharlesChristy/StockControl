@@ -137,6 +137,7 @@ Retained, private, no public domain. Config as Code path
 
 ```text
 RUNTIME_TARGET=recognition-core
+PORT=8000
 ```
 
 The model weights are baked into the image at build time by
@@ -154,6 +155,7 @@ Retained, private, no public domain. Config as Code path
 
 ```text
 RUNTIME_TARGET=recognition-fusion
+PORT=8000
 RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-3b-q4-0/LFM2.5-VL-3B-Q4_0.gguf
 RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-3b-q4-0/mmproj-F16.gguf
 RECOGNITION_FUSION_API_KEY=<a fresh 64-hex-character secret>
@@ -177,6 +179,11 @@ RECOGNITION_FUSION_URL=http://${{recognition-fusion.RAILWAY_PRIVATE_DOMAIN}}:800
 RECOGNITION_FUSION_API_KEY=<the same secret set on recognition-fusion>
 VISUAL_INDEX_EMBEDDING_MODEL=<the embedding model revision recognition-core reports>
 ```
+
+`PORT=8000` is deliberate on both services. Railway injects `PORT` and the
+runtime images listen on it, while these private worker URLs use port 8000.
+Leaving the service port implicit can therefore make a healthy service listen
+on Railway's assigned port while the worker calls a different one.
 
 Optionally add `BRAVE_SEARCH_API_KEY` for the bounded web-evidence stage
 (specification section 7.4); leave it unset to skip that stage entirely.

@@ -99,8 +99,8 @@ export type VlmProposal =
 
 export class FusionUnavailableError extends Error {
   public readonly code = "recognition.fusion_unavailable";
-  public constructor(detail: string) {
-    super(detail);
+  public constructor(detail: string, options?: ErrorOptions) {
+    super(detail, options);
     this.name = "FusionUnavailableError";
   }
 }
@@ -305,11 +305,11 @@ export class FusionClient {
       response_format: { type: "json_schema", json_schema: { name: "vlm_proposal", schema } },
     };
 
-    const first = await this.complete(body).catch(() => null);
+    const first = await this.complete(body);
     const firstProposal = first === null ? null : parseVlmResponse(first, request.candidates);
     if (firstProposal !== null) return firstProposal;
 
-    const retry = await this.complete(body).catch(() => null);
+    const retry = await this.complete(body);
     const retryProposal = retry === null ? null : parseVlmResponse(retry, request.candidates);
     if (retryProposal !== null) return retryProposal;
 
@@ -352,6 +352,14 @@ export class FusionClient {
       } catch {
         return null;
       }
+    } catch (error: unknown) {
+      if (error instanceof FusionUnavailableError) throw error;
+      throw new FusionUnavailableError(
+        error instanceof Error
+          ? `recognition-fusion request failed: ${error.name}: ${error.message}`
+          : "recognition-fusion request failed with a non-Error value.",
+        { cause: error },
+      );
     } finally {
       clearTimeout(timer);
     }

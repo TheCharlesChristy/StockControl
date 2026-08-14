@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Kysely, Transaction } from "kysely";
 
-import type { BackgroundJobEnvelope, RecognitionSessionStatus } from "@stockcontrol/contracts";
+import type {
+  BackgroundJobEnvelope,
+  RecognitionSessionStatus,
+  RecognitionStageReportView,
+} from "@stockcontrol/contracts";
 import type { StructuredLogger } from "@stockcontrol/platform";
 import {
   canonicalGtin,
@@ -65,6 +69,11 @@ interface VerifiedImage {
   readonly ordinal: number;
   readonly bytes: Buffer;
   readonly mediaType: string;
+}
+
+interface GatheredEvidence {
+  readonly results: readonly StageResult[];
+  readonly stageReports: readonly RecognitionStageReportView[];
 }
 
 export interface RecognitionHandlerDependencies {
@@ -285,8 +294,9 @@ const gatherEvidence = async (
   imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
-): Promise<readonly StageResult[]> => {
+): Promise<GatheredEvidence> => {
   const results: StageResult[] = [];
+  const stageReports: RecognitionStageReportView[] = [];
 
   let photoResults: readonly CorePhotoResult[] = [];
   if (configuration.recognitionCoreUrl !== undefined && verifiedImages.length > 0) {
@@ -303,11 +313,63 @@ const gatherEvidence = async (
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
       await persistImageEvidence(database, imageRows, photoResults);
+      for (const photo of photoResults) {
+        stageReports.push(
+          {
+            stage: "Barcode",
+            outcome: photo.barcodeOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.barcodes.map((barcode) => `${barcode.symbology}: ${barcode.value}`),
+          },
+          {
+            stage: "Ocr",
+            outcome: photo.ocrOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.ocrLines.map((line) => line.text),
+          },
+          {
+            stage: "VisualExample",
+            outcome: photo.embeddingOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations:
+              photo.embedding === null
+                ? []
+                : [`Image embedding created by ${photo.embedding.modelRevision}`],
+          },
+          {
+            stage: "Category",
+            outcome: photo.categoryOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.categories.map((category) => category.label),
+          },
+        );
+      }
     } catch (error: unknown) {
       logger.error({
         event: "recognition.core_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
       });
+      for (const image of verifiedImages) {
+        for (const stage of ["Barcode", "Ocr", "VisualExample", "Category"] as const) {
+          stageReports.push({
+            stage,
+            outcome: "Unavailable",
+            imageOrdinal: image.ordinal,
+            observations: ["The recognition service could not be reached."],
+          });
+        }
+      }
+    }
+  } else if (verifiedImages.length > 0) {
+    for (const image of verifiedImages) {
+      for (const stage of ["Barcode", "Ocr", "VisualExample", "Category"] as const) {
+        stageReports.push({
+          stage,
+          outcome: "Unavailable",
+          imageOrdinal: image.ordinal,
+          observations: ["This recognition service is not configured."],
+        });
+      }
     }
   }
 
@@ -405,15 +467,37 @@ const gatherEvidence = async (
       const proposal = await client.proposeIdentity(request);
       const stageResult = vlmStageResult(proposal, identityById);
       if (stageResult !== null) results.push(stageResult);
+      stageReports.push({
+        stage: "Vlm",
+        outcome: "Succeeded",
+        imageOrdinal: null,
+        observations:
+          proposal.kind === "Unknown"
+            ? ["Photo analysis completed but did not identify the item."]
+            : ["Photo analysis proposed an identity."],
+      });
     } catch (error: unknown) {
       logger.error({
         event: "recognition.fusion_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
       });
+      stageReports.push({
+        stage: "Vlm",
+        outcome: "Unavailable",
+        imageOrdinal: null,
+        observations: ["The photo-analysis service could not be reached."],
+      });
     }
+  } else if (verifiedImages.length > 0) {
+    stageReports.push({
+      stage: "Vlm",
+      outcome: "Unavailable",
+      imageOrdinal: null,
+      observations: ["The photo-analysis service is not configured."],
+    });
   }
 
-  return results;
+  return { results, stageReports };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -542,8 +626,11 @@ export const createRecognitionHandler = (
 
     if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
 
-    const outcome = runFusion(evidence);
-    const modelManifest = { fusionWeights: outcome.weightsVersion };
+    const outcome = runFusion(evidence.results);
+    const modelManifest = {
+      fusionWeights: outcome.weightsVersion,
+      stageReports: evidence.stageReports,
+    };
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);
     if (!wrote) {

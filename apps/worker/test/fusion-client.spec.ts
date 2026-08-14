@@ -425,9 +425,26 @@ describe("FusionClient.proposeIdentity", () => {
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
 
-    await expect(client.proposeIdentity(baseRequest())).rejects.toBeInstanceOf(
-      FusionUnavailableError,
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as Error).message).toContain("status 500");
+  });
+
+  it("preserves the underlying fetch error in its diagnostic message", async () => {
+    const client = new FusionClient(
+      {
+        baseUrl: "https://example.invalid",
+        apiKey: "test-key",
+        timeoutMilliseconds: 2_000,
+      },
+      () => Promise.reject(new TypeError("connect failed")),
     );
+
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as Error).message).toContain("TypeError: connect failed");
   });
 
   it("sends the API key as a bearer token", async () => {
