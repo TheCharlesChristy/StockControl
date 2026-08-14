@@ -1,19 +1,45 @@
-import { Alert, Button, LinearProgress, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Button,
+  LinearProgress,
+  Step,
+  StepLabel,
+  Stepper,
+  Stack,
+  Typography,
+} from "@mui/material";
 import type { RecognitionSessionStatus } from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
 
 const stageLabels: Readonly<Record<RecognitionSessionStatus, string>> = {
   AwaitingUpload: "Waiting for photographs to finish sending…",
   Queued: "Waiting its turn…",
-  ProcessingBarcode: "Checking for a barcode…",
-  ProcessingImages: "Reading the photographs…",
-  Enriching: "Gathering evidence…",
-  Fusing: "Weighing the evidence…",
+  ProcessingBarcode: "Checking the upload and barcodes…",
+  ProcessingImages: "Reading labels and image details…",
+  Enriching: "Checking catalogue and web evidence…",
+  Fusing: "Running photo analysis and preparing suggestions…",
   ReviewReady: "Suggestions ready.",
   Committed: "Already added.",
   Failed: "Recognition could not finish.",
   Cancelled: "Cancelled.",
   Expired: "Expired.",
+};
+
+const pipelineSteps = [
+  { status: "Queued", label: "Waiting to start" },
+  { status: "ProcessingBarcode", label: "Check upload and barcodes" },
+  { status: "ProcessingImages", label: "Read labels and image details" },
+  { status: "Enriching", label: "Check catalogue and web evidence" },
+  { status: "Fusing", label: "Analyse the photo and prepare suggestions" },
+] as const satisfies readonly {
+  readonly status: RecognitionSessionStatus;
+  readonly label: string;
+}[];
+
+const activeStepFor = (status: RecognitionSessionStatus): number => {
+  if (status === "ReviewReady" || status === "Committed") return pipelineSteps.length;
+  const index = pipelineSteps.findIndex((step) => step.status === status);
+  return Math.max(index, 0);
 };
 
 /* Two in a row can be one bad moment on a stockroom's wifi. Three is a
@@ -40,6 +66,7 @@ export function RecognitionProgress({
   onCancel,
 }: RecognitionProgressProps): ReactElement {
   const stalled = checkFailures >= STALLED_AFTER_FAILURES;
+  const activeStep = activeStepFor(status);
 
   return (
     <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
@@ -50,6 +77,21 @@ export function RecognitionProgress({
       <Typography role="status" aria-live="polite">
         {stalled ? "StockControl cannot reach the server." : stageLabels[status]}
       </Typography>
+
+      {!stalled && (
+        <Stepper
+          activeStep={activeStep}
+          orientation="vertical"
+          aria-label="Recognition pipeline"
+          sx={{ width: "100%", maxWidth: 420 }}
+        >
+          {pipelineSteps.map((step, index) => (
+            <Step key={step.status} completed={index < activeStep}>
+              <StepLabel>{step.label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+      )}
 
       {stalled ? (
         <Alert

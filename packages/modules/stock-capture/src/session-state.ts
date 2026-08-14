@@ -78,13 +78,13 @@ export const progressLabel = (status: RecognitionSessionStatus): string => {
     case "Queued":
       return "Waiting to start";
     case "ProcessingBarcode":
-      return "Looking for a barcode";
+      return "Checking the upload and barcodes";
     case "ProcessingImages":
-      return "Reading the labels";
+      return "Reading labels and image details";
     case "Enriching":
-      return "Checking product details";
+      return "Checking catalogue and web evidence";
     case "Fusing":
-      return "Putting the suggestions together";
+      return "Analysing the photo and preparing suggestions";
     case "ReviewReady":
       return "Ready for you to check";
     case "Committed":
