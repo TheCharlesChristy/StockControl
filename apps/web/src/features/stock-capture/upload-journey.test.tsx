@@ -174,6 +174,7 @@ function createUploadApi(
             candidates: [],
             stageReports: [],
             recommendManualEntry: false,
+            analysisOutcome: "Completed" as const,
           },
         }),
       );

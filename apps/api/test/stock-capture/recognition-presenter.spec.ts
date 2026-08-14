@@ -4,6 +4,7 @@ import {
   barcodeStageReports,
   evidenceFrom,
   identityDraftFrom,
+  workerStageReports,
 } from "../../src/stock-capture/recognition-presenter";
 
 describe("presenting a stored candidate identity", () => {
@@ -109,5 +110,64 @@ describe("synthesising the barcode stage report", () => {
 
   it("skips a malformed stored entry rather than throwing", () => {
     expect(barcodeStageReports([{ value: "only a value" }, "not an object"])).toEqual([]);
+  });
+});
+
+describe("reading the stage record the worker left behind", () => {
+  it("reads every stage the worker reported", () => {
+    expect(
+      workerStageReports({
+        fusionWeights: "v1",
+        stages: [
+          { stage: "Ocr", outcome: "Succeeded", imageOrdinal: null, observations: ["Read text."] },
+          { stage: "Vlm", outcome: "Unavailable", imageOrdinal: null, observations: [] },
+        ],
+      }),
+    ).toEqual([
+      { stage: "Ocr", outcome: "Succeeded", imageOrdinal: null, observations: ["Read text."] },
+      { stage: "Vlm", outcome: "Unavailable", imageOrdinal: null, observations: [] },
+    ]);
+  });
+
+  /*
+   * Sessions analysed before the worker recorded stages have a manifest with
+   * no `stages` key. Reporting nothing is what makes the analysis outcome
+   * call them `NotRun` rather than inventing a result they never produced.
+   */
+  it("reports nothing for a manifest that predates stage recording", () => {
+    expect(workerStageReports({ fusionWeights: "v1" })).toEqual([]);
+    expect(workerStageReports(null)).toEqual([]);
+    expect(workerStageReports(undefined)).toEqual([]);
+    expect(workerStageReports("not an object")).toEqual([]);
+  });
+
+  it("skips an entry naming a stage or outcome it does not recognise", () => {
+    expect(
+      workerStageReports({
+        stages: [
+          { stage: "Telepathy", outcome: "Succeeded", observations: [] },
+          { stage: "Ocr", outcome: "Vibes", observations: [] },
+          { stage: "Ocr", outcome: "Succeeded", observations: [] },
+        ],
+      }),
+    ).toEqual([{ stage: "Ocr", outcome: "Succeeded", imageOrdinal: null, observations: [] }]);
+  });
+
+  /* A stage that examined one photograph in particular says which, so the
+   * details table can point at the photograph rather than the whole session. */
+  it("keeps the photograph a stage was tied to", () => {
+    expect(
+      workerStageReports({
+        stages: [{ stage: "Ocr", outcome: "Succeeded", imageOrdinal: 3, observations: [] }],
+      }),
+    ).toEqual([{ stage: "Ocr", outcome: "Succeeded", imageOrdinal: 3, observations: [] }]);
+  });
+
+  it("drops observations that are not text", () => {
+    expect(
+      workerStageReports({
+        stages: [{ stage: "Web", outcome: "Failed", observations: ["fine", 42, null] }],
+      })[0]?.observations,
+    ).toEqual(["fine"]);
   });
 });

@@ -47,6 +47,7 @@ const sessionView = (over: Partial<RecognitionSessionView> = {}): RecognitionSes
   candidates: [],
   stageReports: [],
   recommendManualEntry: false,
+  analysisOutcome: "Completed",
   ...over,
 });
 

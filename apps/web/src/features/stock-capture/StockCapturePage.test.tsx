@@ -109,6 +109,7 @@ const exactMatchSessionView: RecognitionSessionView = {
   ],
   stageReports: [],
   recommendManualEntry: false,
+  analysisOutcome: "Completed",
 };
 
 const commitResult: CommitCaptureEntryResponse = {

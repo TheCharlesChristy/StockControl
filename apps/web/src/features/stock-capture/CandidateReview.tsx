@@ -1,5 +1,6 @@
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Card,
@@ -10,7 +11,12 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import type { ConfidenceBand, RecognitionSessionView } from "@stockcontrol/contracts";
+import type { AlertColor } from "@mui/material";
+import type {
+  ConfidenceBand,
+  RecognitionAnalysisOutcome,
+  RecognitionSessionView,
+} from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -60,6 +66,51 @@ const selectionFor = (
   return null;
 };
 
+/*
+ * An empty result used to say one of two things — "Nothing was recognised" or
+ * "No suggestions yet" — chosen by a flag that only meant "the session has
+ * stopped". Neither told the reader the thing they actually need: whether the
+ * photographs were examined at all. An installation with no recognition
+ * services produced exactly the same screen as a full one that examined five
+ * good photographs and genuinely could not place the item, and the only
+ * sensible reaction to those two is different.
+ */
+const emptyResultCopy: Readonly<
+  Record<RecognitionAnalysisOutcome, { severity: AlertColor; title: string; body: string }>
+> = {
+  Completed: {
+    severity: "info",
+    title: "No match found",
+    body: "The photographs were analysed and nothing in the catalogue matched them. Choose “None are correct” to type the item in yourself.",
+  },
+  Partial: {
+    severity: "warning",
+    title: "Only part of the analysis ran",
+    body: "Some checks could not run on this installation, so this is not a reliable “no”. Open the analysis details below to see which ones, or type the item in yourself.",
+  },
+  NotRun: {
+    severity: "warning",
+    title: "The photographs were not analysed",
+    body: "No recognition service is set up on this installation, so nothing examined these photographs. This is a configuration matter for your administrator, not a problem with your photographs. Type the item in yourself to carry on.",
+  },
+  Failed: {
+    severity: "error",
+    title: "The analysis did not finish",
+    body: "Something went wrong before the photographs could be examined. Type the item in yourself, or take the photographs again.",
+  },
+};
+
+function EmptyResult({ outcome }: { readonly outcome: RecognitionAnalysisOutcome }): ReactElement {
+  const copy = emptyResultCopy[outcome];
+
+  return (
+    <Alert severity={copy.severity}>
+      <AlertTitle>{copy.title}</AlertTitle>
+      {copy.body}
+    </Alert>
+  );
+}
+
 interface CandidateReviewProps {
   readonly session: RecognitionSessionView;
   readonly showDetails: boolean;
@@ -90,13 +141,7 @@ export function CandidateReview({
 
   return (
     <Stack spacing={2}>
-      {session.candidates.length === 0 && (
-        <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
-          {session.recommendManualEntry
-            ? "Nothing was recognised. Choose “None are correct” to type the item in yourself."
-            : "No suggestions yet."}
-        </Alert>
-      )}
+      {session.candidates.length === 0 && <EmptyResult outcome={session.analysisOutcome} />}
 
       {session.candidates.length > 0 && (
         <Typography variant="body2" color="text.secondary">

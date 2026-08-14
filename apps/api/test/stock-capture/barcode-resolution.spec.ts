@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readLocalCodes } from "../../src/stock-capture/barcode-resolution";
+import { readLocalCodes, resolveLocalCodes } from "../../src/stock-capture/barcode-resolution";
 
 const observation = (over: Partial<Record<string, unknown>> = {}): Record<string, unknown> => ({
   value: "5901234123457",
@@ -65,5 +65,71 @@ describe("reading a browser's local barcode observations", () => {
 
   it("returns nothing for an empty list", () => {
     expect(readLocalCodes([])).toEqual([]);
+  });
+});
+
+/*
+ * Both branches below decide before the catalogue is ever consulted, which is
+ * the point: the barcode short cut skips the whole recognition pipeline, so
+ * the rules for refusing it have to hold without a database in the picture.
+ * The stub throws rather than returning a fixture — a query reaching it would
+ * mean the short cut had been taken on evidence these tests say is unsafe.
+ */
+const databaseThatMustNotBeUsed = new Proxy(
+  {},
+  {
+    get(): never {
+      throw new Error("resolveLocalCodes queried the catalogue when it should have returned first");
+    },
+  },
+) as Parameters<typeof resolveLocalCodes>[0];
+
+describe("resolving local barcodes before any catalogue lookup", () => {
+  it("reports no codes when nothing validated", async () => {
+    await expect(
+      resolveLocalCodes(databaseThatMustNotBeUsed, [
+        /* Too short to be any product code, so it never reaches the catalogue. */
+        { value: "abc", symbology: "EAN-13", imageOrdinal: 1, readerVersion: "test" },
+        /* A symbology the catalogue does not carry product codes for. */
+        {
+          value: "https://example.test/thing",
+          symbology: "QR-CODE",
+          imageOrdinal: 2,
+          readerVersion: "test",
+        },
+      ]),
+    ).resolves.toEqual({ validated: [], outcome: { kind: "NoCodes" } });
+  });
+
+  it("reports no codes for an empty list", async () => {
+    await expect(resolveLocalCodes(databaseThatMustNotBeUsed, [])).resolves.toMatchObject({
+      outcome: { kind: "NoCodes" },
+    });
+  });
+
+  /*
+   * Two different products across one item's photographs means the frame
+   * caught a neighbour. Taking the short cut there would receive stock
+   * against whichever code happened to be read first.
+   */
+  it("refuses the short cut when the photographs carry two different products", async () => {
+    const resolution = await resolveLocalCodes(databaseThatMustNotBeUsed, [
+      { value: "5901234123457", symbology: "EAN-13", imageOrdinal: 1, readerVersion: "test" },
+      { value: "4006381333931", symbology: "EAN-13", imageOrdinal: 2, readerVersion: "test" },
+    ]);
+
+    expect(resolution.outcome).toEqual({ kind: "Ambiguous" });
+    expect(resolution.validated).toHaveLength(2);
+  });
+
+  it("does not call the same code read twice ambiguous", async () => {
+    /* Reaching the catalogue is the correct behaviour here, so the throwing
+     * stub is what proves the two reads collapsed to one product. */
+    await expect(
+      resolveLocalCodes(databaseThatMustNotBeUsed, [
+        { value: "5901234123457", symbology: "EAN-13", imageOrdinal: 1, readerVersion: "test" },
+        { value: "5901234123457", symbology: "EAN-13", imageOrdinal: 2, readerVersion: "test" },
+      ]),
+    ).rejects.toThrow(/queried the catalogue/u);
   });
 });

@@ -209,6 +209,22 @@ export interface RecognitionStageReportView {
   readonly observations: readonly string[];
 }
 
+/**
+ * How much of the pipeline actually ran, which is not the same question as
+ * what it found. Without this, an installation with no recognition services
+ * configured and an installation that examined five good photographs of an
+ * unknown item produce the identical empty screen, and the person cannot tell
+ * whether to trust the silence.
+ *
+ * - `Completed` — every stage that could apply ran to a conclusion.
+ * - `Partial` — some stages ran, others could not; absence of a match here is
+ *   weak evidence, not a finding.
+ * - `NotRun` — nothing examined the photographs at all.
+ * - `Failed` — the run stopped on an error before it could finish.
+ */
+export const recognitionAnalysisOutcomes = ["Completed", "Partial", "NotRun", "Failed"] as const;
+export type RecognitionAnalysisOutcome = (typeof recognitionAnalysisOutcomes)[number];
+
 export interface RecognitionSessionView extends RecognitionSessionSummaryView {
   readonly batchId: string;
   readonly candidates: readonly RecognitionCandidateView[];
@@ -216,6 +232,8 @@ export interface RecognitionSessionView extends RecognitionSessionSummaryView {
   readonly stageReports: readonly RecognitionStageReportView[];
   /** True when every stage failed and the person should just type the item in. */
   readonly recommendManualEntry: boolean;
+  /** Whether an empty result means "looked and found nothing" or "never looked". */
+  readonly analysisOutcome: RecognitionAnalysisOutcome;
 }
 
 export interface StockCaptureSessionResponse {

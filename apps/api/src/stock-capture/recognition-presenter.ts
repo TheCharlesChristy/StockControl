@@ -7,9 +7,11 @@ import type {
   RecognitionSessionStatus,
   RecognitionSessionView,
   RecognitionStage,
+  RecognitionStageOutcome,
   RecognitionStageReportView,
 } from "@stockcontrol/contracts";
-import { isTerminal } from "@stockcontrol/module-stock-capture";
+import { recognitionStages, recognitionStageOutcomes } from "@stockcontrol/contracts";
+import { analysisOutcomeFrom, isTerminal } from "@stockcontrol/module-stock-capture";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely, Transaction } from "kysely";
 
@@ -44,6 +46,7 @@ interface SessionRow {
   readonly local_codes: unknown;
   readonly committed_item_id: string | null;
   readonly failure_code: string | null;
+  readonly model_manifest: unknown;
   readonly created_at: Date;
   readonly expires_at: Date;
 }
@@ -117,6 +120,43 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
   });
 };
 
+const isStage = (value: unknown): value is RecognitionStage =>
+  (recognitionStages as readonly string[]).includes(value as string);
+
+const isStageOutcome = (value: unknown): value is RecognitionStageOutcome =>
+  (recognitionStageOutcomes as readonly string[]).includes(value as string);
+
+/*
+ * What the worker recorded about each stage, read back out of the model
+ * manifest it writes when a session reaches review. Parsed defensively for
+ * the ordinary reason: sessions written before this field existed have a
+ * manifest without it, and those simply report nothing rather than throwing.
+ */
+export const workerStageReports = (manifest: unknown): readonly RecognitionStageReportView[] => {
+  if (typeof manifest !== "object" || manifest === null) return [];
+  const stages = (manifest as Record<string, unknown>).stages;
+  if (!Array.isArray(stages)) return [];
+
+  return stages.flatMap((entry): readonly RecognitionStageReportView[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    if (!isStage(record.stage) || !isStageOutcome(record.outcome)) return [];
+
+    const observations = Array.isArray(record.observations)
+      ? record.observations.filter((note): note is string => typeof note === "string")
+      : [];
+
+    return [
+      {
+        stage: record.stage,
+        outcome: record.outcome,
+        imageOrdinal: typeof record.imageOrdinal === "number" ? record.imageOrdinal : null,
+        observations,
+      },
+    ];
+  });
+};
+
 const presentCandidate = async (
   database: Database,
   row: CandidateRow,
@@ -177,6 +217,7 @@ export const presentRecognitionSession = async (
   );
 
   const typedSession = session as SessionRow;
+  const stageReports = workerStageReports(typedSession.model_manifest);
 
   return {
     id: typedSession.id,
@@ -188,9 +229,15 @@ export const presentRecognitionSession = async (
     committedItemId: typedSession.committed_item_id,
     failureCode: typedSession.failure_code,
     candidates,
-    stageReports: barcodeStageReports(typedSession.local_codes),
+    /* The browser's own decodes first — they are the one stage that happened
+     * before the session existed — then whatever the worker recorded. */
+    stageReports: [...barcodeStageReports(typedSession.local_codes), ...stageReports],
     recommendManualEntry:
       candidates.length === 0 &&
       (isTerminal(typedSession.status) || typedSession.status === "ReviewReady"),
+    analysisOutcome: analysisOutcomeFrom({
+      status: typedSession.status,
+      stageReports,
+    }),
   };
 };

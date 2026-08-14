@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Kysely, Transaction } from "kysely";
 
-import type { BackgroundJobEnvelope, RecognitionSessionStatus } from "@stockcontrol/contracts";
+import type {
+  BackgroundJobEnvelope,
+  RecognitionSessionStatus,
+  RecognitionStageReportView,
+} from "@stockcontrol/contracts";
 import type { StructuredLogger } from "@stockcontrol/platform";
 import {
   canonicalGtin,
@@ -273,10 +277,19 @@ const persistImageEvidence = async (
 };
 
 /**
- * Runs every evidence stage this handler owns and returns the flat evidence
- * list `runFusion` expects. Nothing here throws for a single stage's
- * failure — each stage is wrapped so one unreachable service cannot take
- * down evidence every other stage already gathered.
+ * Runs every evidence stage this handler owns and returns both the flat
+ * evidence list `runFusion` expects and a record of what each stage actually
+ * did. Nothing here throws for a single stage's failure — each stage is
+ * wrapped so one unreachable service cannot take down evidence every other
+ * stage already gathered.
+ *
+ * The second half of that sentence is why the stage record matters. A stage
+ * that was never configured and a stage that ran and found nothing both
+ * contribute no evidence, and without this record the difference is invisible
+ * from the moment the worker returns: the session reaches ReviewReady with no
+ * candidates either way. Observations here stay to configuration-level facts;
+ * OCR text, model output and web snippets are not put in front of a person
+ * through this channel (specification section 17).
  */
 const gatherEvidence = async (
   database: Database,
@@ -285,11 +298,28 @@ const gatherEvidence = async (
   imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
-): Promise<readonly StageResult[]> => {
+): Promise<{
+  readonly results: readonly StageResult[];
+  readonly stageReports: readonly RecognitionStageReportView[];
+}> => {
   const results: StageResult[] = [];
+  const stageReports: RecognitionStageReportView[] = [];
+  const report = (
+    stage: RecognitionStageReportView["stage"],
+    outcome: RecognitionStageReportView["outcome"],
+    note: string,
+  ): void => {
+    stageReports.push({ stage, outcome, imageOrdinal: null, observations: [note] });
+  };
 
   let photoResults: readonly CorePhotoResult[] = [];
-  if (configuration.recognitionCoreUrl !== undefined && verifiedImages.length > 0) {
+  if (configuration.recognitionCoreUrl === undefined) {
+    report("Ocr", "Unavailable", "Text recognition is not set up on this installation.");
+    report("Category", "Unavailable", "Product categories are not set up on this installation.");
+  } else if (verifiedImages.length === 0) {
+    report("Ocr", "NotApplicable", "There were no photographs to read.");
+    report("Category", "NotApplicable", "There were no photographs to categorise.");
+  } else {
     const client = new RecognitionCoreClient({
       baseUrl: configuration.recognitionCoreUrl,
       timeoutMilliseconds: configuration.recognitionCoreTimeoutMilliseconds,
@@ -303,11 +333,25 @@ const gatherEvidence = async (
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
       await persistImageEvidence(database, imageRows, photoResults);
+      const readText = photoResults.some((photo) => photo.ocrLines.length > 0);
+      report(
+        "Ocr",
+        "Succeeded",
+        readText ? "Read text from the photographs." : "Found no readable text.",
+      );
+      const categorised = photoResults.some((photo) => photo.categories.length > 0);
+      report(
+        "Category",
+        "Succeeded",
+        categorised ? "Suggested a product category." : "Matched no product category.",
+      );
     } catch (error: unknown) {
       logger.error({
         event: "recognition.core_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
       });
+      report("Ocr", "Failed", "The text recognition service could not be reached.");
+      report("Category", "Failed", "The text recognition service could not be reached.");
     }
   }
 
@@ -336,9 +380,25 @@ const gatherEvidence = async (
 
   const embeddingModel = photoResults.find((photo) => photo.embedding !== null)?.embedding
     ?.modelRevision;
-  if (embeddingModel !== undefined) {
+  if (embeddingModel === undefined) {
+    report(
+      "VisualExample",
+      "Unavailable",
+      "Comparing photographs to confirmed items is not set up on this installation.",
+    );
+  } else {
     const index = await loadVisualIndex(database, embeddingModel).catch(() => []);
-    if (index.length > 0) {
+    if (index.length === 0) {
+      /* Not a fault: the index is built from items people have confirmed, so
+       * an installation early in its life legitimately has nothing to compare
+       * against yet. */
+      report(
+        "VisualExample",
+        "NotApplicable",
+        "No confirmed items have been photographed yet to compare against.",
+      );
+    } else {
+      let matched = 0;
       for (const photo of photoResults) {
         if (photo.embedding === null) continue;
         const neighbours = findNearestNeighbours(
@@ -346,10 +406,18 @@ const gatherEvidence = async (
           index,
           5,
         );
+        matched += neighbours.length;
         neighbours.forEach((neighbour, position) => {
           results.push(visualStageResult(neighbour, photo.imageOrdinal, position + 1));
         });
       }
+      report(
+        "VisualExample",
+        "Succeeded",
+        matched > 0
+          ? "Compared the photographs with confirmed items."
+          : "Found nothing that looks like a confirmed item.",
+      );
     }
   }
 
@@ -368,6 +436,30 @@ const gatherEvidence = async (
   webOutcome?.results.forEach((result, index) => {
     results.push(webStageResult(result, index + 1));
   });
+
+  if (configuration.braveSearchApiKey === undefined) {
+    report(
+      "Web",
+      "Unavailable",
+      "Looking up manufacturer pages is not set up on this installation.",
+    );
+  } else if (webOutcome === null) {
+    report("Web", "Failed", "The manufacturer page search could not be reached.");
+  } else {
+    report(
+      "Web",
+      "Succeeded",
+      webOutcome.results.length > 0
+        ? "Checked manufacturer pages."
+        : "Found no manufacturer page for this item.",
+    );
+  }
+
+  if (configuration.recognitionFusionUrl === undefined) {
+    report("Vlm", "Unavailable", "Photo analysis is not set up on this installation.");
+  } else if (verifiedImages.length === 0) {
+    report("Vlm", "NotApplicable", "There were no photographs to analyse.");
+  }
 
   if (configuration.recognitionFusionUrl !== undefined && verifiedImages.length > 0) {
     const allowlist: VlmCandidateAllowlistEntry[] = catalogueMatches.slice(0, 5).map((match) => ({
@@ -405,15 +497,23 @@ const gatherEvidence = async (
       const proposal = await client.proposeIdentity(request);
       const stageResult = vlmStageResult(proposal, identityById);
       if (stageResult !== null) results.push(stageResult);
+      report(
+        "Vlm",
+        "Succeeded",
+        stageResult === null
+          ? "Analysed the photographs without reaching a proposal."
+          : "Analysed the photographs.",
+      );
     } catch (error: unknown) {
       logger.error({
         event: "recognition.fusion_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
       });
+      report("Vlm", "Failed", "The photo analysis service could not be reached.");
     }
   }
 
-  return results;
+  return { results, stageReports };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -542,8 +642,17 @@ export const createRecognitionHandler = (
 
     if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
 
-    const outcome = runFusion(evidence);
-    const modelManifest = { fusionWeights: outcome.weightsVersion };
+    const outcome = runFusion(evidence.results);
+    /*
+     * The stage record rides along with the manifest because it answers the
+     * same question — what this installation was actually able to run — and
+     * the API already reads the manifest back for the session view. A session
+     * that produced no candidates is unreadable without it.
+     */
+    const modelManifest = {
+      fusionWeights: outcome.weightsVersion,
+      stages: evidence.stageReports,
+    };
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);
     if (!wrote) {

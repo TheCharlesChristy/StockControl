@@ -1,3 +1,4 @@
+export * from "./analysis-outcome";
 export * from "./candidate-identity";
 export * from "./fusion";
 export * from "./identifiers";
