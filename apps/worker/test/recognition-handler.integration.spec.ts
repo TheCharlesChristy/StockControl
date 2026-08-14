@@ -179,7 +179,13 @@ describe.sequential("recognition handler", () => {
   /** The stage record the API reads back to decide what to tell the user. */
   const stagesFor = async (
     sessionId: string,
-  ): Promise<readonly { readonly stage: string; readonly outcome: string }[]> => {
+  ): Promise<
+    readonly {
+      readonly stage: string;
+      readonly outcome: string;
+      readonly observations?: readonly string[];
+    }[]
+  > => {
     const row = await database
       .withSchema(STOCKCONTROL_SCHEMA)
       .selectFrom("stock_recognition_sessions")
@@ -189,7 +195,11 @@ describe.sequential("recognition handler", () => {
     const manifest = row.model_manifest as { readonly stages?: unknown } | null;
     const stages = manifest?.stages;
     return Array.isArray(stages)
-      ? (stages as readonly { readonly stage: string; readonly outcome: string }[])
+      ? (stages as readonly {
+          readonly stage: string;
+          readonly outcome: string;
+          readonly observations?: readonly string[];
+        }[])
       : [];
   };
 
@@ -260,6 +270,24 @@ describe.sequential("recognition handler", () => {
       createdAt: new Date().toISOString(),
     };
     return handler(job);
+  };
+
+  const insertCatalogueItem = async (barcode: string): Promise<string> => {
+    const itemId = await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .insertInto("items")
+      .values({
+        id: randomUUID(),
+        reference: `RH-${randomUUID()}`,
+        name: "Recognition Handler Test Item",
+        unit: "each",
+        barcode,
+      })
+      .returning("id")
+      .executeTakeFirstOrThrow()
+      .then((row) => row.id);
+    createdItemIds.push(itemId);
+    return itemId;
   };
 
   /** A photographed session whose recognisers are pointed at `baseUrl`. */
@@ -460,20 +488,7 @@ describe.sequential("recognition handler", () => {
 
   it("matches a validated barcode local code against the catalogue and publishes a candidate", async () => {
     const userId = await insertUser();
-    const itemId = await migrator
-      .withSchema(STOCKCONTROL_SCHEMA)
-      .insertInto("items")
-      .values({
-        id: randomUUID(),
-        reference: `RH-${randomUUID()}`,
-        name: "Recognition Handler Test Item",
-        unit: "each",
-        barcode: "5012345678900",
-      })
-      .returning("id")
-      .executeTakeFirstOrThrow()
-      .then((row) => row.id);
-    createdItemIds.push(itemId);
+    const itemId = await insertCatalogueItem("5012345678900");
 
     const batchId = await insertBatch(userId);
     const sessionId = await insertSession({
@@ -562,21 +577,61 @@ describe.sequential("recognition handler", () => {
       expect(await sessionFailureCode(sessionId)).toBe("capture.recognition_unavailable");
     });
 
+    /*
+     * A 401 is a wrong key, and it will still be a wrong key after the backoff.
+     * Waiting out three attempts before telling anybody just makes the same
+     * answer arrive later, so a failure that cannot change is terminal at once.
+     */
+    it("does not make a person wait out retries for a key that will stay refused", async () => {
+      const refusingKeyUrl = await startServer((_request, response) => {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "invalid api key" }));
+      });
+      const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+      await expect(
+        runHandler(storage, sessionId, {
+          configuration: {
+            recognitionCoreUrl: refusingKeyUrl,
+            recognitionFusionUrl: refusingKeyUrl,
+            recognitionFusionApiKey: "wrong-key",
+          },
+          attempt: 1,
+          maxAttempts: 3,
+        }),
+      ).rejects.toMatchObject({ code: "capture.recognition_unavailable" });
+
+      expect(await sessionStatus(sessionId)).toBe("Failed");
+      expect(await sessionFailureCode(sessionId)).toBe("capture.recognition_unavailable");
+    });
+
+    /* The note a person reads has to match what actually happened: a service
+     * that answered and refused was not "unreachable". */
+    it("says a service refused the request rather than that it could not be reached", async () => {
+      const refusingKeyUrl = await startServer((_request, response) => {
+        response.writeHead(403);
+        response.end("forbidden");
+      });
+      /* A catalogue match, so the session reaches review and writes the stage
+       * record — an outage alone never gets that far. */
+      await insertCatalogueItem("5012345678900");
+      const { sessionId, storage } = await sessionWithOnePhotograph({
+        localCodes: [{ value: "5012345678900", symbology: "EAN-13" }],
+      });
+
+      await runHandler(storage, sessionId, {
+        configuration: { recognitionCoreUrl: refusingKeyUrl },
+      });
+
+      const stages = await stagesFor(sessionId);
+      const ocr = stages.find((stage) => stage.stage === "Ocr");
+      expect(ocr?.outcome).toBe("Failed");
+      expect(ocr?.observations?.[0]).toMatch(/refused the request/iu);
+      expect(ocr?.observations?.[0]).not.toMatch(/could not be reached/iu);
+    });
+
     it("still reaches review when another stage identified the item anyway", async () => {
-      const itemId = await migrator
-        .withSchema(STOCKCONTROL_SCHEMA)
-        .insertInto("items")
-        .values({
-          id: randomUUID(),
-          reference: `RH-${randomUUID()}`,
-          name: "Recognition Handler Degraded Item",
-          unit: "each",
-          barcode: "5012345678900",
-        })
-        .returning("id")
-        .executeTakeFirstOrThrow()
-        .then((row) => row.id);
-      createdItemIds.push(itemId);
+      const itemId = await insertCatalogueItem("5012345678900");
 
       const { sessionId, storage } = await sessionWithOnePhotograph({
         localCodes: [{ value: "5012345678900", symbology: "EAN-13" }],

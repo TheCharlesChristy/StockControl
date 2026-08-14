@@ -155,11 +155,60 @@ const advanceStatus = async (
 const safeOrigin = (url: string | undefined): string => {
   if (url === undefined) return "unset";
   try {
+    /* `host`, not `hostname` and port assembled by hand: it already carries the
+     * port and keeps the brackets an IPv6 literal needs, while still excluding
+     * the userinfo where a credential would hide. */
     const parsed = new URL(url);
-    return `${parsed.protocol}//${parsed.hostname}${parsed.port === "" ? "" : `:${parsed.port}`}`;
+    return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return "unparseable";
   }
+};
+
+/**
+ * Whether another attempt could plausibly go differently.
+ *
+ * A refused connection, a timeout or a 5xx is worth retrying: the service may
+ * be restarting. A 401 is a wrong API key, and it will still be a wrong API key
+ * three attempts and a backoff later — retrying only delays telling somebody
+ * what to fix. A response the client could not read is the same: the one
+ * constrained retry has already happened inside the client.
+ *
+ * An error of a shape this function does not recognise is treated as transient,
+ * because giving up on one unexplained look is the worse mistake.
+ */
+const isTransient = (error: unknown): boolean => {
+  if (
+    !(error instanceof RecognitionCoreUnavailableError) &&
+    !(error instanceof FusionUnavailableError)
+  ) {
+    return true;
+  }
+  if (error.reason === "unreachable") return true;
+  if (error.reason === "malformed") return false;
+  return error.status === null || error.status >= 500 || error.status === 429;
+};
+
+/**
+ * What to tell a person about a stage that did not answer. "Could not be
+ * reached" is wrong for a service that answered promptly and refused, and the
+ * difference decides who fixes it: a network problem is not a wrong key.
+ */
+const failureNote = (service: string, error: unknown): string => {
+  if (
+    !(error instanceof RecognitionCoreUnavailableError) &&
+    !(error instanceof FusionUnavailableError)
+  ) {
+    return `The ${service} service could not be used.`;
+  }
+  if (error.reason === "unreachable") return `The ${service} service could not be reached.`;
+  if (error.reason === "malformed") {
+    return `The ${service} service replied with something StockControl could not read.`;
+  }
+  if (error.status !== null && error.status < 500 && error.status !== 429) {
+    return `The ${service} service refused the request. This is a setting for your administrator to check.`;
+  }
+  return `The ${service} service is not answering at the moment.`;
 };
 
 /** The shape both recogniser failures log, so one query finds either. */
@@ -373,9 +422,13 @@ const gatherEvidence = async (
 ): Promise<{
   readonly results: readonly StageResult[];
   readonly stageReports: readonly RecognitionStageReportView[];
+  /* True when at least one stage that failed might answer next time. It rides
+   * out with the reports because only this function sees the errors. */
+  readonly transientFailure: boolean;
 }> => {
   const results: StageResult[] = [];
   const stageReports: RecognitionStageReportView[] = [];
+  let transientFailure = false;
   const report = (
     stage: RecognitionStageReportView["stage"],
     outcome: RecognitionStageReportView["outcome"],
@@ -427,8 +480,10 @@ const gatherEvidence = async (
         attempt,
         ...serviceFailureFields(error),
       });
-      report("Ocr", "Failed", "The text recognition service could not be reached.");
-      report("Category", "Failed", "The text recognition service could not be reached.");
+      transientFailure ||= isTransient(error);
+      const note = failureNote("text recognition", error);
+      report("Ocr", "Failed", note);
+      report("Category", "Failed", note);
     }
   }
 
@@ -591,11 +646,12 @@ const gatherEvidence = async (
         attempt,
         ...serviceFailureFields(error),
       });
-      report("Vlm", "Failed", "The photo analysis service could not be reached.");
+      transientFailure ||= isTransient(error);
+      report("Vlm", "Failed", failureNote("photo analysis", error));
     }
   }
 
-  return { results, stageReports };
+  return { results, stageReports, transientFailure };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -755,19 +811,33 @@ export const createRecognitionHandler = (
     const failedStages = failedStagesOf(evidence.stageReports);
     if (outcome.candidates.length === 0 && failedStages.length > 0) {
       const lastAttempt = job.attempt >= job.maxAttempts;
+      /*
+       * A session is told it failed once nothing further can change that: when
+       * the queue has spent its attempts, or immediately when the failure was
+       * never going to answer differently. Holding the news back while a retry
+       * is genuinely pending is what keeps the progress bar honest; holding it
+       * back through three attempts against a refused API key is just a longer
+       * wait for the same answer.
+       */
+      const settled = lastAttempt || !evidence.transientFailure;
       logger.error({
         event: "recognition.services_unavailable",
         sessionId,
         attempt: job.attempt,
         maxAttempts: job.maxAttempts,
         failedStages,
+        transient: evidence.transientFailure,
         lastAttempt,
       });
 
-      /* Only once the queue has given up, so a session is not shown as failed
-       * while a retry that may still succeed is pending. */
-      if (lastAttempt) await markFailed(database, sessionId, RECOGNITION_UNAVAILABLE);
+      if (settled) await markFailed(database, sessionId, RECOGNITION_UNAVAILABLE);
 
+      /*
+       * Thrown either way, so the queue records a failure rather than a
+       * success. A non-transient failure is still retried by the dispatcher,
+       * but the session is already terminal by then, so the next attempt stops
+       * at the status guard above without calling anything.
+       */
       throw new RecognitionServicesUnavailableError();
     }
 

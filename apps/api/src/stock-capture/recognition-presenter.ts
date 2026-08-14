@@ -137,6 +137,9 @@ export const workerStageReports = (manifest: unknown): readonly RecognitionStage
   const stages = (manifest as Record<string, unknown>).stages;
   if (!Array.isArray(stages)) return [];
 
+  const isPhotographOrdinal = (value: unknown): value is number =>
+    typeof value === "number" && Number.isInteger(value) && value > 0;
+
   return stages.flatMap((entry): readonly RecognitionStageReportView[] => {
     if (typeof entry !== "object" || entry === null) return [];
     const record = entry as Record<string, unknown>;
@@ -150,7 +153,10 @@ export const workerStageReports = (manifest: unknown): readonly RecognitionStage
       {
         stage: record.stage,
         outcome: record.outcome,
-        imageOrdinal: typeof record.imageOrdinal === "number" ? record.imageOrdinal : null,
+        /* The screen turns this into "photograph 2", so anything that is not a
+         * whole positive number names no photograph and is better dropped than
+         * rendered — NaN in particular is a number. */
+        imageOrdinal: isPhotographOrdinal(record.imageOrdinal) ? record.imageOrdinal : null,
         observations,
       },
     ];
