@@ -58,7 +58,33 @@ describe("SessionUnavailable", () => {
   it("explains an unavailable recogniser differently from an unreadable photo", () => {
     renderScreen({ failureCode: "capture.recognition_unavailable" });
 
-    expect(screen.getByText(/not available at the moment/iu)).toBeInTheDocument();
+    expect(screen.getByText(/did not answer/iu)).toBeInTheDocument();
+    /* Whose fault it is decides what the person does next. */
+    expect(screen.getByText(/not a problem with your photographs/iu)).toBeInTheDocument();
+  });
+
+  /*
+   * The 14 August staging incident ended with a person retaking the same
+   * photograph. Re-photographing cannot fix a recogniser that is down, so the
+   * button that will work is the one that has to look like the way out.
+   */
+  it("leads with inventory, not the camera, when the recogniser is the thing that failed", () => {
+    renderScreen({ failureCode: "capture.recognition_unavailable" });
+
+    expect(screen.getByRole("link", { name: /add it in inventory instead/iu })).toHaveClass(
+      "MuiButton-contained",
+    );
+    expect(screen.getByRole("button", { name: /photograph it again/iu })).not.toHaveClass(
+      "MuiButton-contained",
+    );
+  });
+
+  it("leads with the camera when a better photograph is what is needed", () => {
+    renderScreen({ failureCode: "capture.upload_invalid" });
+
+    expect(screen.getByRole("button", { name: /photograph it again/iu })).toHaveClass(
+      "MuiButton-contained",
+    );
   });
 
   it("says an expired item was cleared away", () => {

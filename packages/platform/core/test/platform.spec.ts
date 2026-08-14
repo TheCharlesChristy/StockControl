@@ -28,6 +28,7 @@ describe("platform observability foundations", () => {
       type: "reservation.expire",
       payload: { reservationId: "reservation-1" },
       attempt: 1,
+      maxAttempts: 3,
       createdAt: "2026-07-29T10:00:00.000Z",
       correlationId: "job-correlation",
     };
@@ -53,6 +54,7 @@ describe("platform observability foundations", () => {
         type: "unknown",
         payload: {},
         attempt: 1,
+        maxAttempts: 3,
         createdAt: "2026-07-29T10:00:00.000Z",
       }),
     ).rejects.toBeInstanceOf(UnknownBackgroundJobError);

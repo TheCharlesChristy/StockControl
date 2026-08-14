@@ -130,6 +130,7 @@ export class RecognitionDispatcher {
       type: job.jobType,
       payload: job.payload,
       attempt: job.attemptCount,
+      maxAttempts: job.maxAttempts,
       createdAt: new Date().toISOString(),
     };
 

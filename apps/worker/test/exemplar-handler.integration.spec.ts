@@ -238,6 +238,7 @@ describe.sequential("exemplar handler", () => {
       type: "BuildExemplars",
       payload,
       attempt: 1,
+      maxAttempts: 3,
       createdAt: new Date().toISOString(),
     };
     return handler(job);

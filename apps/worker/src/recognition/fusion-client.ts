@@ -97,9 +97,17 @@ export type VlmProposal =
     }
   | { readonly kind: "Unknown" };
 
+/** See RecognitionCoreUnavailableError: a name alone could not distinguish a
+ *  wrong hostname from a refused connection, a timeout or a 401. */
+export type FusionFailureReason = "unreachable" | "status" | "malformed";
+
 export class FusionUnavailableError extends Error {
   public readonly code = "recognition.fusion_unavailable";
-  public constructor(detail: string) {
+  public constructor(
+    detail: string,
+    public readonly reason: FusionFailureReason = "unreachable",
+    public readonly status: number | null = null,
+  ) {
     super(detail);
     this.name = "FusionUnavailableError";
   }
@@ -281,6 +289,15 @@ export interface FusionClientOptions {
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/** One call to the service: either it answered (with anything at all), or it
+ * did not, in which case `failure` says how far the request got. */
+type Attempt =
+  | { readonly answered: true; readonly body: unknown }
+  | { readonly answered: false; readonly failure: FusionUnavailableError | null };
+
+const transportFailureOf = (attempt: Attempt): FusionUnavailableError | null =>
+  attempt.answered ? null : attempt.failure;
+
 export class FusionClient {
   public constructor(
     private readonly options: FusionClientOptions,
@@ -305,15 +322,37 @@ export class FusionClient {
       response_format: { type: "json_schema", json_schema: { name: "vlm_proposal", schema } },
     };
 
-    const first = await this.complete(body).catch(() => null);
-    const firstProposal = first === null ? null : parseVlmResponse(first, request.candidates);
+    /*
+     * Both attempts used to be swallowed into one generic "did not return a
+     * valid proposal", which reported `unreachable` for a service that had
+     * answered perfectly well with a 401. Keeping the transport failure means
+     * a misconfigured API key is diagnosable as one.
+     */
+    const attempt = async (): Promise<Attempt> => {
+      try {
+        return { answered: true, body: await this.complete(body) };
+      } catch (error: unknown) {
+        return {
+          answered: false,
+          failure: error instanceof FusionUnavailableError ? error : null,
+        };
+      }
+    };
+
+    const first = await attempt();
+    const firstProposal = first.answered ? parseVlmResponse(first.body, request.candidates) : null;
     if (firstProposal !== null) return firstProposal;
 
-    const retry = await this.complete(body).catch(() => null);
-    const retryProposal = retry === null ? null : parseVlmResponse(retry, request.candidates);
+    const retry = await attempt();
+    const retryProposal = retry.answered ? parseVlmResponse(retry.body, request.candidates) : null;
     if (retryProposal !== null) return retryProposal;
 
-    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.");
+    const transportFailure = transportFailureOf(first) ?? transportFailureOf(retry);
+    if (transportFailure !== null) throw transportFailure;
+    throw new FusionUnavailableError(
+      "recognition-fusion did not return a valid proposal.",
+      "malformed",
+    );
   }
 
   private async complete(body: unknown): Promise<unknown> {
@@ -323,20 +362,7 @@ export class FusionClient {
     }, this.options.timeoutMilliseconds);
 
     try {
-      const response = await this.fetchImpl(`${this.options.baseUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${this.options.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new FusionUnavailableError(
-          `recognition-fusion responded with status ${String(response.status)}.`,
-        );
-      }
+      const response = await this.fetch(controller.signal, body);
 
       const json: unknown = await response.json();
       if (!isRecord(json)) return null;
@@ -355,5 +381,41 @@ export class FusionClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Separated from the parsing above so that "the request never got an answer"
+   * cannot be mistaken for "the answer was unusable". Without this, an abort or
+   * a refused connection escaped `complete` unwrapped, `proposeIdentity` did
+   * not recognise it as a transport failure, and a timeout was reported as a
+   * malformed response — the exact wrong direction to send an investigation.
+   */
+  private async fetch(signal: AbortSignal, body: unknown): Promise<Response> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.options.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.options.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (error: unknown) {
+      throw new FusionUnavailableError(
+        error instanceof Error ? error.name : "recognition-fusion request failed.",
+        "unreachable",
+      );
+    }
+
+    if (!response.ok) {
+      throw new FusionUnavailableError(
+        `recognition-fusion responded with status ${String(response.status)}.`,
+        "status",
+        response.status,
+      );
+    }
+    return response;
   }
 }

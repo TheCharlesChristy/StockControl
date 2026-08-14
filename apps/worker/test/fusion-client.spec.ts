@@ -509,6 +509,55 @@ describe("FusionClient.proposeIdentity", () => {
     expect(evidenceText).not.toContain("line-8");
   });
 
+  /*
+   * The staging incident again. `proposeIdentity` makes two attempts and used
+   * to collapse both into one generic "did not return a valid proposal", so a
+   * rejected API key — the service answering correctly, with 401 — was
+   * reported as an unreachable service. That sent the investigation to the
+   * network for a credential problem.
+   */
+  it("keeps a rejected API key diagnosable as a rejected API key", async () => {
+    const baseUrl = await startServer((_request, response) => {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "invalid api key" }));
+    });
+
+    const client = new FusionClient({ baseUrl, apiKey: "wrong-key", timeoutMilliseconds: 2_000 });
+
+    await expect(client.proposeIdentity(baseRequest())).rejects.toMatchObject({
+      name: "FusionUnavailableError",
+      reason: "status",
+      status: 401,
+    });
+  });
+
+  it("blames the response, not the network, when the service answers with nonsense twice", async () => {
+    const baseUrl = await startServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(chatCompletionResponse({ kind: "DeleteEverything" }));
+    });
+
+    const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
+
+    await expect(client.proposeIdentity(baseRequest())).rejects.toMatchObject({
+      reason: "malformed",
+      status: null,
+    });
+  });
+
+  it("blames the network when the service never answers at all", async () => {
+    const baseUrl = await startServer(() => {
+      /* Never responds, on both attempts. */
+    });
+
+    const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 50 });
+
+    await expect(client.proposeIdentity(baseRequest())).rejects.toMatchObject({
+      reason: "unreachable",
+      status: null,
+    });
+  });
+
   it.each([
     ["a non-object body", '"just a string"'],
     ["a body with no choices array", "{}"],

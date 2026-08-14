@@ -91,9 +91,22 @@ export interface RenderExemplarResult {
   readonly height: number;
 }
 
+/**
+ * `reason` and `status` exist so the worker can say *how* the service was
+ * unavailable without putting the message in a log. The 14 August staging
+ * incident could not be told apart from a model failure because the only
+ * thing recorded was this class's name: a wrong hostname, a refused
+ * connection, a timeout and a 503 all looked identical.
+ */
+export type RecognitionCoreFailureReason = "unreachable" | "status" | "malformed";
+
 export class RecognitionCoreUnavailableError extends Error {
   public readonly code = "recognition.core_unavailable";
-  public constructor(detail: string) {
+  public constructor(
+    detail: string,
+    public readonly reason: RecognitionCoreFailureReason = "unreachable",
+    public readonly status: number | null = null,
+  ) {
     super(detail);
     this.name = "RecognitionCoreUnavailableError";
   }
@@ -308,6 +321,7 @@ export class RecognitionCoreClient {
     if (!Number.isFinite(width) || !Number.isFinite(height)) {
       throw new RecognitionCoreUnavailableError(
         "recognition-core response is missing crop dimensions.",
+        "malformed",
       );
     }
 
@@ -334,6 +348,8 @@ export class RecognitionCoreClient {
       if (!response.ok) {
         throw new RecognitionCoreUnavailableError(
           `recognition-core responded with status ${String(response.status)}.`,
+          "status",
+          response.status,
         );
       }
       return response;
@@ -341,6 +357,7 @@ export class RecognitionCoreClient {
       if (error instanceof RecognitionCoreUnavailableError) throw error;
       throw new RecognitionCoreUnavailableError(
         error instanceof Error ? error.name : "recognition-core request failed.",
+        "unreachable",
       );
     } finally {
       clearTimeout(timer);

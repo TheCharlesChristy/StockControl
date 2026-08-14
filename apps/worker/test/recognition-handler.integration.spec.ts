@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createServer, type RequestListener, type Server } from "node:http";
 
 import type { Kysely } from "kysely";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +18,7 @@ import {
 } from "@stockcontrol/platform-database";
 
 import type { DownloadedObject, ImageStorage } from "../src/recognition/image-storage";
+import type { RecognitionPipelineConfiguration } from "../src/recognition/recognition-configuration";
 import { createRecognitionHandler } from "../src/recognition/recognition-handler";
 
 const REQUEST_HASH = "a".repeat(64);
@@ -47,6 +49,33 @@ class FakeImageStorage implements ImageStorage {
 
 const silentLogger = (): StructuredLogger =>
   new StructuredLogger(new CorrelationContext(), "worker-test", { write: () => undefined });
+
+const servers: Server[] = [];
+
+/** A stand-in recogniser on a real port, so an unreachable service is tested
+ * as an HTTP outcome rather than a mocked rejection. */
+const startServer = async (handler: RequestListener): Promise<string> => {
+  const server = createServer(handler);
+  servers.push(server);
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("Server did not bind.");
+  return `http://127.0.0.1:${String(address.port)}`;
+};
+
+const stopServers = async (): Promise<void> => {
+  while (servers.length > 0) {
+    const server = servers.pop();
+    if (server === undefined) continue;
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+  }
+};
 
 describe.sequential("recognition handler", () => {
   let migrator: Kysely<StockControlDatabase>;
@@ -147,6 +176,33 @@ describe.sequential("recognition handler", () => {
     return row.status;
   };
 
+  /** The stage record the API reads back to decide what to tell the user. */
+  const stagesFor = async (
+    sessionId: string,
+  ): Promise<readonly { readonly stage: string; readonly outcome: string }[]> => {
+    const row = await database
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("stock_recognition_sessions")
+      .select(["model_manifest"])
+      .where("id", "=", sessionId)
+      .executeTakeFirstOrThrow();
+    const manifest = row.model_manifest as { readonly stages?: unknown } | null;
+    const stages = manifest?.stages;
+    return Array.isArray(stages)
+      ? (stages as readonly { readonly stage: string; readonly outcome: string }[])
+      : [];
+  };
+
+  const sessionFailureCode = async (sessionId: string): Promise<string | null> => {
+    const row = await database
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("stock_recognition_sessions")
+      .select(["failure_code"])
+      .where("id", "=", sessionId)
+      .executeTakeFirstOrThrow();
+    return row.failure_code;
+  };
+
   const imageStatus = async (imageId: string): Promise<string> => {
     const row = await database
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -170,7 +226,15 @@ describe.sequential("recognition handler", () => {
       .orderBy("rank")
       .execute();
 
-  const runHandler = (imageStorage: ImageStorage, sessionId: string): Promise<void> => {
+  const runHandler = (
+    imageStorage: ImageStorage,
+    sessionId: string,
+    over: {
+      readonly configuration?: Partial<RecognitionPipelineConfiguration>;
+      readonly attempt?: number;
+      readonly maxAttempts?: number;
+    } = {},
+  ): Promise<void> => {
     const handler = createRecognitionHandler({
       database,
       imageStorage,
@@ -183,6 +247,7 @@ describe.sequential("recognition handler", () => {
         braveSearchApiKey: undefined,
         webFetchTimeoutMilliseconds: 1_000,
         visualIndexEmbeddingModel: "unset",
+        ...over.configuration,
       },
       logger: silentLogger(),
     });
@@ -190,10 +255,31 @@ describe.sequential("recognition handler", () => {
       id: randomUUID(),
       type: "Recognize",
       payload: { sessionId },
-      attempt: 1,
+      attempt: over.attempt ?? 1,
+      maxAttempts: over.maxAttempts ?? 3,
       createdAt: new Date().toISOString(),
     };
     return handler(job);
+  };
+
+  /** A photographed session whose recognisers are pointed at `baseUrl`. */
+  const sessionWithOnePhotograph = async (input: {
+    readonly localCodes?: readonly { value: string; symbology: string }[];
+  }): Promise<{ readonly sessionId: string; readonly storage: FakeImageStorage }> => {
+    const userId = await insertUser();
+    const batchId = await insertBatch(userId);
+    const sessionId = await insertSession({
+      batchId,
+      actorUserId: userId,
+      status: "Queued",
+      photoCount: 1,
+      ...(input.localCodes === undefined ? {} : { localCodes: input.localCodes }),
+    });
+    const bytes = Buffer.from("real image bytes");
+    await insertImage({ sessionId, ordinal: 1, bytes, correctDigest: true });
+    const storage = new FakeImageStorage();
+    storage.put(`stock-capture/${sessionId}/1`, bytes);
+    return { sessionId, storage };
   };
 
   beforeAll(async () => {
@@ -257,6 +343,7 @@ describe.sequential("recognition handler", () => {
   });
 
   afterAll(async () => {
+    await stopServers();
     await database.destroy();
     await migrator.destroy();
   });
@@ -402,6 +489,179 @@ describe.sequential("recognition handler", () => {
     expect(await sessionStatus(sessionId)).toBe("ReviewReady");
     const candidates = await candidatesFor(sessionId);
     expect(candidates.some((candidate) => candidate.item_id === itemId)).toBe(true);
+  });
+
+  /*
+   * The 14 August staging incident. Both recognisers were configured and
+   * neither answered; the handler wrote ReviewReady with no candidates and the
+   * job was reported completed, so the queue never retried and the only
+   * evidence of an outage was a person saying the photograph "returned
+   * nothing". These tests pin the distinction the fix turns on: a recogniser
+   * that is *not configured* is a deployment decision and still reaches
+   * review, while a recogniser that is configured and does not answer is an
+   * outage and must not be reported as a finished job.
+   */
+  describe("when a configured recogniser does not answer", () => {
+    let refusingUrl: string;
+
+    beforeAll(async () => {
+      refusingUrl = await startServer((_request, response) => {
+        response.writeHead(503, { "content-type": "application/json" });
+        response.end(JSON.stringify({ detail: "model backend unavailable" }));
+      });
+    });
+
+    /* A function, not a constant: `refusingUrl` is only known once the server
+     * has bound a port, which happens after this block is evaluated. */
+    const bothRecognisersDown = (): Partial<RecognitionPipelineConfiguration> => ({
+      recognitionCoreUrl: refusingUrl,
+      recognitionFusionUrl: refusingUrl,
+      recognitionFusionApiKey: "test-key",
+    });
+
+    it("fails the job instead of reporting an empty result as a completed one", async () => {
+      const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+      await expect(
+        runHandler(storage, sessionId, { configuration: bothRecognisersDown() }),
+      ).rejects.toMatchObject({ code: "capture.recognition_unavailable" });
+
+      expect(await candidatesFor(sessionId)).toEqual([]);
+      expect(await sessionStatus(sessionId)).not.toBe("ReviewReady");
+    });
+
+    it("leaves the session mid-pipeline while the queue still has attempts left", async () => {
+      const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+      await expect(
+        runHandler(storage, sessionId, {
+          configuration: bothRecognisersDown(),
+          attempt: 1,
+          maxAttempts: 3,
+        }),
+      ).rejects.toThrow();
+
+      /* Not Failed: a retry may still succeed, and showing a person a failure
+       * that the next attempt disproves is worse than showing progress. */
+      expect(await sessionStatus(sessionId)).toBe("Fusing");
+      expect(await sessionFailureCode(sessionId)).toBeNull();
+    });
+
+    it("tells the person once the queue has run out of attempts", async () => {
+      const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+      await expect(
+        runHandler(storage, sessionId, {
+          configuration: bothRecognisersDown(),
+          attempt: 3,
+          maxAttempts: 3,
+        }),
+      ).rejects.toThrow();
+
+      expect(await sessionStatus(sessionId)).toBe("Failed");
+      expect(await sessionFailureCode(sessionId)).toBe("capture.recognition_unavailable");
+    });
+
+    it("still reaches review when another stage identified the item anyway", async () => {
+      const itemId = await migrator
+        .withSchema(STOCKCONTROL_SCHEMA)
+        .insertInto("items")
+        .values({
+          id: randomUUID(),
+          reference: `RH-${randomUUID()}`,
+          name: "Recognition Handler Degraded Item",
+          unit: "each",
+          barcode: "5012345678900",
+        })
+        .returning("id")
+        .executeTakeFirstOrThrow()
+        .then((row) => row.id);
+      createdItemIds.push(itemId);
+
+      const { sessionId, storage } = await sessionWithOnePhotograph({
+        localCodes: [{ value: "5012345678900", symbology: "EAN-13" }],
+      });
+
+      await expect(
+        runHandler(storage, sessionId, { configuration: bothRecognisersDown() }),
+      ).resolves.toBeUndefined();
+
+      expect(await sessionStatus(sessionId)).toBe("ReviewReady");
+      const candidates = await candidatesFor(sessionId);
+      expect(candidates.some((candidate) => candidate.item_id === itemId)).toBe(true);
+    });
+  });
+
+  /*
+   * Path A: barcode and manual entry only, no recogniser deployed. Retrying
+   * this would burn every attempt and dead-letter a job that was never going
+   * to succeed, so an unconfigured stage must stay distinct from a failed one.
+   */
+  it("finishes a session normally on an installation with no recognisers configured", async () => {
+    const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+    await expect(runHandler(storage, sessionId)).resolves.toBeUndefined();
+
+    expect(await sessionStatus(sessionId)).toBe("ReviewReady");
+    expect(await candidatesFor(sessionId)).toEqual([]);
+    /* Nothing looked, so nothing is claimed to have looked — this is what
+     * makes the review screen say so instead of "no match found". */
+    const stages = await stagesFor(sessionId);
+    expect(stages.find((stage) => stage.stage === "Ocr")?.outcome).toBe("Unavailable");
+    expect(stages.some((stage) => stage.outcome === "Succeeded")).toBe(false);
+  });
+
+  /*
+   * The other half of the same distinction, and the case the user's report
+   * actually described: a clear photograph that genuinely matched nothing.
+   * This must not be retried and must not be called a failure — but the stage
+   * record has to say the analysis ran, or the screen cannot tell a person
+   * that their photograph was looked at.
+   */
+  it("records a completed analysis that simply found no match", async () => {
+    const analysingUrl = await startServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          requestId: "req-1",
+          modelManifestVersion: "test-manifest",
+          photoResults: [
+            {
+              imageOrdinal: 1,
+              barcodeOutcome: "NotApplicable",
+              barcodes: [],
+              ocrOutcome: "Succeeded",
+              ocrLines: [{ text: "NOTHING IDENTIFYING", score: 0.9 }],
+              identifiers: {
+                manufacturerTokens: [],
+                nameFragments: [],
+                partNumberCandidates: [],
+                barcodeLikeCandidates: [],
+                variantAttributes: [],
+                labelledPackQuantity: null,
+              },
+              embeddingOutcome: "NotApplicable",
+              embedding: null,
+              categoryOutcome: "Succeeded",
+              categories: [],
+              quality: { blurScore: 0.1, foregroundAreaRatio: 0.5 },
+              crops: [],
+            },
+          ],
+        }),
+      );
+    });
+    const { sessionId, storage } = await sessionWithOnePhotograph({});
+
+    await expect(
+      runHandler(storage, sessionId, { configuration: { recognitionCoreUrl: analysingUrl } }),
+    ).resolves.toBeUndefined();
+
+    expect(await sessionStatus(sessionId)).toBe("ReviewReady");
+    expect(await candidatesFor(sessionId)).toEqual([]);
+    const stages = await stagesFor(sessionId);
+    expect(stages.find((stage) => stage.stage === "Ocr")?.outcome).toBe("Succeeded");
+    expect(stages.some((stage) => stage.outcome === "Failed")).toBe(false);
   });
 
   it("writes no candidates for an already-cancelled session", async () => {

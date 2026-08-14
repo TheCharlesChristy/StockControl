@@ -142,6 +142,68 @@ describe("RecognitionCoreClient.analyseSession", () => {
   });
 });
 
+/*
+ * These exist because of the 14 August staging incident. Every failure below
+ * used to reach the worker's log as nothing but the class name, so an operator
+ * reading it could not tell a wrong hostname from a service that answered with
+ * a 503 — and the log is all they have, because the message itself is never
+ * serialised.
+ */
+describe("telling one kind of recognition-core failure from another", () => {
+  const analyse = (baseUrl: string, timeoutMilliseconds = 2_000): Promise<unknown> =>
+    new RecognitionCoreClient({ baseUrl, timeoutMilliseconds }).analyseSession("req-1", [
+      { ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" },
+    ]);
+
+  const failureOf = async (promise: Promise<unknown>): Promise<RecognitionCoreUnavailableError> => {
+    try {
+      await promise;
+    } catch (error: unknown) {
+      if (error instanceof RecognitionCoreUnavailableError) return error;
+      throw error;
+    }
+    throw new Error("Expected the call to fail.");
+  };
+
+  it("records the status a service that answered actually returned", async () => {
+    const baseUrl = await startServer((_request, response) => {
+      response.writeHead(503);
+      response.end("unavailable");
+    });
+
+    const failure = await failureOf(analyse(baseUrl));
+
+    expect(failure.reason).toBe("status");
+    expect(failure.status).toBe(503);
+  });
+
+  it("calls a host that refuses the connection unreachable, with no status", async () => {
+    /* Bound and immediately closed, so the port is certainly nobody's. */
+    const baseUrl = await startServer(() => undefined);
+    const server = servers.pop();
+    await new Promise<void>((resolve) => {
+      server?.close(() => {
+        resolve();
+      });
+    });
+
+    const failure = await failureOf(analyse(baseUrl));
+
+    expect(failure.reason).toBe("unreachable");
+    expect(failure.status).toBeNull();
+  });
+
+  it("calls a service that never answers unreachable rather than blaming its response", async () => {
+    const baseUrl = await startServer(() => {
+      /* Never responds — the abort fires instead. */
+    });
+
+    const failure = await failureOf(analyse(baseUrl, 50));
+
+    expect(failure.reason).toBe("unreachable");
+  });
+});
+
 describe("RecognitionCoreClient.renderExemplar", () => {
   it("parses the binary body and header dimensions", async () => {
     const webpBytes = Buffer.from([0x52, 0x49, 0x46, 0x46]);

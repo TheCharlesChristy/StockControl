@@ -343,9 +343,25 @@ ReviewReady          -> Committed | Cancelled | Expired
 ```
 
 Failures are stage-local where possible. If OCR succeeds but the VLM is
-unavailable, the user receives OCR and exemplar candidates. If every stage fails,
-the session reaches `ReviewReady` with a manual-entry recommendation rather than
-blocking stock entry.
+unavailable, the user receives OCR and exemplar candidates.
+
+Where every stage produces nothing, the outcome depends on _why_, and the two
+reasons are not interchangeable:
+
+- **Not configured.** A Path A installation deploys no recogniser at all. Every
+  stage reports `Unavailable`, the session reaches `ReviewReady` with a
+  manual-entry recommendation, and the job completes. Retrying would burn every
+  attempt on a service that was never going to answer.
+- **Configured and unreachable.** A stage reports `Failed`. If fusion then has
+  no candidate from any other source, the job raises
+  `capture.recognition_unavailable` so the queue retries it with the bounded
+  backoff in ADR 0004, and marks the session `Failed` with that code once the
+  attempts are exhausted.
+
+The distinction exists because the 14 August 2026 staging incident had both
+recognisers configured and unreachable, and the earlier rule — `ReviewReady`
+whatever happened — reported the outage as a completed job with no candidates.
+The person photographing the item was told nothing, and the queue never retried.
 
 ### 7.2 Stage 0: browser barcode
 

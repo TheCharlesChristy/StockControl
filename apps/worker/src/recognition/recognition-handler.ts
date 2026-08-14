@@ -29,11 +29,17 @@ import {
 import { queryCatalogue, type CatalogueMatch } from "./catalogue-retrieval";
 import {
   RecognitionCoreClient,
+  RecognitionCoreUnavailableError,
   type AnalyseSessionResult,
   type CorePhotoResult,
   type RecognitionCoreImageInput,
 } from "./core-client";
-import { FusionClient, type VlmCandidateAllowlistEntry, type VlmRequest } from "./fusion-client";
+import {
+  FusionClient,
+  FusionUnavailableError,
+  type VlmCandidateAllowlistEntry,
+  type VlmRequest,
+} from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
 import type { RecognitionPipelineConfiguration } from "./recognition-configuration";
 import { encodeFloat16Buffer, findNearestNeighbours } from "./visual-index";
@@ -47,14 +53,42 @@ import { gatherWebEvidence } from "./web-evidence";
  * evidence, deterministic fusion, and the transactional candidate/session
  * write that ends the job.
  *
- * Every model-backed stage degrades to `Unavailable` on its own rather than
- * failing the job — a session reaches `ReviewReady` on whatever evidence
- * exists, even if that is none at all, because "type it in" is always the
- * fallback a person has. `Failed` is reserved for the one case where there
- * is nothing to review at all: no verified photograph and no local code.
+ * Every model-backed stage degrades on its own rather than failing the job — a
+ * session reaches `ReviewReady` on whatever evidence exists, even if that is
+ * none at all, because "type it in" is always the fallback a person has.
+ *
+ * With one exception, which the 14 August staging incident is named after. A
+ * stage that is `Unavailable` was never configured: Path A installations run
+ * that way deliberately, retrying would only burn attempts before
+ * dead-lettering, and `ReviewReady` with nothing to review is the honest
+ * result. A stage that `Failed` was configured and did not answer, which is a
+ * different claim entirely — and if nothing else produced a candidate either,
+ * finishing the job as a success reports an outage as an empty shelf. That
+ * case throws so the queue retries it with backoff, and marks the session
+ * `Failed` once the attempts run out, so the person waiting is told rather
+ * than left watching a progress bar that has already stopped moving.
  */
 
 const SCHEMA: typeof STOCKCONTROL_SCHEMA = "stockcontrol";
+
+/** The code the browser already reads on `SessionUnavailable`. */
+const RECOGNITION_UNAVAILABLE = "capture.recognition_unavailable";
+
+/**
+ * Thrown when every recogniser this installation has configured refused to
+ * answer and fusion consequently had nothing to rank. `code` is what
+ * `failureCodeOf` in the dispatcher reads to route the job into `failJob`,
+ * which applies the bounded exponential backoff from ADR 0004 — an outage
+ * becomes a queue rather than a stampede.
+ */
+class RecognitionServicesUnavailableError extends Error {
+  public readonly code = RECOGNITION_UNAVAILABLE;
+
+  public constructor() {
+    super("Every configured recognition service was unreachable.");
+    this.name = "RecognitionServicesUnavailableError";
+  }
+}
 
 type Database = Kysely<StockControlDatabase> | Transaction<StockControlDatabase>;
 
@@ -109,6 +143,41 @@ const advanceStatus = async (
     .where("status", "in", PROCESSING_STATUSES)
     .executeTakeFirst();
   return Number(result.numUpdatedRows) > 0;
+};
+
+/**
+ * Enough of a configured URL to diagnose a wrong one, and no more. Userinfo is
+ * dropped because a URL is a place credentials hide, and the path is dropped
+ * because it tells a reader nothing the service name does not. A URL that will
+ * not parse is itself the finding, so it is reported as such rather than
+ * echoed back.
+ */
+const safeOrigin = (url: string | undefined): string => {
+  if (url === undefined) return "unset";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.hostname}${parsed.port === "" ? "" : `:${parsed.port}`}`;
+  } catch {
+    return "unparseable";
+  }
+};
+
+/** The shape both recogniser failures log, so one query finds either. */
+const serviceFailureFields = (
+  error: unknown,
+): {
+  readonly errorName: string;
+  readonly reason: string;
+  readonly status: number | null;
+} => {
+  if (error instanceof RecognitionCoreUnavailableError || error instanceof FusionUnavailableError) {
+    return { errorName: error.name, reason: error.reason, status: error.status };
+  }
+  return {
+    errorName: error instanceof Error ? error.name : "Unknown",
+    reason: "unknown",
+    status: null,
+  };
 };
 
 const readLocalCodeValues = (
@@ -298,6 +367,9 @@ const gatherEvidence = async (
   imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
+  /* Which attempt these failures belong to, so a log line reads as "the second
+   * try also could not reach it" rather than as an unrelated event. */
+  attempt: number,
 ): Promise<{
   readonly results: readonly StageResult[];
   readonly stageReports: readonly RecognitionStageReportView[];
@@ -348,7 +420,12 @@ const gatherEvidence = async (
     } catch (error: unknown) {
       logger.error({
         event: "recognition.core_unavailable",
-        errorName: error instanceof Error ? error.name : "Unknown",
+        targetService: "recognition-core",
+        targetOrigin: safeOrigin(configuration.recognitionCoreUrl),
+        requestPath: "/v1/analyse-session",
+        timeoutMilliseconds: configuration.recognitionCoreTimeoutMilliseconds,
+        attempt,
+        ...serviceFailureFields(error),
       });
       report("Ocr", "Failed", "The text recognition service could not be reached.");
       report("Category", "Failed", "The text recognition service could not be reached.");
@@ -507,7 +584,12 @@ const gatherEvidence = async (
     } catch (error: unknown) {
       logger.error({
         event: "recognition.fusion_unavailable",
-        errorName: error instanceof Error ? error.name : "Unknown",
+        targetService: "recognition-fusion",
+        targetOrigin: safeOrigin(configuration.recognitionFusionUrl),
+        requestPath: "/v1/chat/completions",
+        timeoutMilliseconds: configuration.recognitionFusionTimeoutMilliseconds,
+        attempt,
+        ...serviceFailureFields(error),
       });
       report("Vlm", "Failed", "The photo analysis service could not be reached.");
     }
@@ -562,6 +644,15 @@ const writeResults = async (
 
     return true;
   });
+
+/**
+ * The stages that were set up and did not answer. `Unavailable` is deliberately
+ * not one of them: it means nobody configured that stage, which is a decision
+ * rather than a fault, and retrying a decision never changes it.
+ */
+const failedStagesOf = (reports: readonly RecognitionStageReportView[]): readonly string[] => [
+  ...new Set(reports.filter((report) => report.outcome === "Failed").map((report) => report.stage)),
+];
 
 const markFailed = async (
   database: Kysely<StockControlDatabase>,
@@ -638,6 +729,7 @@ export const createRecognitionHandler = (
       imageRows,
       localCodes,
       logger,
+      job.attempt,
     );
 
     if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
@@ -653,6 +745,31 @@ export const createRecognitionHandler = (
       fusionWeights: outcome.weightsVersion,
       stages: evidence.stageReports,
     };
+
+    /*
+     * Nothing to show and a configured recogniser that did not answer: the
+     * empty result is the outage, not a finding about the item. Writing
+     * ReviewReady here is what let the staging incident be reported as a
+     * completed job with no candidates.
+     */
+    const failedStages = failedStagesOf(evidence.stageReports);
+    if (outcome.candidates.length === 0 && failedStages.length > 0) {
+      const lastAttempt = job.attempt >= job.maxAttempts;
+      logger.error({
+        event: "recognition.services_unavailable",
+        sessionId,
+        attempt: job.attempt,
+        maxAttempts: job.maxAttempts,
+        failedStages,
+        lastAttempt,
+      });
+
+      /* Only once the queue has given up, so a session is not shown as failed
+       * while a retry that may still succeed is pending. */
+      if (lastAttempt) await markFailed(database, sessionId, RECOGNITION_UNAVAILABLE);
+
+      throw new RecognitionServicesUnavailableError();
+    }
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);
     if (!wrote) {

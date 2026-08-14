@@ -103,6 +103,7 @@ describe("core platform behavior", () => {
       type: "reservation.expire",
       payload: {},
       attempt: 2,
+      maxAttempts: 5,
       createdAt: "2026-07-29T10:00:00.000Z",
     };
 
