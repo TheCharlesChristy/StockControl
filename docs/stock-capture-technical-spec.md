@@ -1,7 +1,7 @@
 # Assisted stock capture: production implementation specification
 
 Status: **Accepted implementation baseline**  
-Last researched: **9 August 2026**  
+Last researched: **14 August 2026**
 Scope: software, model, data, security, and Railway deployment design  
 Primary clients: phone, tablet, and desktop browser
 
@@ -36,9 +36,9 @@ The selected production components are:
 - `PP-OCRv6_small_det` plus `PP-OCRv6_small_rec` for OCR;
 - `nomic-ai/nomic-embed-vision-v1.5` INT8 ONNX for visual examples and broad
   category similarity;
-- `unsloth/LFM2.5-VL-3B-GGUF`, using its Q4_0 GGUF and matching F16 multimodal
-  projector with a pinned CPU-only `llama.cpp` runtime, for one item-level
-  fusion proposal;
+- `LiquidAI/LFM2.5-VL-1.6B-GGUF`, using its Q4_0 GGUF and matching F16
+  multimodal projector with a pinned CPU-only `llama.cpp` runtime, as a
+  provisional staging candidate for one item-level fusion proposal;
 - Brave Search Web API for one bounded item-level search when a reliable query
   can be constructed; and
 - the existing StockControl API, PostgreSQL database, private Railway Bucket,
@@ -197,7 +197,7 @@ flowchart LR
     Worker -->|read temporary images| Bucket
     Worker -->|bounded image bytes| Core[recognition-core<br/>ZXing + OCR + embeddings]
     Worker -->|strong identifiers only| Brave[Brave Search API]
-    Worker -->|images + bounded evidence| Fusion[recognition-fusion<br/>LFM2.5-VL-3B]
+    Worker -->|images + bounded evidence| Fusion[recognition-fusion<br/>LFM2.5-VL-1.6B]
     Core --> Worker
     Brave --> Worker
     Fusion --> Worker
@@ -558,7 +558,7 @@ and the deployment SBOM.
 | Server barcode                  | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp)                                                                                                             | Mature, thread-safe, multi-format reader with browser/server parity and Apache 2.0 licensing.                                                                                                                                                                                                                                                                                                                |
 | OCR                             | [`PP-OCRv6_small_det`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det) + [`PP-OCRv6_small_rec`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec) | The [official OCR table](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md) reports 84.1 detection Hmean at 9.6 MB and 81.3 recognition accuracy at 20.4 MB. Small avoids the much larger medium models while materially outperforming the tiny recognition tier. The published v6 metrics use an internal set and must not be compared directly with v5 metrics. |
 | Adaptive retrieval and category | [`nomic-embed-vision-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5), official INT8 ONNX                                                        | Apache 2.0, 92.9M parameters, shared image/text space, and a [96.7 MB official INT8 ONNX](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5/tree/main/onnx). One model covers exemplar similarity and zero-shot category matching.                                                                                                                                                                     |
-| VLM fusion                      | [`unsloth/LFM2.5-VL-3B-GGUF`](https://huggingface.co/unsloth/LFM2.5-VL-3B-GGUF), pinned Q4_0 GGUF plus matching F16 multimodal projector                        | User-tested CPU performance and native multimodal llama.cpp support. The selected files are about 1.6 GB and 854 MB respectively. This is licensed under the upstream LFM Open License v1.0 rather than Apache 2.0, so the commercial-use threshold must be checked before deployment.                                                                                                                       |
+| VLM fusion                      | [`LiquidAI/LFM2.5-VL-1.6B-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF), pinned Q4_0 GGUF plus matching F16 multimodal projector                     | Provisional staging comparison selected to reduce CPU latency while preserving the existing LFM/llama.cpp integration. The selected files are about 696 MB and 854 MB respectively. This is licensed under the upstream LFM Open License v1.0 rather than Apache 2.0, so the commercial-use threshold must be checked before deployment.                                                                    |
 | CPU runtime                     | Pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)                                                                      | CPU-native quantised inference and a multimodal OpenAI-compatible server. The exact commit is frozen because LFM2.5 multimodal support is runtime-sensitive.                                                                                                                                                                                                                                                 |
 | Web evidence                    | [Brave Search Web API](https://brave.com/search/api/)                                                                                                           | One deterministic search endpoint, $5 per 1,000 requests, and $5 monthly credit. StockControl retains control of extraction and VLM prompting rather than buying generated Answers.                                                                                                                                                                                                                          |
 

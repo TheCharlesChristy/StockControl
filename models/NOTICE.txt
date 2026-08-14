@@ -6,14 +6,14 @@ The following entries are pinned in manifest.lock.json:
 
 - PP-OCRv6_small_det and PP-OCRv6_small_rec official ONNX exports: Apache-2.0.
 - nomic-embed-vision-v1.5 official INT8 ONNX export: Apache-2.0.
-- LFM2.5-VL-3B Q4_0 GGUF and matching F16 multimodal projector from
-  unsloth/LFM2.5-VL-3B-GGUF: LFM Open License v1.0. The upstream license is
-  available at https://huggingface.co/LiquidAI/LFM2.5-VL-3B/blob/main/LICENSE
+- LFM2.5-VL-1.6B Q4_0 GGUF and matching F16 multimodal projector from
+  LiquidAI/LFM2.5-VL-1.6B-GGUF: LFM Open License v1.0. The upstream license is
+  available at https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B/blob/main/LICENSE
   and permits commercial use only where the legal entity's annual revenue is
   no more than USD 10 million, subject to the license notice and redistribution
   conditions.
 
-The LFM files were selected by the user based on local performance testing.
-The consented evaluation set and sections 19/20 accuracy, latency, RSS, and
-soak gates have intentionally not been run, so this is a reproducible
-provisional artifact manifest, not a model-promotion record.
+The LFM files were selected by the user for a staging latency and recognition
+quality comparison. The consented evaluation set and sections 19/20 accuracy,
+latency, RSS, and soak gates have intentionally not been run, so this is a
+reproducible provisional artifact manifest, not a model-promotion record.

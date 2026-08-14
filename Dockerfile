@@ -268,7 +268,15 @@ COPY --from=recognition-fusion-build --chown=fusion:fusion \
 # out of this image reduces its resident footprint and avoids copying unrelated
 # model layers into the service.
 COPY --from=recognition-fusion-build --chown=fusion:fusion \
-     /models/lfm2.5-vl-3b-q4-0 /models/lfm2.5-vl-3b-q4-0
+     /models/lfm2.5-vl-1.6b-q4-0 /models/lfm2.5-vl-1.6b-q4-0
+# Staging has explicit paths for the previous model. One-release aliases keep
+# the first deployment healthy while Railway is moved to the canonical paths
+# documented in the runbook; both aliases resolve to the new, verified files.
+RUN mkdir -p /models/lfm2.5-vl-3b-q4-0 \
+    && ln -s /models/lfm2.5-vl-1.6b-q4-0/LFM2.5-VL-1.6B-Q4_0.gguf \
+       /models/lfm2.5-vl-3b-q4-0/LFM2.5-VL-3B-Q4_0.gguf \
+    && ln -s /models/lfm2.5-vl-1.6b-q4-0/mmproj-LFM2.5-VL-1.6b-F16.gguf \
+       /models/lfm2.5-vl-3b-q4-0/mmproj-F16.gguf
 COPY --from=recognition-fusion-build --chown=fusion:fusion \
      /src/models/manifest.lock.json /models/manifest.lock.json
 COPY --chown=fusion:fusion --chmod=755 services/recognition-fusion/docker-entrypoint.sh /app/docker-entrypoint.sh

@@ -126,9 +126,10 @@ no longer exist in the `media` Bucket under `stock-capture/<sessionId>/`.
 
 Do this only with the reviewed manifest revision intended for the deployment.
 The current manifest includes recognition-core's OCR/embedding artefacts and
-recognition-fusion's LFM2.5-VL-3B model/projector. It is provisional because
-the S0 accuracy and resource benchmark was skipped; deployment must retain the
-manual/partial-assist posture until those measurements are supplied.
+recognition-fusion's LFM2.5-VL-1.6B model/projector. It is a staging evaluation
+candidate and remains provisional because the S0 accuracy and resource
+benchmark was skipped; deployment must retain the manual/partial-assist posture
+until those measurements are supplied.
 
 ### 1. Create `recognition-core`
 
@@ -156,10 +157,15 @@ Retained, private, no public domain. Config as Code path
 ```text
 RUNTIME_TARGET=recognition-fusion
 PORT=8000
-RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-3b-q4-0/LFM2.5-VL-3B-Q4_0.gguf
-RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-3b-q4-0/mmproj-F16.gguf
+RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-1.6b-q4-0/LFM2.5-VL-1.6B-Q4_0.gguf
+RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-1.6b-q4-0/mmproj-LFM2.5-VL-1.6b-F16.gguf
 RECOGNITION_FUSION_API_KEY=<a fresh 64-hex-character secret>
 ```
+
+The image contains one-release compatibility aliases for the former 3B paths,
+so an existing staging service remains healthy during this variable migration.
+Move Railway to the canonical 1.6B paths above before removing those aliases in
+a later release.
 
 Generate `RECOGNITION_FUSION_API_KEY` the same way the PostgreSQL role
 passwords in the base runbook are generated — 32 random bytes, hex-encoded,
