@@ -512,7 +512,22 @@ const gatherEvidence = async (
 
   const embeddingModel = photoResults.find((photo) => photo.embedding !== null)?.embedding
     ?.modelRevision;
-  if (embeddingModel === undefined) {
+  /*
+   * "Not set up" is a claim about this installation, and it is only true when
+   * the photographs were examined and came back without an embedding. With no
+   * photographs, or with none examined because the stage above failed, the
+   * absence says nothing about configuration — and the real reason is already
+   * recorded on that stage, so repeating it here would count one fault twice.
+   */
+  if (verifiedImages.length === 0) {
+    report("VisualExample", "NotApplicable", "There were no photographs to compare.");
+  } else if (photoResults.length === 0) {
+    report(
+      "VisualExample",
+      "NotApplicable",
+      "The photographs were not examined, so there was nothing to compare.",
+    );
+  } else if (embeddingModel === undefined) {
     report(
       "VisualExample",
       "Unavailable",
@@ -577,6 +592,22 @@ const gatherEvidence = async (
     );
   } else if (webOutcome === null) {
     report("Web", "Failed", "The manufacturer page search could not be reached.");
+  } else if (webOutcome.outcome === "NotApplicable") {
+    /* `gatherWebEvidence` decides this, not the caller: with no manufacturer,
+     * part number or name to go on it builds no query at all, and reporting
+     * that as a search that found nothing would read as a fact about the item
+     * rather than about the evidence. */
+    report(
+      "Web",
+      "NotApplicable",
+      "There was too little on the label to search for a manufacturer page.",
+    );
+  } else if (webOutcome.outcome === "Unavailable") {
+    report(
+      "Web",
+      "Unavailable",
+      "Looking up manufacturer pages is not set up on this installation.",
+    );
   } else {
     report(
       "Web",

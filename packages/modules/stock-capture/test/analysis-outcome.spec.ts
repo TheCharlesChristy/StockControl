@@ -77,6 +77,25 @@ describe("analysisOutcomeFrom", () => {
     );
   });
 
+  /*
+   * Cancelling is not the analysis failing and it is not the analysis still
+   * going: it is somebody deciding to stop. Reading the record as it stands is
+   * what makes both halves of that true — nothing looked before it was
+   * stopped, or these stages did.
+   */
+  it("reports a session cancelled before anything looked as NotRun", () => {
+    expect(analysisOutcomeFrom({ status: "Cancelled", stageReports: [] })).toBe("NotRun");
+  });
+
+  it("keeps what a cancelled session had already learned", () => {
+    expect(
+      analysisOutcomeFrom({
+        status: "Cancelled",
+        stageReports: [stage("Ocr", "Succeeded"), stage("Category", "Succeeded")],
+      }),
+    ).toBe("Completed");
+  });
+
   /* Still running is not a finding either way: no candidates yet means only
    * that the pipeline has not got there. */
   it.each(["Queued", "ProcessingImages", "Enriching", "Fusing", "AwaitingUpload"] as const)(

@@ -46,8 +46,16 @@ export interface AnalysisOutcomeInput {
 export const analysisOutcomeFrom = (input: AnalysisOutcomeInput): RecognitionAnalysisOutcome => {
   if (input.status === "Failed" || input.status === "Expired") return "Failed";
 
-  const finished = input.status === "ReviewReady" || input.status === "Committed";
-  if (!finished) return "Partial";
+  /*
+   * `Cancelled` belongs here rather than with the working statuses: nothing
+   * further is going to run, so whatever the record already holds is the whole
+   * story. Calling it `Partial` would say the analysis is still going when
+   * somebody has just stopped it — and a session cancelled before anything
+   * looked reads as `NotRun`, which is exactly what happened.
+   */
+  const settled =
+    input.status === "ReviewReady" || input.status === "Committed" || input.status === "Cancelled";
+  if (!settled) return "Partial";
 
   /* No record at all is the honest "nothing looked": a session that ran the
    * pipeline always records what each stage did, even when every one of them
