@@ -468,9 +468,10 @@ describe("FusionClient.proposeIdentity", () => {
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 50 });
 
-    await expect(client.proposeIdentity(baseRequest())).rejects.toBeInstanceOf(
-      FusionUnavailableError,
-    );
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as FusionUnavailableError).reason).toBe("TimedOut");
   });
 
   it("uses a single placeholder enum value when no candidates are supplied", async () => {

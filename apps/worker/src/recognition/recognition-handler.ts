@@ -33,7 +33,12 @@ import {
   type CorePhotoResult,
   type RecognitionCoreImageInput,
 } from "./core-client";
-import { FusionClient, type VlmCandidateAllowlistEntry, type VlmRequest } from "./fusion-client";
+import {
+  FusionClient,
+  FusionUnavailableError,
+  type VlmCandidateAllowlistEntry,
+  type VlmRequest,
+} from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
 import type { RecognitionPipelineConfiguration } from "./recognition-configuration";
 import { encodeFloat16Buffer, findNearestNeighbours } from "./visual-index";
@@ -289,12 +294,13 @@ const persistImageEvidence = async (
  */
 const gatherEvidence = async (
   database: Database,
+  sessionId: string,
   configuration: RecognitionPipelineConfiguration,
   verifiedImages: readonly VerifiedImage[],
   imageRows: readonly ImageRow[],
   localCodes: readonly { value: string; symbology: string }[],
   logger: StructuredLogger,
-): Promise<GatheredEvidence> => {
+): Promise<GatheredEvidence | null> => {
   const results: StageResult[] = [];
   const stageReports: RecognitionStageReportView[] = [];
 
@@ -373,6 +379,11 @@ const gatherEvidence = async (
     }
   }
 
+  // recognition-core (barcode, OCR, category and embedding) is the image
+  // processing stage. Do not claim enrichment has started until that remote
+  // call has actually finished.
+  if (!(await advanceStatus(database, sessionId, "Enriching"))) return null;
+
   const identifiers = aggregateIdentifiers(photoResults, localCodes);
 
   const catalogueMatches = await queryCatalogue(database, {
@@ -431,6 +442,11 @@ const gatherEvidence = async (
     results.push(webStageResult(result, index + 1));
   });
 
+  // The VLM is part of fusion, and can be the slowest call in the pipeline.
+  // Publish this boundary before making the call so polling reports where the
+  // worker is really waiting rather than remaining on "Enriching".
+  if (!(await advanceStatus(database, sessionId, "Fusing"))) return null;
+
   if (configuration.recognitionFusionUrl !== undefined && verifiedImages.length > 0) {
     const allowlist: VlmCandidateAllowlistEntry[] = catalogueMatches.slice(0, 5).map((match) => ({
       candidateId: match.itemId,
@@ -485,7 +501,13 @@ const gatherEvidence = async (
         stage: "Vlm",
         outcome: "Unavailable",
         imageOrdinal: null,
-        observations: ["The photo-analysis service could not be reached."],
+        observations: [
+          error instanceof FusionUnavailableError && error.reason === "TimedOut"
+            ? `Photo analysis took longer than ${String(
+                Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
+              )} seconds and was stopped.`
+            : "The photo-analysis service could not complete the request.",
+        ],
       });
     }
   } else if (verifiedImages.length > 0) {
@@ -613,18 +635,17 @@ export const createRecognitionHandler = (
     }
 
     if (!(await advanceStatus(database, sessionId, "ProcessingImages"))) return;
-    if (!(await advanceStatus(database, sessionId, "Enriching"))) return;
 
     const evidence = await gatherEvidence(
       database,
+      sessionId,
       configuration,
       verifiedImages,
       imageRows,
       localCodes,
       logger,
     );
-
-    if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
+    if (evidence === null) return;
 
     const outcome = runFusion(evidence.results);
     const modelManifest = {

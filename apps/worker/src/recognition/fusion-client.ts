@@ -99,9 +99,17 @@ export type VlmProposal =
 
 export class FusionUnavailableError extends Error {
   public readonly code = "recognition.fusion_unavailable";
-  public constructor(detail: string, options?: ErrorOptions) {
+  public readonly reason: "InvalidResponse" | "TimedOut" | "Unavailable";
+
+  public constructor(
+    detail: string,
+    options?: ErrorOptions & {
+      readonly reason?: "InvalidResponse" | "TimedOut" | "Unavailable";
+    },
+  ) {
     super(detail, options);
     this.name = "FusionUnavailableError";
+    this.reason = options?.reason ?? "Unavailable";
   }
 }
 
@@ -313,7 +321,9 @@ export class FusionClient {
     const retryProposal = retry === null ? null : parseVlmResponse(retry, request.candidates);
     if (retryProposal !== null) return retryProposal;
 
-    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.");
+    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.", {
+      reason: "InvalidResponse",
+    });
   }
 
   private async complete(body: unknown): Promise<unknown> {
@@ -354,6 +364,12 @@ export class FusionClient {
       }
     } catch (error: unknown) {
       if (error instanceof FusionUnavailableError) throw error;
+      if (controller.signal.aborted) {
+        throw new FusionUnavailableError(
+          `recognition-fusion exceeded its ${String(this.options.timeoutMilliseconds)} ms deadline.`,
+          { cause: error, reason: "TimedOut" },
+        );
+      }
       throw new FusionUnavailableError(
         error instanceof Error
           ? `recognition-fusion request failed: ${error.name}: ${error.message}`

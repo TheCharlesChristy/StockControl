@@ -15,7 +15,29 @@ describe("RecognitionProgress", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Reading the photographs…");
+    expect(screen.getByRole("status")).toHaveTextContent("Reading labels and image details…");
+    expect(screen.getByLabelText("Recognition pipeline")).toHaveTextContent(
+      "Read labels and image details",
+    );
+  });
+
+  it("shows completed and upcoming stages around the current stage", () => {
+    render(
+      <RecognitionProgress
+        status="Fusing"
+        checkFailures={0}
+        onCheckNow={() => undefined}
+        onCancel={() => undefined}
+      />,
+    );
+
+    const pipeline = screen.getByLabelText("Recognition pipeline");
+    expect(pipeline).toHaveTextContent("Check upload and barcodes");
+    expect(pipeline).toHaveTextContent("Check catalogue and web evidence");
+    expect(pipeline).toHaveTextContent("Analyse the photo and prepare suggestions");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Running photo analysis and preparing suggestions…",
+    );
   });
 
   it("keeps waiting quietly while the odd check fails", () => {
