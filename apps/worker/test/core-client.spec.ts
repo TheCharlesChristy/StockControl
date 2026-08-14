@@ -204,11 +204,30 @@ describe("RecognitionCoreClient.renderExemplar", () => {
       () => Promise.reject("boom"),
     );
 
-    await expect(
-      client.analyseSession("req-1", [
+    const error = await client
+      .analyseSession("req-1", [
         { ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" },
-      ]),
-    ).rejects.toBeInstanceOf(RecognitionCoreUnavailableError);
+      ])
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RecognitionCoreUnavailableError);
+    expect((error as Error).message).toContain("non-Error value");
+  });
+
+  it("preserves the underlying fetch error in its diagnostic message", async () => {
+    const client = new RecognitionCoreClient(
+      { baseUrl: "https://example.invalid", timeoutMilliseconds: 2_000 },
+      () => Promise.reject(new TypeError("connect failed")),
+    );
+
+    const error = await client
+      .analyseSession("req-1", [
+        { ordinal: 1, bytes: Buffer.from("x"), mediaType: "image/jpeg" },
+      ])
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RecognitionCoreUnavailableError);
+    expect((error as Error).message).toContain("TypeError: connect failed");
   });
 });
 

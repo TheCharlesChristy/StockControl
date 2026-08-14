@@ -10,7 +10,11 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import type { ConfidenceBand, RecognitionSessionView } from "@stockcontrol/contracts";
+import type {
+  ConfidenceBand,
+  RecognitionSessionView,
+  RecognitionStage,
+} from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -29,6 +33,13 @@ const confidenceMeaning: Readonly<Record<ConfidenceBand, string>> = {
   Possible: "it matches, but check it before confirming",
   Weak: "a long shot — check it carefully",
 };
+
+const AUTOMATIC_RECOGNITION_STAGES: ReadonlySet<RecognitionStage> = new Set([
+  "Ocr",
+  "VisualExample",
+  "Category",
+  "Vlm",
+]);
 
 const selectionFor = (
   candidate: RecognitionSessionView["candidates"][number],
@@ -87,13 +98,20 @@ export function CandidateReview({
    * the pipeline actually ranked first turns it back into a suggestion. */
   const best = topCandidateSelection(session.candidates);
   const bestCandidateId = best === null ? null : best.candidateId;
+  const automaticRecognitionUnavailable = session.stageReports.some(
+    (report) =>
+      report.outcome === "Unavailable" &&
+      AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
+  );
 
   return (
     <Stack spacing={2}>
       {session.candidates.length === 0 && (
         <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
           {session.recommendManualEntry
-            ? "Nothing was recognised. Choose “None are correct” to type the item in yourself."
+            ? automaticRecognitionUnavailable
+              ? "Automatic photo recognition was unavailable. Show analysis details to see which checks could not run, or choose “None are correct” to type the item in yourself."
+              : "Nothing was recognised. Choose “None are correct” to type the item in yourself."
             : "No suggestions yet."}
         </Alert>
       )}

@@ -4,6 +4,7 @@ import {
   barcodeStageReports,
   evidenceFrom,
   identityDraftFrom,
+  stageReportsFromManifest,
 } from "../../src/stock-capture/recognition-presenter";
 
 describe("presenting a stored candidate identity", () => {
@@ -109,5 +110,43 @@ describe("synthesising the barcode stage report", () => {
 
   it("skips a malformed stored entry rather than throwing", () => {
     expect(barcodeStageReports([{ value: "only a value" }, "not an object"])).toEqual([]);
+  });
+});
+
+describe("presenting stored recognition stage reports", () => {
+  it("reads valid reports from the session model manifest", () => {
+    expect(
+      stageReportsFromManifest({
+        fusionWeights: "v1",
+        stageReports: [
+          {
+            stage: "Ocr",
+            outcome: "Unavailable",
+            imageOrdinal: 1,
+            observations: ["The recognition service could not be reached."],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        stage: "Ocr",
+        outcome: "Unavailable",
+        imageOrdinal: 1,
+        observations: ["The recognition service could not be reached."],
+      },
+    ]);
+  });
+
+  it("drops malformed or unknown reports rather than trusting stored JSON", () => {
+    expect(
+      stageReportsFromManifest({
+        stageReports: [
+          { stage: "MadeUp", outcome: "Unavailable", imageOrdinal: 1 },
+          { stage: "Ocr", outcome: "MadeUp", imageOrdinal: 1 },
+          { stage: "Ocr", outcome: "Unavailable", imageOrdinal: "one" },
+        ],
+      }),
+    ).toEqual([]);
+    expect(stageReportsFromManifest(null)).toEqual([]);
   });
 });

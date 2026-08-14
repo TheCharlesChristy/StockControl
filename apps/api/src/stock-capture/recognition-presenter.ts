@@ -1,13 +1,15 @@
-import type {
-  ConfidenceBand,
-  RecognitionCandidateKind,
-  RecognitionCandidateView,
-  RecognitionEvidenceView,
-  RecognitionIdentityDraft,
-  RecognitionSessionStatus,
-  RecognitionSessionView,
-  RecognitionStage,
-  RecognitionStageReportView,
+import {
+  recognitionStageOutcomes,
+  recognitionStages,
+  type ConfidenceBand,
+  type RecognitionCandidateKind,
+  type RecognitionCandidateView,
+  type RecognitionEvidenceView,
+  type RecognitionIdentityDraft,
+  type RecognitionSessionStatus,
+  type RecognitionSessionView,
+  type RecognitionStage,
+  type RecognitionStageReportView,
 } from "@stockcontrol/contracts";
 import { isTerminal } from "@stockcontrol/module-stock-capture";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
@@ -42,11 +44,48 @@ interface SessionRow {
   readonly status: RecognitionSessionStatus;
   readonly photo_count: number;
   readonly local_codes: unknown;
+  readonly model_manifest: unknown;
   readonly committed_item_id: string | null;
   readonly failure_code: string | null;
   readonly created_at: Date;
   readonly expires_at: Date;
 }
+
+const isRecognitionStage = (value: unknown): value is RecognitionStage =>
+  typeof value === "string" && (recognitionStages as readonly string[]).includes(value);
+
+const isRecognitionStageOutcome = (
+  value: unknown,
+): value is RecognitionStageReportView["outcome"] =>
+  typeof value === "string" && (recognitionStageOutcomes as readonly string[]).includes(value);
+
+export const stageReportsFromManifest = (
+  value: unknown,
+): readonly RecognitionStageReportView[] => {
+  if (typeof value !== "object" || value === null) return [];
+  const reports = (value as Record<string, unknown>).stageReports;
+  if (!Array.isArray(reports)) return [];
+
+  return reports.flatMap((entry): readonly RecognitionStageReportView[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    if (!isRecognitionStage(record.stage) || !isRecognitionStageOutcome(record.outcome)) return [];
+    if (record.imageOrdinal !== null && typeof record.imageOrdinal !== "number") return [];
+    const observations = Array.isArray(record.observations)
+      ? record.observations.filter(
+          (observation): observation is string => typeof observation === "string",
+        )
+      : [];
+    return [
+      {
+        stage: record.stage,
+        outcome: record.outcome,
+        imageOrdinal: record.imageOrdinal,
+        observations,
+      },
+    ];
+  });
+};
 
 export const identityDraftFrom = (value: unknown): RecognitionIdentityDraft => {
   const record =
@@ -188,7 +227,10 @@ export const presentRecognitionSession = async (
     committedItemId: typedSession.committed_item_id,
     failureCode: typedSession.failure_code,
     candidates,
-    stageReports: barcodeStageReports(typedSession.local_codes),
+    stageReports: [
+      ...barcodeStageReports(typedSession.local_codes),
+      ...stageReportsFromManifest(typedSession.model_manifest),
+    ],
     recommendManualEntry:
       candidates.length === 0 &&
       (isTerminal(typedSession.status) || typedSession.status === "ReviewReady"),
