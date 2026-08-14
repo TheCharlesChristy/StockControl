@@ -236,7 +236,8 @@ def _ctc_decode(output: np.ndarray, dictionary: list[str]) -> tuple[str, float]:
         logits = logits.transpose(1, 0)
     probabilities = (
         logits
-        if np.all(logits >= 0.0) and np.all(logits <= 1.0)
+        if np.all(logits >= 0.0)
+        and np.all(logits <= 1.0)
         and np.allclose(logits.sum(axis=-1), 1.0, atol=1e-3)
         else _softmax(logits)
     )
@@ -362,9 +363,17 @@ def load_backends(model_directory: str, intra_op_threads: int = 4) -> Backends:
     try:
         ocr = _OnnxOcrBackend(root, intra_op_threads)
         embedding = _OnnxEmbeddingBackend(root, intra_op_threads)
-    except (OSError, ValueError, RuntimeError) as error:
+    except Exception as error:  # noqa: BLE001
         # Startup remains useful in Path A/manual mode when model files are not
         # present; readiness stays 503 and each stage reports Unavailable.
+        #
+        # Deliberately broad, and it has to be. onnxruntime raises its own
+        # types — NoSuchFile, InvalidProtobuf, Fail — and every one of them
+        # derives straight from Exception rather than from OSError or
+        # RuntimeError. Naming base classes here therefore caught nothing in
+        # the most ordinary case of all, a deployment with no weights: the
+        # service died on load instead of degrading, which is the exact
+        # opposite of what this fallback exists to do.
         del error
         return Backends(
             ocr=_UnavailableOcrBackend(),
