@@ -224,10 +224,22 @@ describe("captureReducer", () => {
       });
     });
 
+    /* The barcode short cut resolves before any photograph is sent, so the
+     * session already in hand is the one to carry forward. */
+    it("keeps the session it already has when there was nothing to upload", () => {
+      const next = captureReducer(uploading, { type: "UploadsSkipped" });
+
+      expect(next).toEqual({
+        kind: "AwaitingRecognition",
+        batch: batch(),
+        session: uploading.session,
+        checkFailures: 0,
+      });
+    });
+
     it("returns to CapturingPhotos with the photos restored when an upload fails", () => {
       const next = captureReducer(uploading, {
         type: "UploadFailed",
-        batch: batch(),
         photos: [photo(1)],
         message: "That photograph could not be uploaded. Check your connection and try again.",
       });
