@@ -348,7 +348,6 @@ const gatherEvidence = async (
       logger.error({
         event: "recognition.core_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
-        error,
       });
       for (const image of verifiedImages) {
         for (const stage of ["Barcode", "Ocr", "VisualExample", "Category"] as const) {
@@ -481,7 +480,6 @@ const gatherEvidence = async (
       logger.error({
         event: "recognition.fusion_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
-        error,
       });
       stageReports.push({
         stage: "Vlm",
