@@ -10,15 +10,39 @@ import { CaptureGuidance } from "./CaptureGuidance";
 import type { CapturedPhoto } from "./capture-reducer";
 
 /*
- * What a camera roll may offer, which is not the same list as what may be
- * uploaded: everything here is re-encoded to JPEG or WebP by `normaliseImage`
- * before it leaves the device, so PNG is a fine thing to accept and not a
- * `CaptureImageMediaType`. Conflating the two used to type a PNG as a media
- * type the contract does not contain.
+ * What a camera roll may offer is not the same list as what may be uploaded:
+ * everything here is re-encoded to JPEG or WebP by `normaliseImage` before it
+ * leaves the device, so the source format only has to be something the
+ * browser can decode, and is never a `CaptureImageMediaType`.
+ *
+ * A phone is not obliged to tell the truth about a photograph it just took.
+ * Android camera intents routinely hand back an empty `type`, and an iPhone
+ * offering a library image from Files reports `image/heic`, which Safari can
+ * decode perfectly well — the previous exact-match list rejected both, so the
+ * photograph vanished with a message blaming its format. Anything the browser
+ * claims is an image, or declines to describe at all, is now handed to the
+ * decoder; `normaliseImage` re-encodes it to JPEG or WebP, and the server
+ * checks magic bytes on what actually arrives regardless.
  */
-const ACCEPTED_SOURCE_TYPES: readonly string[] = ["image/jpeg", "image/webp", "image/png"];
+const isAcceptedSource = (type: string): boolean => type === "" || type.startsWith("image/");
 
-const isAcceptedSource = (type: string): boolean => ACCEPTED_SOURCE_TYPES.includes(type);
+/**
+ * The lowest ordinals still free, which is not the same as counting up from
+ * the highest in use. Retaking a photograph frees its number, and minting
+ * `max + 1` instead walked ordinals past `CAPTURE_MAX_PHOTOS` — a limit the
+ * server enforces, so five retakes were enough to make every upload be
+ * refused as `ordinal_out_of_range` with one photograph on screen.
+ */
+export const nextOrdinals = (taken: readonly number[], count: number): readonly number[] => {
+  const used = new Set(taken);
+  const free: number[] = [];
+
+  for (let ordinal = 1; ordinal <= CAPTURE_MAX_PHOTOS && free.length < count; ordinal += 1) {
+    if (!used.has(ordinal)) free.push(ordinal);
+  }
+
+  return free;
+};
 
 interface CapturePhotosProps {
   readonly photos: readonly CapturedPhoto[];
@@ -50,8 +74,6 @@ export function CapturePhotos({
   const [scanning, setScanning] = useState(false);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
-  const nextOrdinal = photos.length === 0 ? 1 : Math.max(...photos.map((p) => p.ordinal)) + 1;
-
   const handleFiles = useCallback(
     (event: ChangeEvent<HTMLInputElement>): void => {
       const files = [...(event.target.files ?? [])];
@@ -60,13 +82,18 @@ export function CapturePhotos({
       if (files.length === 0) return;
 
       const budget = CAPTURE_MAX_PHOTOS - photos.length;
-      const accepted = files.filter((file) => isAcceptedSource(file.type)).slice(0, budget);
+      const usable = files.filter((file) => isAcceptedSource(file.type));
+      const accepted = usable.slice(0, budget);
+      const ordinals = nextOrdinals(
+        photos.map((photo) => photo.ordinal),
+        accepted.length,
+      );
 
       if (accepted.length < files.length) {
         setLocalMessage(
-          budget <= 0
-            ? `You can add at most ${String(CAPTURE_MAX_PHOTOS)} photographs.`
-            : "Only JPEG, WebP or PNG photographs can be added.",
+          usable.length < files.length
+            ? "Some of those were not photographs, so they were left out."
+            : `You can add at most ${String(CAPTURE_MAX_PHOTOS)} photographs.`,
         );
       } else {
         setLocalMessage(null);
@@ -75,7 +102,7 @@ export function CapturePhotos({
       setScanning(true);
       void Promise.all(
         accepted.map(async (file, index) => {
-          const ordinal = nextOrdinal + index;
+          const ordinal = ordinals[index] ?? index + 1;
           const localCodes = await provider
             .decode(file)
             .then((decoded) =>
@@ -100,7 +127,7 @@ export function CapturePhotos({
         setScanning(false);
       });
     },
-    [nextOrdinal, onAddPhoto, photos.length, provider],
+    [onAddPhoto, photos, provider],
   );
 
   const totalCodesFound = photos.reduce((sum, photo) => sum + photo.localCodes.length, 0);
@@ -158,7 +185,7 @@ export function CapturePhotos({
               {scanning ? "Scanning…" : "Take a photo"}
               <input
                 type="file"
-                accept={ACCEPTED_SOURCE_TYPES.join(",")}
+                accept="image/*"
                 multiple
                 capture="environment"
                 hidden
@@ -172,13 +199,7 @@ export function CapturePhotos({
               sx={{ height: 38, px: 1 }}
             >
               Choose
-              <input
-                type="file"
-                accept={ACCEPTED_SOURCE_TYPES.join(",")}
-                multiple
-                hidden
-                onChange={handleFiles}
-              />
+              <input type="file" accept="image/*" multiple hidden onChange={handleFiles} />
             </Button>
           </Stack>
         )}

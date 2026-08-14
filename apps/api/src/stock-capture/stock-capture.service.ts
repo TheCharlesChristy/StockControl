@@ -296,8 +296,6 @@ export class StockCaptureService {
       throw uploadInvalid("Those photographs do not match the ones this item started with.");
     }
 
-    const grants: CaptureUploadGrant[] = [];
-
     for (const image of command.images) {
       const imageId = randomUUID();
       const objectKey = `stock-capture/${command.sessionId}/${String(image.ordinal)}-${imageId}`;
@@ -320,15 +318,31 @@ export class StockCaptureService {
         })
         .onConflict((conflict) => conflict.columns(["session_id", "ordinal"]).doNothing())
         .execute();
-
-      grants.push({
-        imageId,
-        ordinal: image.ordinal,
-        url: `/api/v1/stock-capture/sessions/${command.sessionId}/uploads/${imageId}`,
-        mediaType: image.mediaType === "image/webp" ? "image/webp" : "image/jpeg",
-        expiresAt: session.expires_at.toISOString(),
-      });
     }
+
+    /*
+     * Grants are read back rather than built from the ids minted above,
+     * because the insert does nothing when a row for that ordinal already
+     * exists. Handing back the id that was just generated therefore described
+     * a row that had never been written, and a browser that asked twice —
+     * a retry, a re-render, a resumed session — PUT every photograph to an
+     * id the upload route could not find. The rows are the truth.
+     */
+    const stored = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["id", "ordinal", "media_type"])
+      .where("session_id", "=", command.sessionId)
+      .orderBy("ordinal")
+      .execute();
+
+    const grants: CaptureUploadGrant[] = stored.map((row) => ({
+      imageId: row.id,
+      ordinal: row.ordinal,
+      url: `/api/v1/stock-capture/sessions/${command.sessionId}/uploads/${row.id}`,
+      mediaType: row.media_type === "image/webp" ? "image/webp" : "image/jpeg",
+      expiresAt: session.expires_at.toISOString(),
+    }));
 
     return { session: this.presentSession(session), grants };
   }
@@ -378,6 +392,7 @@ export class StockCaptureService {
   public async completeUploads(
     sessionId: string,
     actorUserId: string,
+    uploadedImageIds: readonly string[] = [],
   ): Promise<RecognitionSessionSummaryView> {
     const session = await this.requireSession(sessionId, actorUserId);
 
@@ -394,6 +409,21 @@ export class StockCaptureService {
 
     if (declared.length !== session.photo_count || declared.length === 0) {
       throw uploadInvalid("Not every photograph finished uploading. Try again.");
+    }
+
+    /*
+     * The browser's own account of what it sent. It is not evidence — the
+     * worker still verifies the bytes — but a caller that names fewer
+     * photographs than it declared is telling us plainly that this session
+     * cannot succeed, and saying so now beats queueing work that fails on a
+     * missing object several stages later. An empty list is every caller that
+     * predates the check, and skips it.
+     */
+    if (uploadedImageIds.length > 0) {
+      const reported = new Set(uploadedImageIds);
+      if (declared.some((row) => !reported.has(row.id))) {
+        throw uploadInvalid("Not every photograph finished uploading. Try again.");
+      }
     }
 
     const updated = await this.database.transaction().execute(async (tx) => {

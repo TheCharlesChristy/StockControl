@@ -7,6 +7,7 @@ import {
   readDeclaredImages,
   readPhotoCount,
   readSelection,
+  readUploadedImageIds,
 } from "../../src/stock-capture/stock-capture.controller";
 
 const bodyOf = (value: Record<string, unknown>): Body => value;
@@ -81,6 +82,31 @@ describe("reading declared image uploads", () => {
 
 const uuid = "11111111-1111-4111-8111-111111111111";
 const otherUuid = "22222222-2222-4222-8222-222222222222";
+
+describe("reading the photographs a browser says it sent", () => {
+  it("keeps the ids it was given", () => {
+    expect(readUploadedImageIds(bodyOf({ uploadedImageIds: ["one", "two"] }))).toEqual([
+      "one",
+      "two",
+    ]);
+  });
+
+  /* Every caller before this field was read sent no body at all, and an
+   * empty list is how the service recognises that and skips the check. */
+  it("reads an absent field as nothing reported", () => {
+    expect(readUploadedImageIds(bodyOf({}))).toEqual([]);
+  });
+
+  it("drops entries that are not ids", () => {
+    expect(readUploadedImageIds(bodyOf({ uploadedImageIds: ["one", 2, null] }))).toEqual(["one"]);
+  });
+
+  it("refuses more than a session could ever hold", () => {
+    expect(() =>
+      readUploadedImageIds(bodyOf({ uploadedImageIds: Array.from({ length: 9 }, () => "id") })),
+    ).toThrow(ApplicationFailureException);
+  });
+});
 
 describe("reading a commit selection", () => {
   it("reads an ExistingItem selection, with or without a candidate", () => {

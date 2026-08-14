@@ -11,6 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import type {
+  CaptureUploadGrant,
   CommitCaptureEntryRequest,
   LocationView,
   RecognitionSessionSummaryView,
@@ -44,6 +45,7 @@ import {
   normaliseImage,
   SourceImageRejectedError,
   uploadToGrant,
+  type NormalisedImage,
 } from "./upload/normalise";
 
 const POLL_INITIAL_MS = 2_000;
@@ -89,6 +91,22 @@ const stepFor = (stage: CaptureStage): number | null => {
 };
 
 /**
+ * The decode/encode/PUT leg, injectable for the same reason `BarcodeProvider`
+ * is: none of it exists in jsdom, and without a seam the whole upload journey
+ * can only be tested by not testing it — which is how it came to ship with a
+ * loop in it.
+ */
+export interface CaptureImagePipeline {
+  normalise(source: File): Promise<NormalisedImage>;
+  upload(grant: CaptureUploadGrant, image: NormalisedImage): Promise<void>;
+}
+
+const defaultImagePipeline: CaptureImagePipeline = {
+  normalise: (source) => normaliseImage(source),
+  upload: (grant, image) => uploadToGrant(grant, image),
+};
+
+/**
  * Orchestrates the whole assisted-capture journey, specification section 5.
  * The reducer holds only what a browser refresh cannot lose — UUIDs, review
  * state, the manual-entry draft. Photo `File`s live in a ref here, alongside
@@ -98,9 +116,13 @@ const stepFor = (stage: CaptureStage): number | null => {
 export interface StockCapturePageProps {
   /** Overrides the real camera/decoder wiring in tests. */
   readonly barcodeProvider?: BarcodeProvider;
+  readonly imagePipeline?: CaptureImagePipeline;
 }
 
-export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}): ReactElement {
+export function StockCapturePage({
+  barcodeProvider,
+  imagePipeline = defaultImagePipeline,
+}: StockCapturePageProps = {}): ReactElement {
   const api = useApi();
   const [stage, dispatch] = useReducer(captureReducer, initialCaptureStage);
   const startedRef = useRef(false);
@@ -181,18 +203,31 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     void resume();
   }, [api]);
 
-  // The upload leg, specification section 10: normalise every photo, request
-  // one grant per photo, PUT each in turn, then tell the server every upload
-  // landed. A session that resolved from a barcode alone (`exactItemId`) skips
-  // straight past this with no photographs declared at all.
-  useEffect(() => {
-    if (stage.kind !== "Uploading") return;
+  /*
+   * The upload leg, specification section 10: normalise every photo, request
+   * one grant per photo, PUT each in turn, then tell the server every upload
+   * landed. A session that resolved from a barcode alone skips straight past
+   * this with no photographs declared at all.
+   *
+   * Keyed on the session's identity, never on `stage` itself. This effect
+   * dispatches `UploadProgressed` after every photograph, and `stage` in the
+   * dependency array meant each of those dispatches tore the effect down and
+   * started it again: the restart asked for a second set of upload grants,
+   * whose freshly minted image ids the first request had never persisted, and
+   * every PUT after the first 404ed. Nothing below may depend on a value that
+   * this effect's own dispatches change.
+   */
+  const uploadingSessionId = stage.kind === "Uploading" ? stage.session.id : null;
+  const uploadNeeded = stage.kind === "Uploading" && stage.session.status === "AwaitingUpload";
 
-    if (stage.session.status !== "AwaitingUpload") {
+  useEffect(() => {
+    if (uploadingSessionId === null) return;
+
+    if (!uploadNeeded) {
       /* The barcode short cut reaches here having uploaded nothing, so this is
        * the only place its previews are ever released. */
       revokePreviews(photosRef.current);
-      dispatch({ type: "UploadsCompleted", session: stage.session });
+      dispatch({ type: "UploadsSkipped" });
       return;
     }
 
@@ -203,15 +238,16 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     // lives in the effect's cleanup closure instead, and a call is opaque to
     // that narrowing.
     const isCancelled = (): boolean => cancelled;
-    const { batch, session } = stage;
     const photos = photosRef.current;
 
     const run = async (): Promise<void> => {
       try {
-        const normalised = await Promise.all(photos.map((photo) => normaliseImage(photo.file)));
+        const normalised = await Promise.all(
+          photos.map((photo) => imagePipeline.normalise(photo.file)),
+        );
         if (isCancelled()) return;
 
-        const { grants } = await api.requestCaptureUploads(session.id, {
+        const { grants } = await api.requestCaptureUploads(uploadingSessionId, {
           images: normalised.map((image, index) => ({
             ordinal: photos[index]?.ordinal ?? index + 1,
             mediaType: image.mediaType,
@@ -229,16 +265,23 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         for (const [index, image] of normalised.entries()) {
           const ordinal = photos[index]?.ordinal ?? index + 1;
           const grant = grantByOrdinal.get(ordinal);
-          if (grant === undefined) continue;
+          /* Skipping silently would leave the server holding a row with no
+           * bytes behind it, and the failure would not surface until the
+           * worker went looking for the object. */
+          if (grant === undefined) {
+            throw new CaptureUploadError("That photograph could not be sent. Try again.", false);
+          }
 
-          await uploadToGrant(grant, image);
+          await imagePipeline.upload(grant, image);
           uploadedCount += 1;
           if (!isCancelled()) dispatch({ type: "UploadProgressed", uploadedCount });
         }
         if (isCancelled()) return;
 
         const uploadedImageIds = [...grantByOrdinal.values()].map((grant) => grant.imageId);
-        const completed = await api.completeCaptureUploads(session.id, { uploadedImageIds });
+        const completed = await api.completeCaptureUploads(uploadingSessionId, {
+          uploadedImageIds,
+        });
         if (!isCancelled()) {
           revokePreviews(photos);
           dispatch({ type: "UploadsCompleted", session: completed });
@@ -247,7 +290,6 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
         if (!isCancelled()) {
           dispatch({
             type: "UploadFailed",
-            batch,
             photos,
             message: messageFor(caught, "The photographs could not be uploaded."),
           });
@@ -259,7 +301,7 @@ export function StockCapturePage({ barcodeProvider }: StockCapturePageProps = {}
     return (): void => {
       cancelled = true;
     };
-  }, [api, stage]);
+  }, [api, imagePipeline, uploadingSessionId, uploadNeeded]);
 
   // Durable status polling, specification section 10: checked immediately on
   // arrival — a session that resolved without a model call (an exact barcode

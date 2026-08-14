@@ -150,9 +150,11 @@ export type CaptureAction =
     }
   | { readonly type: "UploadProgressed"; readonly uploadedCount: number }
   | { readonly type: "UploadsCompleted"; readonly session: RecognitionSessionSummaryView }
+  /** The barcode short cut: the session was already past `AwaitingUpload`, so
+   *  there was nothing to send and the session in hand is still the right one. */
+  | { readonly type: "UploadsSkipped" }
   | {
       readonly type: "UploadFailed";
-      readonly batch: StockCaptureBatchView;
       readonly photos: readonly CapturedPhoto[];
       readonly message: string;
     }
@@ -314,11 +316,24 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
       };
     }
 
-    case "UploadFailed": {
+    case "UploadsSkipped": {
       if (stage.kind !== "Uploading") return stage;
       return {
+        kind: "AwaitingRecognition",
+        batch: stage.batch,
+        session: stage.session,
+        checkFailures: 0,
+      };
+    }
+
+    case "UploadFailed": {
+      if (stage.kind !== "Uploading") return stage;
+      /* The batch comes from the stage this case has already narrowed, not
+       * from the action: an effect that had to carry it would need `stage` in
+       * its dependencies, which is exactly what used to restart it mid-upload. */
+      return {
         kind: "CapturingPhotos",
-        batch: action.batch,
+        batch: stage.batch,
         photos: action.photos,
         submitting: false,
         error: action.message,

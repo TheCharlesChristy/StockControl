@@ -182,6 +182,7 @@ export class StockCaptureController {
   public async completeUploads(
     @Req() request: FastifyRequest,
     @Param("sessionId") sessionId: string,
+    @Body() rawBody: unknown,
   ): Promise<{ readonly session: RecognitionSessionSummaryView }> {
     const user = requireCapability(request, "manageStock");
 
@@ -189,6 +190,7 @@ export class StockCaptureController {
       session: await this.capture.completeUploads(
         requireUuidParameter(sessionId, "session"),
         user.id,
+        readUploadedImageIds(bodyOf(rawBody)),
       ),
     };
   }
@@ -274,6 +276,19 @@ export const readSelection = (body: ParsedBody): CommitCaptureEntryRequest["sele
 
   throw selectionInvalid();
 };
+
+/**
+ * Which photographs the browser believes it managed to send. The contract has
+ * always carried these and the server has always thrown them away, so a
+ * browser that uploaded two of three could still say it had finished and the
+ * failure would not surface until the worker went looking for the missing
+ * object. Reported ids are checked against the declared rows; an empty list
+ * means the caller said nothing, which is how every caller behaved until now.
+ */
+export const readUploadedImageIds = (body: ParsedBody): readonly string[] =>
+  readBoundedArray(body, "uploadedImageIds", CAPTURE_MAX_PHOTOS).filter(
+    (entry): entry is string => typeof entry === "string",
+  );
 
 export const readPhotoCount = (body: ParsedBody): number => {
   const value = body.photoCount;
