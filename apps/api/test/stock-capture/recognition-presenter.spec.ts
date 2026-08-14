@@ -149,4 +149,44 @@ describe("presenting stored recognition stage reports", () => {
     ).toEqual([]);
     expect(stageReportsFromManifest(null)).toEqual([]);
   });
+
+  it("returns nothing when the manifest has no report list", () => {
+    expect(stageReportsFromManifest({ fusionWeights: "v1" })).toEqual([]);
+    expect(stageReportsFromManifest("not a manifest")).toEqual([]);
+  });
+
+  it("filters malformed entries and observations while preserving session-wide reports", () => {
+    expect(
+      stageReportsFromManifest({
+        stageReports: [
+          null,
+          "not a report",
+          {
+            stage: "Vlm",
+            outcome: "Succeeded",
+            imageOrdinal: null,
+            observations: ["Photo analysis completed.", 42, null],
+          },
+          {
+            stage: "Category",
+            outcome: "NotApplicable",
+            imageOrdinal: 2,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        stage: "Vlm",
+        outcome: "Succeeded",
+        imageOrdinal: null,
+        observations: ["Photo analysis completed."],
+      },
+      {
+        stage: "Category",
+        outcome: "NotApplicable",
+        imageOrdinal: 2,
+        observations: [],
+      },
+    ]);
+  });
 });
