@@ -4,6 +4,7 @@ import {
   barcodeStageReports,
   evidenceFrom,
   identityDraftFrom,
+  presentRecognitionSession,
   stageReportsFromManifest,
 } from "../../src/stock-capture/recognition-presenter";
 
@@ -188,5 +189,80 @@ describe("presenting stored recognition stage reports", () => {
         observations: [],
       },
     ]);
+  });
+});
+
+describe("presenting a stored recognition session", () => {
+  it("combines persisted stage reports with reviewable candidates", async () => {
+    const session = {
+      id: "session-1",
+      batch_id: "batch-1",
+      status: "ReviewReady",
+      photo_count: 1,
+      local_codes: [],
+      model_manifest: {
+        stageReports: [
+          {
+            stage: "Ocr",
+            outcome: "Unavailable",
+            imageOrdinal: 1,
+            observations: ["The recognition service could not be reached."],
+          },
+        ],
+      },
+      committed_item_id: null,
+      failure_code: null,
+      created_at: new Date("2026-08-14T10:00:00.000Z"),
+      expires_at: new Date("2026-08-14T11:00:00.000Z"),
+    };
+    const candidate = {
+      id: "candidate-1",
+      rank: 1,
+      kind: "ExternalDraft",
+      item_id: null,
+      identity: { name: "Unidentified fitting", unit: "ea" },
+      confidence_band: "Weak",
+      evidence: [],
+    };
+    const query = {
+      selectAll() {
+        return this;
+      },
+      where() {
+        return this;
+      },
+      orderBy() {
+        return this;
+      },
+      executeTakeFirstOrThrow: () => Promise.resolve(session),
+      execute: () => Promise.resolve([candidate]),
+    };
+    const database = {
+      withSchema: () => ({ selectFrom: () => query }),
+    };
+
+    const result = await presentRecognitionSession(database as never, "session-1", {} as never);
+
+    expect(result).toMatchObject({
+      id: "session-1",
+      batchId: "batch-1",
+      status: "ReviewReady",
+      candidates: [
+        {
+          id: "candidate-1",
+          kind: "ExternalDraft",
+          identity: { name: "Unidentified fitting", unit: "ea" },
+          selectable: true,
+        },
+      ],
+      stageReports: [
+        {
+          stage: "Ocr",
+          outcome: "Unavailable",
+          imageOrdinal: 1,
+        },
+      ],
+      recommendManualEntry: false,
+    });
   });
 });
