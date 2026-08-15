@@ -48,12 +48,16 @@ describe("loadRecognitionPipelineConfiguration", () => {
   });
 
   it("treats a blank string the same as unset", () => {
-    const configuration = loadRecognitionPipelineConfiguration({ RECOGNITION_CORE_URL: "   " });
+    const configuration = loadRecognitionPipelineConfiguration({
+      RECOGNITION_CORE_URL: "   ",
+    });
     expect(configuration.recognitionCoreUrl).toBeUndefined();
   });
 
   it("defaults the visual index embedding model to 'unset'", () => {
-    expect(loadRecognitionPipelineConfiguration({}).visualIndexEmbeddingModel).toBe("unset");
+    expect(
+      loadRecognitionPipelineConfiguration({}).visualIndexEmbeddingModel,
+    ).toBe("unset");
   });
 
   it.each([
@@ -61,12 +65,15 @@ describe("loadRecognitionPipelineConfiguration", () => {
     "RECOGNITION_FUSION_TIMEOUT_MS",
     "RECOGNITION_FUSION_CONCURRENCY",
     "WEB_FETCH_TIMEOUT_MS",
-  ])(
-    "rejects a non-positive-integer %s",
-    (name) => {
-      expect(() => loadRecognitionPipelineConfiguration({ [name]: "not-a-number" })).toThrow();
-      expect(() => loadRecognitionPipelineConfiguration({ [name]: "0" })).toThrow();
-      expect(() => loadRecognitionPipelineConfiguration({ [name]: "-5" })).toThrow();
-    },
-  );
+  ])("rejects a non-positive-integer %s", (name) => {
+    expect(() =>
+      loadRecognitionPipelineConfiguration({ [name]: "not-a-number" }),
+    ).toThrow();
+    expect(() =>
+      loadRecognitionPipelineConfiguration({ [name]: "0" }),
+    ).toThrow();
+    expect(() =>
+      loadRecognitionPipelineConfiguration({ [name]: "-5" }),
+    ).toThrow();
+  });
 });
