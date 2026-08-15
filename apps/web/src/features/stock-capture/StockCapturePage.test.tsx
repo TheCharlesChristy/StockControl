@@ -117,6 +117,7 @@ const exactMatchSessionView: RecognitionSessionView = {
       ],
     },
   ],
+  suggestedDraft: null,
   stageReports: [],
   recommendManualEntry: false,
 };
@@ -303,7 +304,7 @@ describe("StockCapturePage", () => {
       { timeout: 3_000 },
     );
 
-    await user.click(screen.getByText(item.name));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^Quantity/u)).toBeInTheDocument();

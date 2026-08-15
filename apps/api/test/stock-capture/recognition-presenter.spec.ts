@@ -7,6 +7,7 @@ import {
   identityDraftFrom,
   presentRecognitionSession,
   stageReportsFromManifest,
+  suggestedDraftFromManifest,
 } from "../../src/stock-capture/recognition-presenter";
 
 interface PresenterQueryStub {
@@ -27,6 +28,7 @@ describe("presenting a stored candidate identity", () => {
         partNumber: "AA-100",
         barcode: "5901234123457",
         unit: "ea",
+        variantAttributes: [{ label: "colour", value: "Brass" }],
       }),
     ).toEqual({
       manufacturer: "Acme",
@@ -34,7 +36,7 @@ describe("presenting a stored candidate identity", () => {
       partNumber: "AA-100",
       barcode: "5901234123457",
       unit: "ea",
-      variantAttributes: [],
+      variantAttributes: [{ label: "colour", value: "Brass" }],
     });
   });
 
@@ -138,6 +140,48 @@ describe("synthesising the barcode stage report", () => {
     ]);
     expect(barcodeStageReports(stored)).toEqual([]);
   });
+
+  it("drops impossible photo ordinals and normalises barcode text", () => {
+    const stored = [
+      { value: " 5012345678900 ", symbology: " ean-13 ", imageOrdinal: 1 },
+      { value: "invalid", symbology: "EAN-13", imageOrdinal: 0 },
+      { value: "invalid", symbology: "EAN-13", imageOrdinal: Number.NaN },
+    ];
+
+    expect(detectedBarcodesFrom(stored)).toEqual([
+      { value: "5012345678900", symbology: "ean-13", imageOrdinal: 1 },
+    ]);
+    expect(barcodeStageReports(stored)).toHaveLength(1);
+  });
+});
+
+describe("presenting the recognised editable draft", () => {
+  it("retains structured fields recovered before candidate fusion", () => {
+    expect(
+      suggestedDraftFromManifest({
+        suggestedDraft: {
+          manufacturer: "Honeywell",
+          name: "Excel 10 Fan Coil Controller",
+          partNumber: "W7752E2004",
+          barcode: "5023226600023",
+          unit: null,
+          variantAttributes: [{ label: "voltage", value: "230 V" }],
+        },
+      }),
+    ).toEqual({
+      manufacturer: "Honeywell",
+      name: "Excel 10 Fan Coil Controller",
+      partNumber: "W7752E2004",
+      barcode: "5023226600023",
+      unit: null,
+      variantAttributes: [{ label: "voltage", value: "230 V" }],
+    });
+  });
+
+  it("does not expose an empty or malformed manifest value", () => {
+    expect(suggestedDraftFromManifest({ suggestedDraft: {} })).toBeNull();
+    expect(suggestedDraftFromManifest(null)).toBeNull();
+  });
 });
 
 describe("presenting stored recognition stage reports", () => {
@@ -227,6 +271,14 @@ describe("presenting a stored recognition session", () => {
       photo_count: 1,
       local_codes: [],
       model_manifest: {
+        suggestedDraft: {
+          manufacturer: "Acme",
+          name: "Unidentified fitting",
+          partNumber: "AF-100",
+          barcode: null,
+          unit: null,
+          variantAttributes: [],
+        },
         stageReports: [
           {
             stage: "Ocr",
@@ -299,6 +351,11 @@ describe("presenting a stored recognition session", () => {
           selectable: true,
         },
       ],
+      suggestedDraft: {
+        manufacturer: "Acme",
+        name: "Unidentified fitting",
+        partNumber: "AF-100",
+      },
       stageReports: [
         {
           stage: "Ocr",

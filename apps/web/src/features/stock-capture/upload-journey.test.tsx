@@ -175,6 +175,7 @@ function createUploadApi(
             photos: [],
             detectedBarcodes: [],
             candidates: [],
+            suggestedDraft: null,
             stageReports: [],
             recommendManualEntry: false,
           },

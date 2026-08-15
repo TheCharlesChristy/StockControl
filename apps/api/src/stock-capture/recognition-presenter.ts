@@ -91,6 +91,15 @@ export const identityDraftFrom = (value: unknown): RecognitionIdentityDraft => {
     typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const text = (field: string): string | null =>
     typeof record[field] === "string" && record[field] !== "" ? record[field] : null;
+  const variantAttributes = Array.isArray(record.variantAttributes)
+    ? record.variantAttributes.flatMap((entry): readonly { label: string; value: string }[] => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const attribute = entry as Record<string, unknown>;
+        return typeof attribute.label === "string" && typeof attribute.value === "string"
+          ? [{ label: attribute.label, value: attribute.value }]
+          : [];
+      })
+    : [];
 
   return {
     manufacturer: text("manufacturer"),
@@ -98,8 +107,23 @@ export const identityDraftFrom = (value: unknown): RecognitionIdentityDraft => {
     partNumber: text("partNumber"),
     barcode: text("barcode"),
     unit: text("unit"),
-    variantAttributes: [],
+    variantAttributes,
   };
+};
+
+export const suggestedDraftFromManifest = (value: unknown): RecognitionIdentityDraft | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const suggestedDraft = (value as Record<string, unknown>).suggestedDraft;
+  if (typeof suggestedDraft !== "object" || suggestedDraft === null) return null;
+
+  const draft = identityDraftFrom(suggestedDraft);
+  return draft.name.trim() !== "" ||
+    draft.manufacturer !== null ||
+    draft.partNumber !== null ||
+    draft.barcode !== null ||
+    draft.variantAttributes.length > 0
+    ? draft
+    : null;
 };
 
 export const evidenceFrom = (value: unknown): readonly RecognitionEvidenceView[] => {
@@ -143,7 +167,15 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
     const value = record.value;
     const imageOrdinal = record.imageOrdinal;
     if (record.readerVersion === "recognition-core") return [];
-    if (typeof value !== "string" || typeof imageOrdinal !== "number") return [];
+    if (
+      typeof value !== "string" ||
+      value.trim() === "" ||
+      typeof imageOrdinal !== "number" ||
+      !Number.isInteger(imageOrdinal) ||
+      imageOrdinal < 1
+    ) {
+      return [];
+    }
 
     return [
       {
@@ -167,17 +199,20 @@ export const detectedBarcodesFrom = (localCodes: unknown): readonly DetectedBarc
       typeof value !== "string" ||
       value.trim() === "" ||
       typeof symbology !== "string" ||
-      typeof imageOrdinal !== "number"
+      symbology.trim() === "" ||
+      typeof imageOrdinal !== "number" ||
+      !Number.isInteger(imageOrdinal) ||
+      imageOrdinal < 1
     ) {
       return [];
     }
 
     const barcode = {
       value: value.trim(),
-      symbology,
+      symbology: symbology.trim(),
       imageOrdinal,
     };
-    const key = `${barcode.symbology}:${barcode.value}:${String(barcode.imageOrdinal)}`;
+    const key = `${barcode.symbology.toLocaleUpperCase()}:${barcode.value.toLocaleUpperCase()}:${String(barcode.imageOrdinal)}`;
     if (seen.has(key)) return [];
     seen.add(key);
     return [barcode];
@@ -272,6 +307,7 @@ export const presentRecognitionSession = async (
     })),
     detectedBarcodes: detectedBarcodesFrom(typedSession.local_codes),
     candidates,
+    suggestedDraft: suggestedDraftFromManifest(typedSession.model_manifest),
     stageReports: [
       ...barcodeStageReports(typedSession.local_codes),
       ...stageReportsFromManifest(typedSession.model_manifest),

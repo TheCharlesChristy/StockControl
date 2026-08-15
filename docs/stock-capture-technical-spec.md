@@ -155,10 +155,9 @@ The following are non-negotiable:
    says only that the item should be visible and that extra angles or a label
    close-up improve the result. There is no required backdrop or frame.
 4. The browser attempts barcode recognition on the original-resolution images.
-5. The API validates every decoded value. If all recognised product codes point
-   unambiguously to the same active item, StockControl immediately shows that
-   item for confirmation. No image upload is required.
-6. Otherwise the browser normalises and uploads the photographs directly to the
+5. The API validates every decoded value and retains it as recognition evidence.
+   A barcode never skips the remaining photograph pipeline.
+6. The browser normalises and uploads the photographs directly to the
    private Railway Bucket using short-lived presigned PUT URLs.
 7. The API returns `202 Accepted`. The user may wait on the progress view or start
    capturing the next item; session cards update by polling.
@@ -169,16 +168,20 @@ The following are non-negotiable:
 9. An expandable **Analysis details** view exposes the top results from every
    stage for every photograph. The default view does not show fifteen duplicate
    cards for three images.
-10. The user selects a candidate, edits it, or chooses **None are correct**. An
-    external candidate opens the normal new-item form with editable fields.
+10. The best selectable result is the default. A primary **Continue** action
+    opens the normal item form with every recognised field pre-filled and
+    editable. The user may instead select another candidate, choose **Enter
+    details manually**, review later, or cancel the item.
+11. When no catalogue candidate exists, OCR/barcode/VLM fields are still retained
+    as an editable suggested draft rather than being hidden in analysis details.
 
 ### 5.2 Business confirmation
 
-11. Only after identity review does the user enter quantity and location. The
+12. Only after identity review does the user enter quantity and location. The
     batch default may be overridden.
-12. The final screen shows item, quantity, unit, and full location path.
-13. A client-generated idempotency key accompanies the confirmation.
-14. Success shows the item reference and new balance and returns to the capture
+13. The final screen shows item, quantity, unit, and full location path.
+14. A client-generated idempotency key accompanies the confirmation.
+15. Success shows the item reference and new balance and returns to the capture
     batch.
 
 An exact barcode remains high-value evidence, but never skips the photographs or
@@ -324,13 +327,14 @@ paying cross-repository coordination costs in v1.
 
 A recognition session represents one physical product and at most five images.
 Each image receives an independent trace. The worker fans the images out to the
-specialists, retains the top five outputs per applicable stage, then performs one
-item-level web lookup and one multi-image VLM call after fan-in.
+specialists, retains the top five outputs per applicable stage, performs one
+item-level web lookup, and calls the VLM once per photograph before fan-in.
 
-Running the expensive VLM once per item rather than once per photograph preserves
-the user's multi-view evidence, avoids contradictory prose, and prevents cost
-from scaling fivefold. The response still records which image supported each
-observation.
+The per-photo VLM boundary is deliberate. Two ordinary phone photos can nearly
+fill the 4,096-token multimodal context and turn a fast one-photo request into a
+40-second prompt evaluation. Independent calls keep latency bounded, prevent one
+invalid model response from discarding every photograph, and let deterministic
+fusion reward agreement across images.
 
 The pipeline state is:
 
@@ -485,12 +489,12 @@ pages are not crawled.
 Web content is untrusted data. It is delimited in the VLM prompt and cannot issue
 instructions. Search failures do not fail the session.
 
-### 7.9 Stage 6: item-level VLM proposal
+### 7.9 Stage 6: per-photo VLM proposals
 
-The worker calls `recognition-fusion` once with:
+For each verified photograph, the worker calls `recognition-fusion` with:
 
-- up to five labelled, bounded-resolution images;
-- bounded per-image OCR observations;
+- one bounded-resolution image;
+- bounded OCR observations for that image;
 - opaque IDs and fields for the retrieved internal candidates;
 - visual neighbours and category results; and
 - bounded web evidence.
@@ -504,10 +508,12 @@ LFM runs in non-thinking, greedy mode with a 4,096-token context cap and a
 - evidence references to image ordinals and supplied observations; and
 - `unknown`.
 
+Every schema field is required; inapplicable fields use null or an empty value so
+the constrained grammar cannot emit an object that the response parser rejects.
 The model cannot emit an arbitrary internal UUID, call a tool, fetch a URL, or
-write state. Invalid JSON receives one constrained retry; after that the VLM
-stage is marked failed and other evidence continues. Model-generated confidence
-is discarded.
+write state. An invalid response receives one constrained retry for that photo;
+after that only that photo's VLM stage is marked unavailable and all other
+evidence continues. Model-generated confidence is discarded.
 
 ### 7.10 Stage 7: deterministic fusion
 
@@ -883,7 +889,7 @@ StockCapturePage.tsx             batch/session shell
 CapturePhotos.tsx                camera/file input and 1-5 thumbnail editor
 CaptureGuidance.tsx              blur/glare and multi-object guidance
 RecognitionProgress.tsx          durable stage/status polling
-CandidateReview.tsx              deduplicated top-five selection/editing
+CandidateReview.tsx              primary continue action, alternatives and review-later controls
 AnalysisDetails.tsx              per-photo/stage evidence disclosure
 ReceiptConfirmation.tsx          quantity, unit and location confirmation
 BatchSummary.tsx                 batch progress and unresolved sessions

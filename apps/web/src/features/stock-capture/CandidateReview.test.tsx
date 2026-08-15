@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { RecognitionSessionView } from "@stockcontrol/contracts";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CandidateReview } from "./CandidateReview";
 
@@ -17,6 +18,7 @@ const unavailableSession: RecognitionSessionView = {
   photos: [],
   detectedBarcodes: [],
   candidates: [],
+  suggestedDraft: null,
   stageReports: [
     {
       stage: "Ocr",
@@ -45,5 +47,49 @@ describe("CandidateReview", () => {
     );
 
     expect(screen.getByText(/Automatic photo recognition was unavailable/u)).toBeInTheDocument();
+  });
+
+  it("continues to a pre-filled new-item form when recognised details exist", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const session: RecognitionSessionView = {
+      ...unavailableSession,
+      stageReports: [],
+      suggestedDraft: {
+        manufacturer: "Honeywell",
+        name: "Excel 10 Fan Coil Controller",
+        partNumber: "W7752E2004",
+        barcode: "5023226600023",
+        unit: null,
+        variantAttributes: [],
+      },
+    };
+
+    render(
+      <MemoryRouter>
+        <CandidateReview
+          session={session}
+          showDetails={false}
+          onToggleDetails={() => undefined}
+          onSelect={onSelect}
+          onManualEntry={() => undefined}
+          onReviewLater={() => undefined}
+          onCancel={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/no existing stock match/iu)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: "NewItem",
+      candidateId: null,
+      reference: null,
+      name: "Honeywell Excel 10 Fan Coil Controller",
+      unit: "",
+      barcode: "5023226600023",
+      partNumber: "W7752E2004",
+    });
   });
 });

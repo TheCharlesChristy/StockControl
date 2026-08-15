@@ -72,6 +72,33 @@ const selectionFor = (
   return null;
 };
 
+const selectionForSuggestedDraft = (
+  session: RecognitionSessionView,
+  detectedBarcode: string | null,
+): ReceiptSelection | null => {
+  /* Tolerate an API replica from the previous deploy during Railway's rolling
+   * handover; the new contract is required once the deploy converges. */
+  const draft = session.suggestedDraft ?? null;
+  if (draft === null) return null;
+  const manufacturer = draft.manufacturer?.trim() ?? "";
+  const recognisedName = draft.name.trim();
+  const name =
+    manufacturer !== "" &&
+    !recognisedName.toLocaleLowerCase().includes(manufacturer.toLocaleLowerCase())
+      ? `${manufacturer} ${recognisedName}`.trim()
+      : recognisedName || manufacturer;
+
+  return {
+    kind: "NewItem",
+    candidateId: null,
+    reference: null,
+    name,
+    unit: draft.unit ?? "",
+    barcode: draft.barcode ?? detectedBarcode,
+    partNumber: draft.partNumber,
+  };
+};
+
 interface CandidateReviewProps {
   readonly session: RecognitionSessionView;
   readonly showDetails: boolean;
@@ -101,6 +128,7 @@ export function CandidateReview({
    * the pipeline actually ranked first turns it back into a suggestion. */
   const detectedBarcode = session.detectedBarcodes[0]?.value ?? null;
   const best = topCandidateSelection(session.candidates, detectedBarcode);
+  const preferredSelection = best ?? selectionForSuggestedDraft(session, detectedBarcode);
   const bestCandidateId = best === null ? null : best.candidateId;
   const automaticRecognitionUnavailable = session.stageReports.some(
     (report) => report.outcome === "Unavailable" && AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
@@ -143,18 +171,20 @@ export function CandidateReview({
 
       {session.candidates.length === 0 && (
         <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
-          {session.recommendManualEntry
-            ? automaticRecognitionUnavailable
-              ? "Automatic photo recognition was unavailable. Show analysis details to see which checks could not run, or choose “None are correct” to type the item in yourself."
-              : "Nothing was recognised. Choose “None are correct” to type the item in yourself."
-            : "No suggestions yet."}
+          {preferredSelection !== null
+            ? "We found product details but no existing stock match. Continue to check the pre-filled new-item form."
+            : session.recommendManualEntry
+              ? automaticRecognitionUnavailable
+                ? "Automatic photo recognition was unavailable. Show analysis details to see which checks could not run, or enter the item details manually."
+                : "Nothing was recognised. Enter the item details manually."
+              : "No suggestions yet."}
         </Alert>
       )}
 
       {session.candidates.length > 0 && (
         <Typography variant="body2" color="text.secondary">
-          Choose the item these photographs show. Nothing changes in stock until you confirm it on
-          the next screen.
+          Check the best match below, then continue to the editable stock form. Nothing changes in
+          stock until you confirm it there.
         </Typography>
       )}
 
@@ -257,12 +287,21 @@ export function CandidateReview({
       </Box>
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between">
-        <Button onClick={onCancel}>Cancel this item</Button>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
           <Button onClick={onReviewLater}>Review later</Button>
-          <Button variant="outlined" onClick={onManualEntry}>
-            None are correct
+          <Button color="inherit" onClick={onCancel}>
+            Cancel this item
           </Button>
+        </Stack>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Button variant="outlined" onClick={onManualEntry}>
+            Enter details manually
+          </Button>
+          {preferredSelection !== null && (
+            <Button variant="contained" onClick={() => onSelect(preferredSelection)}>
+              Continue
+            </Button>
+          )}
         </Stack>
       </Stack>
     </Stack>
