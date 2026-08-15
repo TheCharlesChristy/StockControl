@@ -14,6 +14,8 @@ const unavailableSession: RecognitionSessionView = {
   expiresAt: "2026-08-14T15:35:55.000Z",
   committedItemId: null,
   failureCode: null,
+  photos: [],
+  detectedBarcodes: [],
   candidates: [],
   stageReports: [
     {
@@ -36,6 +38,7 @@ describe("CandidateReview", () => {
           onToggleDetails={() => undefined}
           onSelect={() => undefined}
           onManualEntry={() => undefined}
+          onReviewLater={() => undefined}
           onCancel={() => undefined}
         />
       </MemoryRouter>,

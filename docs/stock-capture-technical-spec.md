@@ -64,7 +64,7 @@ The design optimises for:
 
 1. high recall in the five suggestions shown to the user;
 2. very high precision for anything labelled **Strong**;
-3. a quick exact-barcode path;
+3. barcode-assisted matching without sacrificing the full photo analysis;
 4. graceful partial results when a model or the internet is unavailable;
 5. short, recoverable user interactions rather than a long blocking request;
 6. low idle cost for a small customer; and
@@ -181,10 +181,10 @@ The following are non-negotiable:
 14. Success shows the item reference and new balance and returns to the capture
     batch.
 
-An exact barcode saves model work, not the confirmation. An archived exact match
-is shown but cannot receive stock; the user is sent to the existing reactivation
-flow. If multiple distinct valid codes are decoded, or codes point to different
-items, early return is suppressed and the full review path runs.
+An exact barcode remains high-value evidence, but never skips the photographs or
+the remaining recognition stages. An archived exact match is shown but cannot
+receive stock; the user is sent to the existing reactivation flow. A valid code
+that matches no item is retained and pre-filled if the user creates a new item.
 
 ## 6. Runtime architecture
 
@@ -360,17 +360,17 @@ Barcode recognition runs before browser downscaling:
 4. Validate length, character set, symbology, and check digit where the format has
    one. Resolve internal QR URLs and exact barcode values through the authorised
    catalogue query.
-5. Early-return only when every distinct decoded product code is consistent with
-   one active item and no code maps to a different item. A valid but unknown code
-   is retained as evidence and normally triggers the full pipeline.
+5. Retain every valid decoded code as evidence. Resolve catalogue matches in the
+   worker, continue the full pipeline in every case, and preserve an unmatched
+   value for the eventual new-item draft.
 
 The browser asset is pinned and same-origin. `BarcodeDetector` is an optimisation,
 not a dependency, because MDN marks it experimental and not Baseline.
 
 ### 7.3 Upload and normalisation
 
-For a non-early-return session, the API creates server-generated object keys and
-presigned PUTs. The browser:
+For every session, the API creates server-generated object keys and upload
+routes. The browser:
 
 - strips EXIF and location metadata;
 - corrects orientation;
@@ -395,10 +395,9 @@ limits before any model sees the image.
 ### 7.4 Stage 1: server barcode fallback
 
 `recognition-core` runs ZXing-C++ over the normalised full image plus deterministic
-rotation, greyscale, and contrast variants. The worker applies the same
-server-side exact-match rule as the browser path. A server exact match may stop
-the remaining model calls, but still produces a `ReviewReady` session that
-requires confirmation.
+rotation, greyscale, and contrast variants. The worker persists these decodes,
+uses them for catalogue retrieval, and continues OCR, visual, web, and VLM stages.
+An unmatched server decode remains available to pre-fill the new-item barcode.
 
 ### 7.5 Stage 2: OCR and identifier extraction
 
@@ -558,7 +557,7 @@ and the deployment SBOM.
 | Server barcode                  | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp)                                                                                                             | Mature, thread-safe, multi-format reader with browser/server parity and Apache 2.0 licensing.                                                                                                                                                                                                                                                                                                                |
 | OCR                             | [`PP-OCRv6_small_det`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det) + [`PP-OCRv6_small_rec`](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec) | The [official OCR table](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md) reports 84.1 detection Hmean at 9.6 MB and 81.3 recognition accuracy at 20.4 MB. Small avoids the much larger medium models while materially outperforming the tiny recognition tier. The published v6 metrics use an internal set and must not be compared directly with v5 metrics. |
 | Adaptive retrieval and category | [`nomic-embed-vision-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5), official INT8 ONNX                                                        | Apache 2.0, 92.9M parameters, shared image/text space, and a [96.7 MB official INT8 ONNX](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5/tree/main/onnx). One model covers exemplar similarity and zero-shot category matching.                                                                                                                                                                     |
-| VLM fusion                      | [`LiquidAI/LFM2.5-VL-1.6B-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF), pinned Q4_0 GGUF plus matching F16 multimodal projector                     | Provisional staging comparison selected to reduce CPU latency while preserving the existing LFM/llama.cpp integration. The selected files are about 696 MB and 854 MB respectively. This is licensed under the upstream LFM Open License v1.0 rather than Apache 2.0, so the commercial-use threshold must be checked before deployment.                                                                    |
+| VLM fusion                      | [`LiquidAI/LFM2.5-VL-1.6B-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF), pinned Q4_0 GGUF plus matching F16 multimodal projector                  | Provisional staging comparison selected to reduce CPU latency while preserving the existing LFM/llama.cpp integration. The selected files are about 696 MB and 854 MB respectively. This is licensed under the upstream LFM Open License v1.0 rather than Apache 2.0, so the commercial-use threshold must be checked before deployment.                                                                     |
 | CPU runtime                     | Pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)                                                                      | CPU-native quantised inference and a multimodal OpenAI-compatible server. The exact commit is frozen because LFM2.5 multimodal support is runtime-sensitive.                                                                                                                                                                                                                                                 |
 | Web evidence                    | [Brave Search Web API](https://brave.com/search/api/)                                                                                                           | One deterministic search endpoint, $5 per 1,000 requests, and $5 monthly credit. StockControl retains control of extraction and VLM prompting rather than buying generated Answers.                                                                                                                                                                                                                          |
 
@@ -617,7 +616,7 @@ OCR parity before the image is promotable.
 
 `POST /v1/render-exemplar` accepts one already-validated image plus one of the
 normalised crop boxes returned by analysis and emits a small, EXIF-free WebP.
-The post-commit exemplar job uses it before the 24-hour source-image deadline;
+The post-commit exemplar job uses it before the source image is deleted;
 the endpoint is also stateless and has the same decoder limits.
 
 ### 9.2 `recognition-fusion`
@@ -715,21 +714,21 @@ runtime privileges through `RUNTIME_TABLE_PRIVILEGES`.
 
 ### 11.2 `stock_recognition_sessions`
 
-| Column                     | Type               | Notes                                                                       |
-| -------------------------- | ------------------ | --------------------------------------------------------------------------- |
-| `id`                       | `uuid`             | Client session UUID; primary key                                            |
-| `batch_id`                 | `uuid`             | Owned batch FK                                                              |
-| `actor_user_id`            | `uuid`             | User FK and ownership scope                                                 |
-| `request_hash`             | `char(64)`         | Canonical idempotency hash                                                  |
-| `status`                   | `varchar(32)`      | Checked state from section 7.1                                              |
-| `photo_count`              | `smallint`         | Between 1 and 5 unless an exact typed/scanned code completes without photos |
-| `local_codes`              | `jsonb`            | Bounded validated observations, not trusted matches                         |
-| `model_manifest`           | `jsonb`            | Exact pipeline/model/config revisions                                       |
-| `selected_candidate_id`    | `uuid null`        | Review selection; no stock effect                                           |
-| `committed_item_id`        | `uuid null`        | Populated by successful final commit                                        |
-| `failure_code`             | `varchar(80) null` | Stable code, no raw model text                                              |
-| `created_at`, `updated_at` | `timestamptz`      | Database timestamps                                                         |
-| `expires_at`               | `timestamptz`      | Review/evidence retention deadline                                          |
+| Column                     | Type               | Notes                                                     |
+| -------------------------- | ------------------ | --------------------------------------------------------- |
+| `id`                       | `uuid`             | Client session UUID; primary key                          |
+| `batch_id`                 | `uuid`             | Owned batch FK                                            |
+| `actor_user_id`            | `uuid`             | User FK and ownership scope                               |
+| `request_hash`             | `char(64)`         | Canonical idempotency hash                                |
+| `status`                   | `varchar(32)`      | Checked state from section 7.1                            |
+| `photo_count`              | `smallint`         | Between 1 and 5; barcode evidence never skips photographs |
+| `local_codes`              | `jsonb`            | Bounded validated observations, not trusted matches       |
+| `model_manifest`           | `jsonb`            | Exact pipeline/model/config revisions                     |
+| `selected_candidate_id`    | `uuid null`        | Review selection; no stock effect                         |
+| `committed_item_id`        | `uuid null`        | Populated by successful final commit                      |
+| `failure_code`             | `varchar(80) null` | Stable code, no raw model text                            |
+| `created_at`, `updated_at` | `timestamptz`      | Database timestamps                                       |
+| `expires_at`               | `timestamptz`      | Review/evidence retention deadline                        |
 
 ### 11.3 `stock_recognition_images`
 
@@ -746,7 +745,7 @@ runtime privileges through `RUNTIME_TABLE_PRIVILEGES`.
 | `embedding`                      | `bytea null`        | Temporary versioned float16 query vector      |
 | `embedding_model`                | `varchar(120) null` | Exact model revision                          |
 | `crop_metadata`                  | `jsonb`             | Bounded normalised boxes/quality, not raw OCR |
-| `delete_after`                   | `timestamptz`       | At most 24 hours after upload                 |
+| `delete_after`                   | `timestamptz`       | At most 30 days after upload                  |
 | `deleted_at`                     | `timestamptz null`  | Tombstone for cleanup proof                   |
 
 Use a unique constraint on `(session_id, ordinal)` and never accept an object key
@@ -958,7 +957,7 @@ Policy:
 
 - original and normalised session photographs are temporary and deleted as soon
   as the session is committed/cancelled and any exemplar job finishes;
-- a hard `delete_after` limit of 24 hours applies even if a job is stuck;
+- a hard `delete_after` limit of 30 days applies even if a job is stuck;
 - a janitor repeatedly claims overdue objects until the Bucket confirms deletion;
 - cleanup backlog age and delete failures alert operators;
 - metadata tombstones remain for audit, but the object and raw OCR do not;
@@ -1039,7 +1038,7 @@ Required metrics:
 - sessions queued/completed/failed/expired;
 - queue depth, oldest ready age, lease expiry, retry and dead-letter count;
 - per-stage availability, not-applicable share, p50/p95 time, and timeout rate;
-- exact-barcode share and conflicting-code rate;
+- barcode-match share, unmatched-code persistence, and conflicting-code rate;
 - candidate top-one/top-five selection and `RejectedAll` rate;
 - correction rate by field and evidence family;
 - cold-start count and model service p50/p95 latency;
@@ -1049,10 +1048,10 @@ Required metrics:
 - end-to-end capture-to-confirm and commits per batch.
 
 Alerts cover an oldest ready job over five minutes, repeated model schema
-failure, error rate over the pilot baseline, any object more than 24 hours old,
+failure, error rate over the pilot baseline, any object more than 30 days old,
 and projected monthly spend over the configured Railway hard limit.
 
-The manual entry and exact-barcode paths remain operational when either model
+The manual entry and barcode-evidence paths remain operational when either model
 service or Brave is down. A model rollback is a deployment of the preceding image
 and manifest; it never rewrites recognition history or stock data.
 
@@ -1098,7 +1097,8 @@ account/attribution terms before including that credit in a budget.
 These are engineering estimates, not vendor benchmarks:
 
 - average three photographs per item;
-- average 0.5 MB per normalised photograph and deletion within 24 hours;
+- average 0.5 MB per normalised photograph, deleted immediately after commit or
+  cancellation and otherwise retained for at most 30 days;
 - always-on worker average RSS 0.25 GB;
 - `recognition-core` average RSS 2 GB while awake and 20 vCPU-seconds per photo;
 - `recognition-fusion` average RSS 3 GB while awake and 120 vCPU-seconds per item;
@@ -1181,7 +1181,7 @@ weights.
 ### 19.3 Web tests
 
 - camera/file input, one-to-five enforcement, reorder/remove/retake;
-- local barcode native/WASM fallback and exact early return;
+- local barcode native/WASM fallback and durable unmatched-code evidence;
 - no upload after an accepted exact return;
 - direct upload retry and expired presigned URL recovery;
 - progress recovery after refresh and capturing another item while queued;
@@ -1199,7 +1199,7 @@ weights.
 - session/job insert atomicity and duplicate completion callbacks;
 - concurrent `SKIP LOCKED` claims, lease expiry, crash recovery, retry, and
   dead-letter behaviour;
-- exact barcode uniqueness and conflicting multi-photo codes;
+- exact barcode uniqueness, unmatched-code retention, and conflicting multi-photo codes;
 - all duplicate part-number candidates, stable fusion ties, and bounded JSON;
 - late/duplicate model results cannot overwrite a newer manifest/result;
 - existing-item receipt creates one entry and transaction;
@@ -1208,7 +1208,7 @@ weights.
 - same key/same payload returns original result; changed payload returns `409`;
 - batch close racing a commit serialises correctly;
 - normal and capture item creation generate distinct references concurrently;
-- object deletion retries and 24-hour hard-expiry alerting; and
+- object deletion retries and 30-day hard-expiry alerting; and
 - migration up/down, integrity manifest, and exhaustive runtime privileges.
 
 ### 19.5 Security tests
@@ -1244,7 +1244,7 @@ The implementation is production-ready only when all are true on the agreed
 held-out pilot set and Railway deployment:
 
 1. Every stock mutation requires visible human confirmation.
-2. Exact-barcode early returns achieve 100% precision in the validation set and
+2. Exact-barcode catalogue matches achieve 100% precision in the validation set and
    reject invalid, ambiguous, conflicting, and archived-only cases.
 3. Fused top-five identity recall is at least 85%.
 4. The **Strong** band has at least 98% precision and unknown-item false-Strong
@@ -1256,7 +1256,7 @@ held-out pilot set and Railway deployment:
    capture while work runs.
 7. Actual RSS stays within the service caps during a four-hour soak, with no
    unbounded growth or queue starvation.
-8. Every temporary photograph is deleted within 24 hours in normal and injected
+8. Every temporary photograph is deleted on commit/cancellation or within 30 days in injected
    failure tests.
 9. A new item and opening receipt are atomic, and retries create exactly one item
    and transaction.
@@ -1278,11 +1278,11 @@ and updated cost. StockControl remains manual/partial-assist until one passes.
 | ----- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | S0    | Reproducible model harness, pinned artefacts/licences, evaluation-set policy, Railway CPU benchmark | Selected stack meets provisional accuracy/schema/resource gates; measured cost assumptions replace estimates |
 | S1    | Contracts, migration, job lease framework, and worker activation                                    | Real-PG claim/retry/ownership/privilege tests                                                                |
-| S2    | Photo UX, local barcode, presigned upload, and exact early return                                   | Phone/browser tests; invalid upload suite; no-upload exact path                                              |
+| S2    | Photo UX, local barcode, durable queue, and resumable upload                                        | Phone/browser tests; invalid upload suite; unmatched barcode retained for review                             |
 | S3    | `recognition-core`, identifier parser, catalogue retrieval, and visual index                        | Per-stage evaluation and private-service smoke tests                                                         |
 | S4    | Brave evidence, LFM fusion service, deterministic fusion, and review candidates                     | Injection/SSRF/schema tests and top-five evaluation                                                          |
 | S5    | Review UX, transaction writers, atomic commit, feedback, and exemplars                              | Existing/new/retry E2E and real-PG rollback/concurrency tests                                                |
-| S6    | Cleanup, observability, cost alerts, runbooks, and failure modes                                    | 24-hour deletion proof, soak, cold start, rollback, and spend-limit rehearsal                                |
+| S6    | Cleanup, observability, cost alerts, runbooks, and failure modes                                    | 30-day retention/deletion proof, soak, cold start, rollback, and spend-limit rehearsal                       |
 | S7    | Customer pilot and calibrated thresholds                                                            | Timed 10% value gate, error comparison, go/no-go record                                                      |
 
 S0 is a promotion gate because model cards do not represent the customer's stock.

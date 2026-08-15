@@ -18,10 +18,8 @@ import type { NormalisedImage } from "./upload/normalise";
 
 /*
  * The photograph upload leg, which shipped with no coverage at all: the one
- * photo test in StockCapturePage.test.tsx takes the exact-barcode short cut,
- * and that path returns a session already past `AwaitingUpload`, so it never
- * normalises, never asks for a grant and never PUTs anything. Two bugs lived
- * in the gap — see the individual tests.
+ * These tests keep the upload boundary explicit so rerenders, retries and
+ * partial failures cannot silently duplicate or orphan photograph grants.
  */
 
 const noBarcodes: BarcodeProvider = {
@@ -139,6 +137,9 @@ function createUploadApi(
     if (path === "/stock-capture/batches" && method === "POST") {
       return Promise.resolve(json({ batch: openBatch }));
     }
+    if (path === "/stock-capture/batches/open" && method === "GET") {
+      return Promise.resolve(json({ batch: null }));
+    }
     if (path === "/stock-capture/sessions" && method === "POST") {
       return Promise.resolve(json({ session: awaitingUpload, exactItemId: null }));
     }
@@ -171,6 +172,8 @@ function createUploadApi(
           session: {
             ...queued,
             batchId: openBatch.id,
+            photos: [],
+            detectedBarcodes: [],
             candidates: [],
             stageReports: [],
             recommendManualEntry: false,

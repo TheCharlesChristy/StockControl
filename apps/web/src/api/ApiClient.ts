@@ -579,6 +579,15 @@ export class ApiClient {
     return batch;
   }
 
+  public async getOpenCaptureBatch(signal?: AbortSignal): Promise<StockCaptureBatchView | null> {
+    const { batch } = await this.send<{ batch: StockCaptureBatchView | null }>(
+      "GET",
+      "/stock-capture/batches/open",
+      { ...(signal === undefined ? {} : { signal }) },
+    );
+    return batch;
+  }
+
   public async completeCaptureBatch(batchId: string): Promise<StockCaptureBatchView> {
     const { batch } = await this.send<{ batch: StockCaptureBatchView }>(
       "POST",

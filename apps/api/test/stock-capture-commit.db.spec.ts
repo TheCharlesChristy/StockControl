@@ -140,7 +140,7 @@ async function openBatch(): Promise<string> {
   return (response.body as { readonly batch: StockCaptureBatchView }).batch.id;
 }
 
-/** A session that reached `ReviewReady` through the exact-barcode short cut, with a real published candidate. */
+/** A review-ready session with a real published candidate. */
 async function reviewReadySessionForActiveItem(
   batchId: string,
 ): Promise<{ readonly sessionId: string; readonly candidateId: string }> {

@@ -31,10 +31,10 @@ import type { AddedEntry } from "./capture-reducer";
 const statusLabels: Readonly<Record<RecognitionSessionStatus, string>> = {
   AwaitingUpload: "Sending photographs",
   Queued: "Waiting its turn",
-  ProcessingBarcode: "Working",
-  ProcessingImages: "Working",
-  Enriching: "Working",
-  Fusing: "Working",
+  ProcessingBarcode: "Checking barcodes",
+  ProcessingImages: "Reading photographs",
+  Enriching: "Checking matches",
+  Fusing: "Preparing suggestions",
   ReviewReady: "Ready to review",
   Committed: "Added",
   Failed: "Could not finish",
@@ -45,7 +45,6 @@ const statusLabels: Readonly<Record<RecognitionSessionStatus, string>> = {
 const terminalStatuses: ReadonlySet<RecognitionSessionStatus> = new Set([
   "Committed",
   "Cancelled",
-  "Failed",
   "Expired",
 ]);
 
@@ -188,7 +187,7 @@ export function BatchSummary({
 
       {unresolved.length > 0 && (
         <Stack spacing={1.5}>
-          <Typography variant="subtitle2">Still in progress</Typography>
+          <Typography variant="subtitle2">Recognition queue</Typography>
           {unresolved.map((session) => (
             <Card key={session.id} variant="outlined">
               <CardActionArea onClick={() => onResumeSession(session)}>
@@ -212,10 +211,15 @@ export function BatchSummary({
         <Button variant="contained" startIcon={<AddAPhotoRounded />} onClick={onStartNewItem}>
           {empty ? "Photograph an item" : "Add another item"}
         </Button>
-        <Button onClick={onFinishBatch} disabled={finishing}>
+        <Button onClick={onFinishBatch} disabled={finishing || unresolved.length > 0}>
           {finishing ? "Finishing…" : "Finish this batch"}
         </Button>
       </Stack>
+      {unresolved.length > 0 && (
+        <Typography variant="caption" color="text.secondary" textAlign="right">
+          Review or cancel every queued item before finishing this batch.
+        </Typography>
+      )}
     </Stack>
   );
 }

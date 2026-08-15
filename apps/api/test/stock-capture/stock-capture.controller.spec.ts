@@ -13,13 +13,13 @@ import {
 const bodyOf = (value: Record<string, unknown>): Body => value;
 
 describe("reading a declared photo count", () => {
-  it("accepts every count between zero and the maximum", () => {
-    for (const photoCount of [0, 1, 5]) {
+  it("accepts every count between one and the maximum", () => {
+    for (const photoCount of [1, 5]) {
       expect(readPhotoCount(bodyOf({ photoCount }))).toBe(photoCount);
     }
   });
 
-  it.each([-1, 6, 1.5, "3", null, undefined])("refuses %j", (photoCount) => {
+  it.each([-1, 0, 6, 1.5, "3", null, undefined])("refuses %j", (photoCount) => {
     expect(() => readPhotoCount(bodyOf({ photoCount }))).toThrow(ApplicationFailureException);
   });
 });
