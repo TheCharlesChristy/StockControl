@@ -4,6 +4,7 @@ import type { Kysely, Transaction } from "kysely";
 
 import type {
   BackgroundJobEnvelope,
+  LocalBarcodeObservation,
   RecognitionSessionStatus,
   RecognitionStageReportView,
 } from "@stockcontrol/contracts";
@@ -121,18 +122,53 @@ const advanceStatus = async (
   return Number(result.numUpdatedRows) > 0;
 };
 
-const readLocalCodeValues = (
-  localCodes: unknown,
-): readonly { value: string; symbology: string }[] => {
+const readLocalCodeValues = (localCodes: unknown): readonly LocalBarcodeObservation[] => {
   if (!Array.isArray(localCodes)) return [];
-  const codes: { value: string; symbology: string }[] = [];
+  const codes: LocalBarcodeObservation[] = [];
   for (const entry of localCodes) {
     if (typeof entry !== "object" || entry === null) continue;
-    const { value, symbology } = entry as Record<string, unknown>;
-    if (typeof value === "string" && typeof symbology === "string")
-      codes.push({ value, symbology });
+    const { value, symbology, imageOrdinal, readerVersion } = entry as Record<string, unknown>;
+    if (typeof value !== "string" || typeof symbology !== "string") continue;
+    codes.push({
+      value,
+      symbology,
+      imageOrdinal: typeof imageOrdinal === "number" ? imageOrdinal : 0,
+      readerVersion: typeof readerVersion === "string" ? readerVersion : "unknown",
+    });
   }
   return codes;
+};
+
+/** Retains both browser and server decodes, preferring the browser on duplicates. */
+export const mergeDetectedBarcodes = (
+  localCodes: readonly LocalBarcodeObservation[],
+  photoResults: readonly CorePhotoResult[],
+): readonly LocalBarcodeObservation[] => {
+  const merged: LocalBarcodeObservation[] = [];
+  const seen = new Set<string>();
+  const add = (code: LocalBarcodeObservation): void => {
+    const value = code.value.trim();
+    const symbology = code.symbology.trim();
+    if (value === "" || symbology === "") return;
+    const key = `${symbology.toUpperCase()}:${value.toUpperCase()}:${String(code.imageOrdinal)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push({ ...code, value, symbology });
+  };
+
+  localCodes.forEach(add);
+  for (const photo of photoResults) {
+    for (const barcode of photo.barcodes) {
+      add({
+        value: barcode.value,
+        symbology: barcode.symbology,
+        imageOrdinal: photo.imageOrdinal,
+        readerVersion: "recognition-core",
+      });
+    }
+  }
+
+  return merged.slice(0, 20);
 };
 
 /** Downloads each declared image and keeps only the ones whose bytes match
@@ -196,7 +232,7 @@ interface AggregatedIdentifiers {
 
 const aggregateIdentifiers = (
   photoResults: readonly CorePhotoResult[],
-  localCodes: readonly { value: string; symbology: string }[],
+  localCodes: readonly LocalBarcodeObservation[],
 ): AggregatedIdentifiers => {
   const barcodeLike = new Set<string>();
   const partNumbers = new Set<string>();
@@ -298,7 +334,7 @@ const gatherEvidence = async (
   configuration: RecognitionPipelineConfiguration,
   verifiedImages: readonly VerifiedImage[],
   imageRows: readonly ImageRow[],
-  localCodes: readonly { value: string; symbology: string }[],
+  localCodes: readonly LocalBarcodeObservation[],
   logger: StructuredLogger,
 ): Promise<GatheredEvidence | null> => {
   const results: StageResult[] = [];
@@ -318,6 +354,13 @@ const gatherEvidence = async (
     try {
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
+      const detectedBarcodes = mergeDetectedBarcodes(localCodes, photoResults);
+      await database
+        .withSchema(SCHEMA)
+        .updateTable("stock_recognition_sessions")
+        .set({ local_codes: JSON.stringify(detectedBarcodes) })
+        .where("id", "=", sessionId)
+        .execute();
       await persistImageEvidence(database, imageRows, photoResults);
       for (const photo of photoResults) {
         stageReports.push(

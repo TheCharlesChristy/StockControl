@@ -44,6 +44,8 @@ const sessionSummary = (
 const sessionView = (over: Partial<RecognitionSessionView> = {}): RecognitionSessionView => ({
   ...sessionSummary(),
   batchId: "batch-1",
+  photos: [],
+  detectedBarcodes: [],
   candidates: [],
   stageReports: [],
   recommendManualEntry: false,
@@ -224,19 +226,6 @@ describe("captureReducer", () => {
       });
     });
 
-    /* The barcode short cut resolves before any photograph is sent, so the
-     * session already in hand is the one to carry forward. */
-    it("keeps the session it already has when there was nothing to upload", () => {
-      const next = captureReducer(uploading, { type: "UploadsSkipped" });
-
-      expect(next).toEqual({
-        kind: "AwaitingRecognition",
-        batch: batch(),
-        session: uploading.session,
-        checkFailures: 0,
-      });
-    });
-
     it("returns to CapturingPhotos with the photos restored when an upload fails", () => {
       const next = captureReducer(uploading, {
         type: "UploadFailed",
@@ -356,11 +345,24 @@ describe("captureReducer", () => {
       });
     });
 
-    it("starts manual entry with a blank NewItem selection", () => {
-      const next = captureReducer(reviewing, { type: "ManualEntryStarted", locationId: "" });
+    it("starts manual entry with a detected unmatched barcode pre-filled", () => {
+      const withBarcode: CaptureStage = {
+        ...reviewing,
+        session: sessionView({
+          status: "ReviewReady",
+          detectedBarcodes: [{ value: "5012345678900", symbology: "EAN-13", imageOrdinal: 1 }],
+        }),
+      };
+      const next = captureReducer(withBarcode, { type: "ManualEntryStarted", locationId: "" });
       expect(next).toMatchObject({
         kind: "EnteringReceipt",
-        selection: { kind: "NewItem", candidateId: null, name: "", unit: "" },
+        selection: {
+          kind: "NewItem",
+          candidateId: null,
+          name: "",
+          unit: "",
+          barcode: "5012345678900",
+        },
       });
     });
   });
@@ -602,6 +604,26 @@ describe("topCandidateSelection", () => {
       unit: "ea",
       barcode: "5012345678900",
       partNumber: "RS-1234A",
+    });
+  });
+
+  it("uses the detected barcode when an external draft omitted it", () => {
+    const draft = internalCandidate({
+      kind: "ExternalDraft",
+      item: null,
+      identity: {
+        manufacturer: null,
+        name: "Uncatalogued widget",
+        partNumber: null,
+        barcode: null,
+        unit: "ea",
+        variantAttributes: [],
+      },
+    });
+
+    expect(topCandidateSelection([draft], "5012345678900")).toMatchObject({
+      kind: "NewItem",
+      barcode: "5012345678900",
     });
   });
 

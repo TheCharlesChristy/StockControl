@@ -50,6 +50,8 @@ interface RecognitionProgressProps {
   readonly status: RecognitionSessionStatus;
   readonly checkFailures: number;
   readonly onCheckNow: () => void;
+  readonly onQueueAnother: () => void;
+  readonly onBackToQueue: () => void;
   readonly onCancel: () => void;
 }
 
@@ -63,6 +65,8 @@ export function RecognitionProgress({
   status,
   checkFailures,
   onCheckNow,
+  onQueueAnother,
+  onBackToQueue,
   onCancel,
 }: RecognitionProgressProps): ReactElement {
   const stalled = checkFailures >= STALLED_AFTER_FAILURES;
@@ -112,7 +116,15 @@ export function RecognitionProgress({
         </Typography>
       )}
 
-      <Button onClick={onCancel}>Cancel this item</Button>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+        <Button variant="contained" onClick={onQueueAnother}>
+          Photograph another item
+        </Button>
+        <Button variant="outlined" onClick={onBackToQueue}>
+          Back to queue
+        </Button>
+        <Button onClick={onCancel}>Cancel this item</Button>
+      </Stack>
     </Stack>
   );
 }

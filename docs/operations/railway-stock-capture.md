@@ -87,6 +87,11 @@ Every other worker variable —`WORKER_HEARTBEAT_MS`, `RECOGNITION_POLL_MS`,
 default suitable for a small installation. Set one only if you have a
 specific, measured reason to.
 
+The capture queue retains unfinished photographs for 30 days. If
+`STOCK_CAPTURE_SESSION_LIFETIME_SECONDS` was set by an earlier deployment,
+change it to `2592000`; otherwise the application default already supplies
+that value. Committing or cancelling still deletes photographs immediately.
+
 Deploy `worker` and confirm `/health/ready` passes before continuing. It
 claims nothing yet — `STOCK_CAPTURE_ENABLED` is still off everywhere, so
 `api` never enqueues a job for it to find.
@@ -109,9 +114,9 @@ checks pass.
 ### 4. Smoke-check the capture path
 
 Sign in as an Office or Admin user. **Add stock** now appears in navigation.
-Photograph a seeded item's barcode: it should resolve without any photograph
-upload (the exact-match short cut) and reach the confirmation screen
-directly. Photograph an unlabelled item: it should reach `ReviewReady`
+Photograph a seeded item's barcode: the photograph should upload, run through
+every recognition stage, and return the seeded item as the best match.
+Photograph an unlabelled item: it should reach `ReviewReady`
 recommending manual entry (no model services are configured in Path A), let
 you type the item in, and post one stock receipt. Confirm the item's balance
 and transaction log reflect it, and that resubmitting the same confirmation

@@ -2,11 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   barcodeStageReports,
+  detectedBarcodesFrom,
   evidenceFrom,
   identityDraftFrom,
   presentRecognitionSession,
   stageReportsFromManifest,
 } from "../../src/stock-capture/recognition-presenter";
+
+interface PresenterQueryStub {
+  selectAll(): PresenterQueryStub;
+  select(): PresenterQueryStub;
+  where(): PresenterQueryStub;
+  orderBy(): PresenterQueryStub;
+  executeTakeFirstOrThrow(): Promise<unknown>;
+  execute(): Promise<readonly unknown[]>;
+}
 
 describe("presenting a stored candidate identity", () => {
   it("reads every field a candidate can carry", () => {
@@ -111,6 +121,22 @@ describe("synthesising the barcode stage report", () => {
 
   it("skips a malformed stored entry rather than throwing", () => {
     expect(barcodeStageReports([{ value: "only a value" }, "not an object"])).toEqual([]);
+  });
+
+  it("retains server-decoded values for review without duplicating their stage report", () => {
+    const stored = [
+      {
+        value: "5012345678900",
+        symbology: "EAN-13",
+        imageOrdinal: 1,
+        readerVersion: "recognition-core",
+      },
+    ];
+
+    expect(detectedBarcodesFrom(stored)).toEqual([
+      { value: "5012345678900", symbology: "EAN-13", imageOrdinal: 1 },
+    ]);
+    expect(barcodeStageReports(stored)).toEqual([]);
   });
 });
 
@@ -224,8 +250,11 @@ describe("presenting a stored recognition session", () => {
       confidence_band: "Weak",
       evidence: [],
     };
-    const query = {
+    const queryFor = (rows: readonly unknown[], first?: unknown): PresenterQueryStub => ({
       selectAll() {
+        return this;
+      },
+      select() {
         return this;
       },
       where() {
@@ -234,11 +263,19 @@ describe("presenting a stored recognition session", () => {
       orderBy() {
         return this;
       },
-      executeTakeFirstOrThrow: () => Promise.resolve(session),
-      execute: () => Promise.resolve([candidate]),
-    };
+      executeTakeFirstOrThrow: () => Promise.resolve(first),
+      execute: () => Promise.resolve(rows),
+    });
     const database = {
-      withSchema: () => ({ selectFrom: () => query }),
+      withSchema: () => ({
+        selectFrom: (table: string): PresenterQueryStub => {
+          if (table === "stock_recognition_sessions") return queryFor([], session);
+          if (table === "stock_recognition_images") {
+            return queryFor([{ id: "image-1", ordinal: 1, media_type: "image/jpeg" }]);
+          }
+          return queryFor([candidate]);
+        },
+      }),
     };
 
     const result = await presentRecognitionSession(database as never, "session-1", {} as never);
@@ -247,6 +284,13 @@ describe("presenting a stored recognition session", () => {
       id: "session-1",
       batchId: "batch-1",
       status: "ReviewReady",
+      photos: [
+        {
+          id: "image-1",
+          ordinal: 1,
+          url: "/api/v1/stock-capture/sessions/session-1/images/image-1",
+        },
+      ],
       candidates: [
         {
           id: "candidate-1",

@@ -150,9 +150,6 @@ export type CaptureAction =
     }
   | { readonly type: "UploadProgressed"; readonly uploadedCount: number }
   | { readonly type: "UploadsCompleted"; readonly session: RecognitionSessionSummaryView }
-  /** The barcode short cut: the session was already past `AwaitingUpload`, so
-   *  there was nothing to send and the session in hand is still the right one. */
-  | { readonly type: "UploadsSkipped" }
   | {
       readonly type: "UploadFailed";
       readonly photos: readonly CapturedPhoto[];
@@ -196,6 +193,7 @@ const EMPTY_DRAFT: ReceiptDraft = {
 /** The best candidate to preselect: rank 1, if the session published one. */
 export const topCandidateSelection = (
   candidates: readonly RecognitionCandidateView[],
+  detectedBarcode: string | null = null,
 ): ReceiptSelection | null => {
   const top = candidates.find((candidate) => candidate.rank === 1);
   if (top === undefined || !top.selectable) return null;
@@ -219,7 +217,7 @@ export const topCandidateSelection = (
       reference: null,
       name: top.identity.name,
       unit: top.identity.unit ?? "",
-      barcode: top.identity.barcode,
+      barcode: top.identity.barcode ?? detectedBarcode,
       partNumber: top.identity.partNumber,
     };
   }
@@ -316,16 +314,6 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
       };
     }
 
-    case "UploadsSkipped": {
-      if (stage.kind !== "Uploading") return stage;
-      return {
-        kind: "AwaitingRecognition",
-        batch: stage.batch,
-        session: stage.session,
-        checkFailures: 0,
-      };
-    }
-
     case "UploadFailed": {
       if (stage.kind !== "Uploading") return stage;
       /* The batch comes from the stage this case has already narrowed, not
@@ -399,7 +387,7 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
           reference: null,
           name: "",
           unit: "",
-          barcode: null,
+          barcode: stage.session.detectedBarcodes[0]?.value ?? null,
           partNumber: null,
         },
         draft: { ...EMPTY_DRAFT, locationId: action.locationId },

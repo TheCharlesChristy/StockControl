@@ -15,7 +15,7 @@ import { ApiClient } from "../../api/ApiClient";
 import { ApiProvider } from "../../api/ApiContext";
 import type { BarcodeProvider } from "./barcode/provider";
 import { loadCaptureProgress, saveCaptureProgress } from "./capture-storage";
-import { StockCapturePage } from "./StockCapturePage";
+import { StockCapturePage, type CaptureImagePipeline } from "./StockCapturePage";
 
 const noBarcodes: BarcodeProvider = {
   readerVersion: "test-decoder",
@@ -68,10 +68,10 @@ const openBatch: StockCaptureBatchView = {
   committedEntryCount: 0,
 };
 
-const exactMatchSessionSummary: RecognitionSessionSummaryView = {
+const captureSessionSummary: RecognitionSessionSummaryView = {
   id: "session-1",
-  status: "ReviewReady",
-  photoCount: 0,
+  status: "AwaitingUpload",
+  photoCount: 1,
   createdAt: "2026-08-10T09:05:00.000Z",
   expiresAt: "2026-08-10T15:05:00.000Z",
   committedItemId: null,
@@ -79,8 +79,18 @@ const exactMatchSessionSummary: RecognitionSessionSummaryView = {
 };
 
 const exactMatchSessionView: RecognitionSessionView = {
-  ...exactMatchSessionSummary,
+  ...captureSessionSummary,
+  status: "ReviewReady",
   batchId: openBatch.id,
+  photos: [
+    {
+      id: "image-1",
+      ordinal: 1,
+      url: "/api/v1/stock-capture/sessions/session-1/images/image-1",
+      mediaType: "image/jpeg",
+    },
+  ],
+  detectedBarcodes: [{ value: item.barcode ?? "", symbology: "EAN_13", imageOrdinal: 1 }],
   candidates: [
     {
       id: "candidate-1",
@@ -118,11 +128,23 @@ const commitResult: CommitCaptureEntryResponse = {
   batch: { ...openBatch, committedEntryCount: 1 },
 };
 
+const testImagePipeline: CaptureImagePipeline = {
+  normalise: (source) =>
+    Promise.resolve({
+      file: source,
+      mediaType: "image/jpeg",
+      byteLength: source.size,
+      width: 800,
+      height: 600,
+      sha256: "a".repeat(64),
+    }),
+  upload: () => Promise.resolve(),
+};
+
 /**
  * Every server response this journey needs, canned by exact path. No
- * candidate-fusion or upload machinery is exercised here — an exact barcode
- * match resolves without a photograph ever leaving the browser, which is
- * exactly the fast path this test is built to cover.
+ * candidate-fusion machinery is exercised here; the photograph still follows
+ * the complete upload and recognition journey even when its barcode matches.
  */
 interface StockCaptureApiOptions {
   /** Sees each commit body and decides whether that attempt succeeds, so a
@@ -150,13 +172,41 @@ function createStockCaptureApi(
     if (path === "/stock-capture/batches" && method === "POST") {
       return Promise.resolve(json({ batch: openBatch }));
     }
+    if (path === "/stock-capture/batches/open" && method === "GET") {
+      return Promise.resolve(json({ batch: null }));
+    }
     if (path === `/stock-capture/batches/${openBatch.id}` && method === "GET") {
       return Promise.resolve(json({ batch: openBatch }));
     }
     if (path === "/stock-capture/sessions" && method === "POST") {
-      return Promise.resolve(json({ session: exactMatchSessionSummary, exactItemId: item.id }));
+      return Promise.resolve(json({ session: captureSessionSummary, exactItemId: null }));
     }
-    if (path === `/stock-capture/sessions/${exactMatchSessionSummary.id}` && method === "GET") {
+    if (
+      path === `/stock-capture/sessions/${captureSessionSummary.id}/uploads` &&
+      method === "POST"
+    ) {
+      return Promise.resolve(
+        json({
+          session: captureSessionSummary,
+          grants: [
+            {
+              imageId: "image-1",
+              ordinal: 1,
+              url: `/api/v1/stock-capture/sessions/${captureSessionSummary.id}/uploads/image-1`,
+              mediaType: "image/jpeg",
+              expiresAt: captureSessionSummary.expiresAt,
+            },
+          ],
+        }),
+      );
+    }
+    if (
+      path === `/stock-capture/sessions/${captureSessionSummary.id}/uploads/complete` &&
+      method === "POST"
+    ) {
+      return Promise.resolve(json({ session: { ...captureSessionSummary, status: "Queued" } }));
+    }
+    if (path === `/stock-capture/sessions/${captureSessionSummary.id}` && method === "GET") {
       return Promise.resolve(json({ session: exactMatchSessionView }));
     }
     if (path === `/stock-capture/batches/${openBatch.id}/entries` && method === "POST") {
@@ -184,7 +234,7 @@ function renderPage(api: ApiClient): void {
   render(
     <ApiProvider client={api}>
       <MemoryRouter>
-        <StockCapturePage barcodeProvider={noBarcodes} />
+        <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
       </MemoryRouter>
     </ApiProvider>,
   );
@@ -192,11 +242,11 @@ function renderPage(api: ApiClient): void {
 
 describe("StockCapturePage", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("starts a fresh batch when nothing was in progress", async () => {
@@ -209,7 +259,7 @@ describe("StockCapturePage", () => {
     expect(requests).toContain("POST /stock-capture/batches");
   });
 
-  it("resumes a batch left in session storage instead of starting a new one", async () => {
+  it("resumes a batch left in local storage instead of starting a new one", async () => {
     saveCaptureProgress({ batchId: openBatch.id, sessionId: null });
     const requests: string[] = [];
     renderPage(createStockCaptureApi((method, path) => requests.push(`${method} ${path}`)));
@@ -221,12 +271,12 @@ describe("StockCapturePage", () => {
     expect(requests).toContain(`GET /stock-capture/batches/${openBatch.id}`);
   });
 
-  it("captures a photo, resolves an exact barcode match and commits a receipt", async () => {
+  it("runs a barcode match through the full photo pipeline and commits a receipt", async () => {
     const user = userEvent.setup();
     const { container } = render(
       <ApiProvider client={createStockCaptureApi()}>
         <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} />
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
         </MemoryRouter>
       </ApiProvider>,
     );
@@ -289,7 +339,7 @@ describe("StockCapturePage", () => {
     const { container } = render(
       <ApiProvider client={api}>
         <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} />
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
         </MemoryRouter>
       </ApiProvider>,
     );
@@ -366,7 +416,7 @@ describe("StockCapturePage", () => {
     const { container } = render(
       <ApiProvider client={createStockCaptureApi()}>
         <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} />
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
         </MemoryRouter>
       </ApiProvider>,
     );

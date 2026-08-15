@@ -15,6 +15,7 @@ import type {
   CommitCaptureEntryRequest,
   LocationView,
   RecognitionSessionSummaryView,
+  StockCaptureBatchView,
 } from "@stockcontrol/contracts";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactElement } from "react";
@@ -147,9 +148,8 @@ export function StockCapturePage({
   const locations = useResource(loadLocations);
   const locationList: readonly LocationView[] = locations.data?.locations ?? [];
 
-  // Recovers an open batch (and, if one was in flight, its session) from the
-  // UUIDs left in session storage, or starts a fresh batch when there is
-  // nothing to recover. Runs exactly once per mount.
+  // Recovers the durable server-side queue, using the locally remembered
+  // session when possible. Runs exactly once per mount.
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
@@ -173,30 +173,56 @@ export function StockCapturePage({
       }
     };
 
+    const showBatch = async (
+      batch: StockCaptureBatchView,
+      sessionId: string | null,
+    ): Promise<boolean> => {
+      if (batch.status !== "Open") return false;
+      dispatch({ type: "BatchReady", batch });
+      saveCaptureProgress({ batchId: batch.id, sessionId });
+      setDefaultLocationId(batch.defaultLocationId ?? "");
+
+      if (sessionId !== null) {
+        const session = await api.getCaptureSession(sessionId);
+        dispatch({ type: "SessionResumed", batch, session });
+      }
+      return true;
+    };
+
     const resume = async (): Promise<void> => {
-      if (progress === null) {
-        await startFreshBatch();
-        return;
+      if (progress !== null) {
+        try {
+          const batch = await api.getCaptureBatch(progress.batchId);
+          if (await showBatch(batch, progress.sessionId)) return;
+        } catch {
+          // Fall through to the authoritative open-queue lookup.
+        }
+        clearCaptureProgress();
       }
 
       try {
-        const batch = await api.getCaptureBatch(progress.batchId);
-        dispatch({ type: "BatchReady", batch });
-        saveCaptureProgress({ batchId: batch.id, sessionId: progress.sessionId });
-        setDefaultLocationId(batch.defaultLocationId ?? "");
-
-        if (progress.sessionId !== null) {
-          const session = await api.getCaptureSession(progress.sessionId);
-          dispatch({ type: "SessionResumed", batch, session });
+        const openBatch = await api.getOpenCaptureBatch();
+        if (openBatch !== null) {
+          await showBatch(openBatch, null);
+          if (progress !== null) {
+            setBatchNotice(
+              "The last item could not be reopened, so the rest of your recognition queue is shown instead.",
+            );
+          }
+          return;
         }
-      } catch {
-        /* Losing the previous batch is worth saying out loud: its photographs
-         * and part-finished items are not in the new one. */
-        clearCaptureProgress();
-        setBatchNotice(
-          "The batch you had open could not be reopened, so this is a new one. Anything already added to stock is safe.",
-        );
+
+        if (progress !== null) {
+          setBatchNotice(
+            "The queue you had open could not be reopened. Anything already added to stock is safe.",
+          );
+        }
         await startFreshBatch();
+      } catch (caught) {
+        dispatch({
+          type: "BatchStartFailed",
+          message: messageFor(caught, "Your capture queue could not be opened."),
+        });
       }
     };
 
@@ -206,8 +232,7 @@ export function StockCapturePage({
   /*
    * The upload leg, specification section 10: normalise every photo, request
    * one grant per photo, PUT each in turn, then tell the server every upload
-   * landed. A session that resolved from a barcode alone skips straight past
-   * this with no photographs declared at all.
+   * landed. Barcode evidence is retained, but never skips this upload leg.
    *
    * Keyed on the session's identity, never on `stage` itself. This effect
    * dispatches `UploadProgressed` after every photograph, and `stage` in the
@@ -218,18 +243,9 @@ export function StockCapturePage({
    * this effect's own dispatches change.
    */
   const uploadingSessionId = stage.kind === "Uploading" ? stage.session.id : null;
-  const uploadNeeded = stage.kind === "Uploading" && stage.session.status === "AwaitingUpload";
 
   useEffect(() => {
     if (uploadingSessionId === null) return;
-
-    if (!uploadNeeded) {
-      /* The barcode short cut reaches here having uploaded nothing, so this is
-       * the only place its previews are ever released. */
-      revokePreviews(photosRef.current);
-      dispatch({ type: "UploadsSkipped" });
-      return;
-    }
 
     let cancelled = false;
     // Read through a function, not the variable directly: TypeScript narrows
@@ -301,13 +317,12 @@ export function StockCapturePage({
     return (): void => {
       cancelled = true;
     };
-  }, [api, imagePipeline, uploadingSessionId, uploadNeeded]);
+  }, [api, imagePipeline, uploadingSessionId]);
 
   // Durable status polling, specification section 10: checked immediately on
-  // arrival — a session that resolved without a model call (an exact barcode
-  // match) should not sit through one idle interval before showing it — then
-  // an expanding interval from 2s to 10s. Keyed only on the session id so a
-  // poll response updating the stage in place never restarts the timer.
+  // arrival, then an expanding interval from 2s to 10s. Keyed only on the
+  // session id so a poll response updating the stage in place never restarts
+  // the timer.
   const awaitingSessionId = stage.kind === "AwaitingRecognition" ? stage.session.id : null;
 
   useEffect(() => {
@@ -350,6 +365,33 @@ export function StockCapturePage({
       clearTimeout(timer);
     };
   }, [api, awaitingSessionId, checkNonce]);
+
+  // The queue itself refreshes while it is on screen, so several independently
+  // processing items move to "Ready to review" without opening each one.
+  const overviewBatchId = stage.kind === "BatchOverview" ? stage.batch.id : null;
+  useEffect(() => {
+    if (overviewBatchId === null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const refresh = (): void => {
+      api
+        .getCaptureBatch(overviewBatchId)
+        .then((batch) => {
+          if (!cancelled) dispatch({ type: "BatchReady", batch });
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) timer = setTimeout(refresh, 5_000);
+        });
+    };
+
+    timer = setTimeout(refresh, 5_000);
+    return (): void => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, overviewBatchId]);
 
   useEffect(() => {
     return (): void => {
@@ -475,7 +517,13 @@ export function StockCapturePage({
   }, [api, sessionKeys, stage]);
 
   const cancelSession = useCallback((): void => {
-    if (stage.kind !== "AwaitingRecognition" && stage.kind !== "ReviewingCandidates") return;
+    if (
+      stage.kind !== "AwaitingRecognition" &&
+      stage.kind !== "ReviewingCandidates" &&
+      stage.kind !== "SessionUnavailable"
+    ) {
+      return;
+    }
     const { batch, session } = stage;
     saveCaptureProgress({ batchId: batch.id, sessionId: null });
     sessionKeys.reset();
@@ -505,15 +553,44 @@ export function StockCapturePage({
 
   const retrySession = useCallback((): void => {
     if (stage.kind !== "SessionUnavailable") return;
+    const { batch, session } = stage;
     photosRef.current = [];
     sessionKeys.reset();
-    saveCaptureProgress({ batchId: stage.batch.id, sessionId: null });
-    dispatch({ type: "StartNewItem", batch: stage.batch });
-  }, [sessionKeys, stage]);
+    saveCaptureProgress({ batchId: batch.id, sessionId: null });
+    api
+      .cancelCaptureSession(session.id)
+      .catch((caught: unknown) => {
+        setBatchActionError(messageFor(caught, "The failed item could not be removed."));
+      })
+      .finally(() => dispatch({ type: "StartNewItem", batch }));
+  }, [api, sessionKeys, stage]);
 
   const checkNow = useCallback((): void => {
     setCheckNonce((nonce) => nonce + 1);
   }, []);
+
+  const returnToQueue = useCallback((): void => {
+    if (stage.kind !== "AwaitingRecognition" && stage.kind !== "ReviewingCandidates") return;
+    const { batch } = stage;
+    sessionKeys.reset();
+    saveCaptureProgress({ batchId: batch.id, sessionId: null });
+    dispatch({ type: "ReturnToBatch", batch });
+    api
+      .getCaptureBatch(batch.id)
+      .then((freshBatch) => dispatch({ type: "BatchReady", batch: freshBatch }))
+      .catch((caught: unknown) => {
+        setBatchActionError(messageFor(caught, "The recognition queue could not be refreshed."));
+      });
+  }, [api, sessionKeys, stage]);
+
+  const queueAnotherItem = useCallback((): void => {
+    if (stage.kind !== "AwaitingRecognition") return;
+    const { batch } = stage;
+    photosRef.current = [];
+    sessionKeys.reset();
+    saveCaptureProgress({ batchId: batch.id, sessionId: null });
+    dispatch({ type: "StartNewItem", batch });
+  }, [sessionKeys, stage]);
 
   const toggleDetails = useCallback((): void => {
     dispatch({ type: "ToggleAnalysisDetails" });
@@ -699,6 +776,8 @@ export function StockCapturePage({
           status={stage.session.status}
           checkFailures={stage.checkFailures}
           onCheckNow={checkNow}
+          onQueueAnother={queueAnotherItem}
+          onBackToQueue={returnToQueue}
           onCancel={cancelSession}
         />
       )}
@@ -714,6 +793,7 @@ export function StockCapturePage({
           onManualEntry={() =>
             dispatch({ type: "ManualEntryStarted", locationId: defaultLocationId })
           }
+          onReviewLater={returnToQueue}
           onCancel={cancelSession}
         />
       )}
@@ -739,6 +819,7 @@ export function StockCapturePage({
         <SessionUnavailable
           session={stage.session}
           onRetry={retrySession}
+          onCancel={cancelSession}
           onBackToBatch={abandonSession}
         />
       )}

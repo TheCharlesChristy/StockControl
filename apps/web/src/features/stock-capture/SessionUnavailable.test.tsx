@@ -27,7 +27,12 @@ const renderScreen = (
 
   render(
     <MemoryRouter>
-      <SessionUnavailable session={session(over)} onRetry={onRetry} onBackToBatch={onBackToBatch} />
+      <SessionUnavailable
+        session={session(over)}
+        onRetry={onRetry}
+        onCancel={() => undefined}
+        onBackToBatch={onBackToBatch}
+      />
     </MemoryRouter>,
   );
 

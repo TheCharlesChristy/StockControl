@@ -2,6 +2,7 @@ import {
   recognitionStageOutcomes,
   recognitionStages,
   type ConfidenceBand,
+  type DetectedBarcodeView,
   type RecognitionCandidateKind,
   type RecognitionCandidateView,
   type RecognitionEvidenceView,
@@ -141,6 +142,7 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
     const record = code as Record<string, unknown>;
     const value = record.value;
     const imageOrdinal = record.imageOrdinal;
+    if (record.readerVersion === "recognition-core") return [];
     if (typeof value !== "string" || typeof imageOrdinal !== "number") return [];
 
     return [
@@ -151,6 +153,34 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
         observations: [`Decoded ${value}`],
       },
     ];
+  });
+};
+
+export const detectedBarcodesFrom = (localCodes: unknown): readonly DetectedBarcodeView[] => {
+  if (!Array.isArray(localCodes)) return [];
+
+  const seen = new Set<string>();
+  return localCodes.flatMap((code): readonly DetectedBarcodeView[] => {
+    if (typeof code !== "object" || code === null) return [];
+    const { value, symbology, imageOrdinal } = code as Record<string, unknown>;
+    if (
+      typeof value !== "string" ||
+      value.trim() === "" ||
+      typeof symbology !== "string" ||
+      typeof imageOrdinal !== "number"
+    ) {
+      return [];
+    }
+
+    const barcode = {
+      value: value.trim(),
+      symbology,
+      imageOrdinal,
+    };
+    const key = `${barcode.symbology}:${barcode.value}:${String(barcode.imageOrdinal)}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [barcode];
   });
 };
 
@@ -187,13 +217,23 @@ export const presentRecognitionSession = async (
     .where("id", "=", sessionId)
     .executeTakeFirstOrThrow();
 
-  const candidateRows = await database
-    .withSchema(SCHEMA)
-    .selectFrom("stock_recognition_candidates")
-    .selectAll()
-    .where("session_id", "=", sessionId)
-    .orderBy("rank")
-    .execute();
+  const [candidateRows, imageRows] = await Promise.all([
+    database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_candidates")
+      .selectAll()
+      .where("session_id", "=", sessionId)
+      .orderBy("rank")
+      .execute(),
+    database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["id", "ordinal", "media_type"])
+      .where("session_id", "=", sessionId)
+      .where("deleted_at", "is", null)
+      .orderBy("ordinal")
+      .execute(),
+  ]);
 
   const candidates = await Promise.all(
     candidateRows.map((row) =>
@@ -224,6 +264,13 @@ export const presentRecognitionSession = async (
     expiresAt: typedSession.expires_at.toISOString(),
     committedItemId: typedSession.committed_item_id,
     failureCode: typedSession.failure_code,
+    photos: imageRows.map((image) => ({
+      id: image.id,
+      ordinal: image.ordinal,
+      url: `/api/v1/stock-capture/sessions/${typedSession.id}/images/${image.id}`,
+      mediaType: image.media_type,
+    })),
+    detectedBarcodes: detectedBarcodesFrom(typedSession.local_codes),
     candidates,
     stageReports: [
       ...barcodeStageReports(typedSession.local_codes),

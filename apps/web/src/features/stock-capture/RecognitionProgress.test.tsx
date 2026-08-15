@@ -11,6 +11,8 @@ describe("RecognitionProgress", () => {
         status="ProcessingImages"
         checkFailures={0}
         onCheckNow={() => undefined}
+        onQueueAnother={() => undefined}
+        onBackToQueue={() => undefined}
         onCancel={() => undefined}
       />,
     );
@@ -27,6 +29,8 @@ describe("RecognitionProgress", () => {
         status="Fusing"
         checkFailures={0}
         onCheckNow={() => undefined}
+        onQueueAnother={() => undefined}
+        onBackToQueue={() => undefined}
         onCancel={() => undefined}
       />,
     );
@@ -46,6 +50,8 @@ describe("RecognitionProgress", () => {
         status="Queued"
         checkFailures={2}
         onCheckNow={() => undefined}
+        onQueueAnother={() => undefined}
+        onBackToQueue={() => undefined}
         onCancel={() => undefined}
       />,
     );
@@ -68,6 +74,8 @@ describe("RecognitionProgress", () => {
         status="Queued"
         checkFailures={3}
         onCheckNow={onCheckNow}
+        onQueueAnother={() => undefined}
+        onBackToQueue={() => undefined}
         onCancel={() => undefined}
       />,
     );
@@ -84,6 +92,8 @@ describe("RecognitionProgress", () => {
         status="Queued"
         checkFailures={5}
         onCheckNow={() => undefined}
+        onQueueAnother={() => undefined}
+        onBackToQueue={() => undefined}
         onCancel={() => undefined}
       />,
     );

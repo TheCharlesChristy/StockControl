@@ -66,6 +66,7 @@ Element.prototype.hasPointerCapture = function hasPointerCapture(): boolean {
 afterEach((): void => {
   cleanup();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   document.title = "";
   setDesktopViewport(true);
 });

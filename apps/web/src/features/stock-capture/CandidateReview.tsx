@@ -43,6 +43,7 @@ const AUTOMATIC_RECOGNITION_STAGES: ReadonlySet<RecognitionStage> = new Set([
 
 const selectionFor = (
   candidate: RecognitionSessionView["candidates"][number],
+  detectedBarcode: string | null,
 ): ReceiptSelection | null => {
   if (candidate.kind === "InternalItem" && candidate.item !== null) {
     return {
@@ -63,7 +64,7 @@ const selectionFor = (
       reference: null,
       name: candidate.identity.name,
       unit: candidate.identity.unit ?? "",
-      barcode: candidate.identity.barcode,
+      barcode: candidate.identity.barcode ?? detectedBarcode,
       partNumber: candidate.identity.partNumber,
     };
   }
@@ -77,6 +78,7 @@ interface CandidateReviewProps {
   readonly onToggleDetails: () => void;
   readonly onSelect: (selection: ReceiptSelection) => void;
   readonly onManualEntry: () => void;
+  readonly onReviewLater: () => void;
   readonly onCancel: () => void;
 }
 
@@ -92,11 +94,13 @@ export function CandidateReview({
   onToggleDetails,
   onSelect,
   onManualEntry,
+  onReviewLater,
   onCancel,
 }: CandidateReviewProps): ReactElement {
   /* Five cards of equal weight is a decision, not a suggestion. Naming the one
    * the pipeline actually ranked first turns it back into a suggestion. */
-  const best = topCandidateSelection(session.candidates);
+  const detectedBarcode = session.detectedBarcodes[0]?.value ?? null;
+  const best = topCandidateSelection(session.candidates, detectedBarcode);
   const bestCandidateId = best === null ? null : best.candidateId;
   const automaticRecognitionUnavailable = session.stageReports.some(
     (report) => report.outcome === "Unavailable" && AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
@@ -104,6 +108,39 @@ export function CandidateReview({
 
   return (
     <Stack spacing={2}>
+      {session.photos.length > 0 && (
+        <Stack spacing={1}>
+          <Typography variant="subtitle2">Your photographs</Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+            {session.photos.map((photo) => (
+              <Box
+                key={photo.id}
+                component="img"
+                src={photo.url}
+                alt={`Uploaded photograph ${String(photo.ordinal)}`}
+                loading="lazy"
+                sx={{
+                  width: 152,
+                  height: 152,
+                  flex: "0 0 auto",
+                  borderRadius: 1.5,
+                  border: 1,
+                  borderColor: "divider",
+                  objectFit: "cover",
+                }}
+              />
+            ))}
+          </Stack>
+        </Stack>
+      )}
+
+      {detectedBarcode !== null && (
+        <Alert severity="info">
+          Detected barcode <strong>{detectedBarcode}</strong>. It will be pre-filled if you create a
+          new item.
+        </Alert>
+      )}
+
       {session.candidates.length === 0 && (
         <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
           {session.recommendManualEntry
@@ -123,7 +160,7 @@ export function CandidateReview({
 
       <Stack spacing={1.5}>
         {session.candidates.map((candidate) => {
-          const selection = selectionFor(candidate);
+          const selection = selectionFor(candidate, detectedBarcode);
           const archived = candidate.item !== null && !candidate.item.isActive;
           const isBest = bestCandidateId !== null && candidate.id === bestCandidateId;
 
@@ -219,11 +256,14 @@ export function CandidateReview({
         </Collapse>
       </Box>
 
-      <Stack direction="row" spacing={1.5} justifyContent="space-between">
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between">
         <Button onClick={onCancel}>Cancel this item</Button>
-        <Button variant="outlined" onClick={onManualEntry}>
-          None are correct
-        </Button>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Button onClick={onReviewLater}>Review later</Button>
+          <Button variant="outlined" onClick={onManualEntry}>
+            None are correct
+          </Button>
+        </Stack>
       </Stack>
     </Stack>
   );

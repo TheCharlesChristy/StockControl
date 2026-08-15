@@ -333,6 +333,22 @@ describe("assisted stock capture", () => {
       );
     });
 
+    it("finds the latest open queue for the current actor", async () => {
+      const batchId = await openBatch(office);
+      const response = await request(office, "GET", "/stock-capture/batches/open");
+
+      expect(response.status).toBe(200);
+      expect((response.body as { readonly batch: StockCaptureBatchView | null }).batch?.id).toBe(
+        batchId,
+      );
+    });
+
+    it("does not expose another actor's open queue", async () => {
+      const response = await request(stranger, "GET", "/stock-capture/batches/open");
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ batch: null });
+    });
+
     it("returns the original batch when the same id and request are replayed", async () => {
       const clientBatchId = randomUUID();
       const first = await request(office, "POST", "/stock-capture/batches", {
@@ -393,10 +409,19 @@ describe("assisted stock capture", () => {
       const session = await startSession(office, batchId);
       expect(session.status).toBe(422);
     });
+
+    it("refuses to close a batch while an item is still queued for review", async () => {
+      const batchId = await openBatch(office);
+      await startSession(office, batchId, { photoCount: 1 });
+
+      const completed = await request(office, "POST", `/stock-capture/batches/${batchId}/complete`);
+      expect(completed.status).toBe(422);
+      expect((completed.body as { readonly code: string }).code).toBe("capture.session_not_ready");
+    });
   });
 
-  describe("the exact-barcode short cut", () => {
-    it("returns an active item without asking for an upload", async () => {
+  describe("barcode evidence", () => {
+    it("runs an active barcode match through the full photo pipeline", async () => {
       const batchId = await openBatch(office);
       const result = await startSession(office, batchId, {
         photoCount: 3,
@@ -404,36 +429,7 @@ describe("assisted stock capture", () => {
       });
 
       expect(result.status).toBe(201);
-      expect(result.session).toMatchObject({ status: "ReviewReady", photoCount: 0 });
-      expect(result.exactItemId).toBe(activeItemId);
-
-      const reviewed = await request(
-        office,
-        "GET",
-        `/stock-capture/sessions/${result.session?.id}`,
-      );
-      const session = (reviewed.body as { readonly session: RecognitionSessionView }).session;
-      expect(session.candidates).toHaveLength(1);
-      expect(session.candidates[0]).toMatchObject({
-        kind: "InternalItem",
-        confidence: "Strong",
-        selectable: true,
-      });
-      expect(session.candidates[0]?.item?.id).toBe(activeItemId);
-    });
-
-    /*
-     * An archived match is shown, not hidden — but it must not look like a
-     * completed shortcut, because an archived item cannot receive stock.
-     */
-    it("shows an archived match without offering it as a no-upload shortcut", async () => {
-      const batchId = await openBatch(office);
-      const result = await startSession(office, batchId, {
-        photoCount: 2,
-        localCodes: [codeFor(ARCHIVED_ITEM_BARCODE)],
-      });
-
-      expect(result.session?.status).toBe("ReviewReady");
+      expect(result.session).toMatchObject({ status: "AwaitingUpload", photoCount: 3 });
       expect(result.exactItemId).toBeNull();
 
       const reviewed = await request(
@@ -442,8 +438,21 @@ describe("assisted stock capture", () => {
         `/stock-capture/sessions/${result.session?.id}`,
       );
       const session = (reviewed.body as { readonly session: RecognitionSessionView }).session;
-      expect(session.candidates[0]).toMatchObject({ selectable: false });
-      expect(session.candidates[0]?.item?.id).toBe(archivedItemId);
+      expect(session.candidates).toEqual([]);
+      expect(session.detectedBarcodes).toContainEqual(
+        expect.objectContaining({ value: ACTIVE_ITEM_BARCODE, imageOrdinal: 1 }),
+      );
+    });
+
+    it("also requires photographs when the barcode belongs to an archived item", async () => {
+      const batchId = await openBatch(office);
+      const result = await startSession(office, batchId, {
+        photoCount: 2,
+        localCodes: [codeFor(ARCHIVED_ITEM_BARCODE)],
+      });
+
+      expect(result.session).toMatchObject({ status: "AwaitingUpload", photoCount: 2 });
+      expect(result.exactItemId).toBeNull();
     });
 
     it("falls through to the full pipeline when two different codes are seen", async () => {
@@ -513,6 +522,24 @@ describe("assisted stock capture", () => {
         );
         expect(new Date(grant.expiresAt).getTime()).toBeGreaterThan(Date.now());
       }
+
+      const imageRows = await schema()
+        .selectFrom("stock_recognition_images")
+        .select(["id", "delete_after"])
+        .where("session_id", "=", session?.id ?? "")
+        .execute();
+      expect(imageRows).toHaveLength(2);
+      expect(
+        imageRows.every((image) => image.delete_after.toISOString() === session?.expiresAt),
+      ).toBe(true);
+
+      const reviewed = await request(office, "GET", `/stock-capture/sessions/${session?.id}`);
+      const view = (reviewed.body as { readonly session: RecognitionSessionView }).session;
+      expect(view.photos.map((photo) => photo.url)).toEqual(
+        body.grants.map(
+          (grant) => `/api/v1/stock-capture/sessions/${session?.id}/images/${grant.imageId}`,
+        ),
+      );
     });
 
     it("refuses an upload declaration that does not match the photo count", async () => {
@@ -683,6 +710,9 @@ describe("assisted stock capture", () => {
 
       expect(view.stageReports).toContainEqual(
         expect.objectContaining({ stage: "Barcode", outcome: "Succeeded", imageOrdinal: 1 }),
+      );
+      expect(view.detectedBarcodes).toContainEqual(
+        expect.objectContaining({ value: ACTIVE_ITEM_BARCODE, imageOrdinal: 1 }),
       );
     });
   });

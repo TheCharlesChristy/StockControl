@@ -36,6 +36,7 @@ const titleFor = (session: RecognitionSessionSummaryView): string => {
 interface SessionUnavailableProps {
   readonly session: RecognitionSessionSummaryView;
   readonly onRetry: () => void;
+  readonly onCancel: () => void;
   readonly onBackToBatch: () => void;
 }
 
@@ -48,6 +49,7 @@ interface SessionUnavailableProps {
 export function SessionUnavailable({
   session,
   onRetry,
+  onCancel,
   onBackToBatch,
 }: SessionUnavailableProps): ReactElement {
   const committed = session.status === "Committed";
@@ -79,6 +81,7 @@ export function SessionUnavailable({
             Add it in inventory instead
           </Button>
         )}
+        {!committed && <Button onClick={onCancel}>Remove from queue</Button>}
       </Stack>
     </Stack>
   );

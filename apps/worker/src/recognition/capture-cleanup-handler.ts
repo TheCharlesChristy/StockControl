@@ -9,7 +9,7 @@ import type { ImageStorage } from "./image-storage";
 /*
  * The "DeleteObjects" job handler, specification section 15: every
  * photograph a capture session ever held is deleted from the Bucket no later
- * than 24 hours after it was declared, whether the session was committed,
+ * than 30 days after it was declared, whether the session was committed,
  * cancelled, or simply abandoned. `stock-capture.service.ts` enqueues this on
  * commit and cancellation; `capture-expiry-sweeper.ts` is the backstop for
  * every other way a session can stop moving.
