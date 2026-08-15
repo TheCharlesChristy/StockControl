@@ -88,6 +88,7 @@ const baseConfiguration = (
   recognitionFusionUrl: undefined,
   recognitionFusionApiKey: undefined,
   recognitionFusionTimeoutMilliseconds: 1_000,
+  recognitionFusionConcurrency: 2,
   braveSearchApiKey: undefined,
   webFetchTimeoutMilliseconds: 1_000,
   visualIndexEmbeddingModel: EMBEDDING_MODEL,

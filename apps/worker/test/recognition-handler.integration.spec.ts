@@ -190,6 +190,7 @@ describe.sequential("recognition handler", () => {
         recognitionFusionUrl: undefined,
         recognitionFusionApiKey: undefined,
         recognitionFusionTimeoutMilliseconds: 1_000,
+        recognitionFusionConcurrency: 2,
         braveSearchApiKey: undefined,
         webFetchTimeoutMilliseconds: 1_000,
         visualIndexEmbeddingModel: "unset",
@@ -324,7 +325,7 @@ describe.sequential("recognition handler", () => {
     await expect(sessionModelManifest(sessionId)).resolves.toMatchObject({
       stageReports: expect.arrayContaining([
         expect.objectContaining({ stage: "Ocr", outcome: "Unavailable", imageOrdinal: 1 }),
-        expect.objectContaining({ stage: "Vlm", outcome: "Unavailable", imageOrdinal: null }),
+        expect.objectContaining({ stage: "Vlm", outcome: "Unavailable", imageOrdinal: 1 }),
       ]),
     });
   });

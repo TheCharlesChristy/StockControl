@@ -140,27 +140,47 @@ async function openBatch(): Promise<string> {
   return (response.body as { readonly batch: StockCaptureBatchView }).batch.id;
 }
 
-/** A review-ready session with a real published candidate. */
+/**
+ * A review-ready session with a real published candidate. The recognition
+ * worker is not running in this suite, so the worker's output is seeded after
+ * exercising the API's photograph-required start-session boundary.
+ */
 async function reviewReadySessionForActiveItem(
   batchId: string,
 ): Promise<{ readonly sessionId: string; readonly candidateId: string }> {
   const response = await request(office, "POST", "/stock-capture/sessions", {
     clientSessionId: randomUUID(),
     batchId,
-    photoCount: 0,
+    photoCount: 1,
     localCodes: [codeFor(ACTIVE_ITEM_BARCODE)],
   });
   expect(response.status, JSON.stringify(response.body)).toBe(201);
-  const body = response.body as { readonly session: RecognitionSessionSummaryView };
-  expect(body.session.status).toBe("ReviewReady");
+  const sessionId = (response.body as { readonly session: RecognitionSessionSummaryView }).session
+    .id;
+  const candidateId = randomUUID();
 
-  const candidate = await schema()
-    .selectFrom("stock_recognition_candidates")
-    .select("id")
-    .where("session_id", "=", body.session.id)
-    .executeTakeFirstOrThrow();
+  await schema()
+    .insertInto("stock_recognition_candidates")
+    .values({
+      id: candidateId,
+      session_id: sessionId,
+      rank: 1,
+      kind: "InternalItem",
+      item_id: activeItemId,
+      identity: JSON.stringify({ itemId: activeItemId, barcode: ACTIVE_ITEM_BARCODE }),
+      confidence_band: "Strong",
+      fusion_score: 1,
+      evidence: JSON.stringify([]),
+      model_manifest: JSON.stringify({ pipeline: "integration-test" }),
+    })
+    .execute();
+  await schema()
+    .updateTable("stock_recognition_sessions")
+    .set({ status: "ReviewReady" })
+    .where("id", "=", sessionId)
+    .execute();
 
-  return { sessionId: body.session.id, candidateId: candidate.id };
+  return { sessionId, candidateId };
 }
 
 /**
@@ -624,8 +644,11 @@ describe("assisted stock capture: commitEntry", () => {
     const batchId = await openBatch();
     const sessionId = await reviewReadySessionWithoutCandidate(batchId);
 
-    const closed = await request(office, "POST", `/stock-capture/batches/${batchId}/complete`);
-    expect(closed.status).toBe(201);
+    await schema()
+      .updateTable("stock_capture_batches")
+      .set({ status: "Completed", closed_at: new Date() })
+      .where("id", "=", batchId)
+      .execute();
 
     const response = await request(office, "POST", `/stock-capture/batches/${batchId}/entries`, {
       clientEntryId: randomUUID(),
@@ -758,9 +781,10 @@ describe("assisted stock capture: commitEntry", () => {
       request(office, "POST", `/stock-capture/batches/${batchId}/complete`),
     ]);
 
-    /* Whichever finished first, the other observes a consistent, final state. */
-    expect([201, 422]).toContain(commitResult.status);
-    expect(closeResult.status).toBe(201);
+    /* Closing cannot overtake an unresolved session. The commit always wins;
+     * the concurrent close either observes it or asks the caller to retry. */
+    expect(commitResult.status, JSON.stringify(commitResult.body)).toBe(201);
+    expect([201, 422]).toContain(closeResult.status);
 
     const entries = await schema()
       .selectFrom("stock_capture_entries")
@@ -773,13 +797,15 @@ describe("assisted stock capture: commitEntry", () => {
       .where("id", "=", batchId)
       .executeTakeFirstOrThrow();
 
-    if (commitResult.status === 201) {
-      expect(entries).toHaveLength(1);
-      expect(entries[0]?.status).toBe("Committed");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.status).toBe("Committed");
+    if (closeResult.status === 201) {
+      expect(batch.status).toBe("Completed");
     } else {
-      expect(entries).toHaveLength(0);
-      expect((commitResult.body as { readonly code: string }).code).toBe("capture.batch_not_open");
+      expect((closeResult.body as { readonly code: string }).code).toBe(
+        "capture.session_not_ready",
+      );
+      expect(batch.status).toBe("Open");
     }
-    expect(batch.status).toBe("Completed");
   });
 });
