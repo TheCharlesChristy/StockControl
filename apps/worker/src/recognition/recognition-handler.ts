@@ -5,6 +5,7 @@ import type { Kysely, Transaction } from "kysely";
 import type {
   BackgroundJobEnvelope,
   LocalBarcodeObservation,
+  RecognitionIdentityDraft,
   RecognitionSessionStatus,
   RecognitionStageReportView,
 } from "@stockcontrol/contracts";
@@ -38,6 +39,7 @@ import {
   FusionClient,
   FusionUnavailableError,
   type VlmCandidateAllowlistEntry,
+  type VlmProposal,
   type VlmRequest,
 } from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
@@ -80,6 +82,7 @@ interface VerifiedImage {
 interface GatheredEvidence {
   readonly results: readonly StageResult[];
   readonly stageReports: readonly RecognitionStageReportView[];
+  readonly suggestedDraft: RecognitionIdentityDraft | null;
 }
 
 export interface RecognitionHandlerDependencies {
@@ -129,10 +132,17 @@ const readLocalCodeValues = (localCodes: unknown): readonly LocalBarcodeObservat
     if (typeof entry !== "object" || entry === null) continue;
     const { value, symbology, imageOrdinal, readerVersion } = entry as Record<string, unknown>;
     if (typeof value !== "string" || typeof symbology !== "string") continue;
+    const safeImageOrdinal =
+      typeof imageOrdinal === "number" &&
+      Number.isInteger(imageOrdinal) &&
+      imageOrdinal >= 1 &&
+      imageOrdinal <= 5
+        ? imageOrdinal
+        : 1;
     codes.push({
       value,
       symbology,
-      imageOrdinal: typeof imageOrdinal === "number" ? imageOrdinal : 0,
+      imageOrdinal: safeImageOrdinal,
       readerVersion: typeof readerVersion === "string" ? readerVersion : "unknown",
     });
   }
@@ -222,7 +232,7 @@ const verifyImages = async (
   return verified;
 };
 
-interface AggregatedIdentifiers {
+export interface AggregatedIdentifiers {
   readonly barcodeLikeCandidates: readonly string[];
   readonly partNumberCandidates: readonly string[];
   readonly nameFragments: readonly string[];
@@ -275,6 +285,119 @@ const aggregateIdentifiers = (
     validatedGtin,
   };
 };
+
+const draftHasEvidence = (draft: RecognitionIdentityDraft): boolean =>
+  draft.name.trim() !== "" ||
+  draft.manufacturer !== null ||
+  draft.partNumber !== null ||
+  draft.barcode !== null ||
+  draft.variantAttributes.length > 0;
+
+/**
+ * Keeps useful structured evidence even when deterministic fusion cannot
+ * produce a catalogue candidate. The person still confirms every field; this
+ * only prevents OCR/VLM work that already succeeded from disappearing behind
+ * a blank manual-entry form.
+ */
+export const suggestedDraftFromEvidence = (
+  identifiers: AggregatedIdentifiers,
+  photoResults: readonly CorePhotoResult[],
+  localCodes: readonly LocalBarcodeObservation[],
+): RecognitionIdentityDraft | null => {
+  const manufacturer = identifiers.manufacturerTokens[0] ?? null;
+  const nameFragment = identifiers.nameFragments.find((value) => /[A-Za-z]/u.test(value)) ?? "";
+  const name =
+    manufacturer !== null &&
+    nameFragment !== "" &&
+    !nameFragment.toLocaleLowerCase().includes(manufacturer.toLocaleLowerCase())
+      ? `${manufacturer} ${nameFragment}`
+      : nameFragment || manufacturer || "";
+  const variants = photoResults
+    .flatMap((photo) => photo.identifiers.variantAttributes)
+    .filter(
+      (attribute, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.label.toLocaleLowerCase() === attribute.label.toLocaleLowerCase() &&
+            candidate.value.toLocaleLowerCase() === attribute.value.toLocaleLowerCase(),
+        ) === index,
+    )
+    .slice(0, 8);
+  const draft: RecognitionIdentityDraft = {
+    manufacturer,
+    name: name.slice(0, 120),
+    partNumber: identifiers.partNumberCandidates[0] ?? null,
+    barcode:
+      identifiers.validatedGtin ??
+      identifiers.barcodeLikeCandidates[0] ??
+      localCodes[0]?.value ??
+      null,
+    unit: null,
+    variantAttributes: variants,
+  };
+
+  return draftHasEvidence(draft) ? draft : null;
+};
+
+const draftFromVlmProposal = (proposal: VlmProposal): RecognitionIdentityDraft | null => {
+  if (proposal.kind !== "ExternalIdentity") return null;
+  return {
+    manufacturer: proposal.manufacturer,
+    name: proposal.name,
+    partNumber: proposal.partNumber,
+    barcode: proposal.barcode,
+    unit: null,
+    variantAttributes: proposal.variantAttributes,
+  };
+};
+
+const draftCompleteness = (draft: RecognitionIdentityDraft): number =>
+  (draft.name.trim() === "" ? 0 : 4) +
+  (draft.manufacturer === null ? 0 : 1) +
+  (draft.partNumber === null ? 0 : 2) +
+  (draft.barcode === null ? 0 : 2) +
+  draft.variantAttributes.length;
+
+const preferDraft = (
+  current: RecognitionIdentityDraft | null,
+  proposed: RecognitionIdentityDraft | null,
+): RecognitionIdentityDraft | null => {
+  if (proposed === null) return current;
+  if (current === null || draftCompleteness(proposed) >= draftCompleteness(current))
+    return proposed;
+  return current;
+};
+
+export const buildPerPhotoVlmRequests = (
+  images: readonly {
+    readonly ordinal: number;
+    readonly bytes: Buffer;
+    readonly mediaType: string;
+  }[],
+  photoResults: readonly CorePhotoResult[],
+  candidates: readonly VlmCandidateAllowlistEntry[],
+  webEvidence: VlmRequest["webEvidence"],
+): readonly { readonly imageOrdinal: number; readonly request: VlmRequest }[] =>
+  images.map((image) => {
+    const photo = photoResults.find((result) => result.imageOrdinal === image.ordinal);
+    return {
+      imageOrdinal: image.ordinal,
+      request: {
+        images: [
+          {
+            ordinal: image.ordinal,
+            base64: image.bytes.toString("base64"),
+            mediaType: image.mediaType,
+          },
+        ],
+        observations:
+          photo?.ocrLines.map((line) => ({ imageOrdinal: image.ordinal, text: line.text })) ?? [],
+        candidates,
+        categories: photo?.categories.map((category) => category.label) ?? [],
+        webEvidence,
+      },
+    };
+  });
 
 const catalogueMatchSummary = (match: CatalogueMatch): string =>
   `${match.name}${match.partNumber !== null ? ` (${match.partNumber})` : ""}`;
@@ -428,6 +551,7 @@ const gatherEvidence = async (
   if (!(await advanceStatus(database, sessionId, "Enriching"))) return null;
 
   const identifiers = aggregateIdentifiers(photoResults, localCodes);
+  let suggestedDraft = suggestedDraftFromEvidence(identifiers, photoResults, localCodes);
 
   const catalogueMatches = await queryCatalogue(database, {
     barcodeLikeCandidates: identifiers.barcodeLikeCandidates,
@@ -504,65 +628,65 @@ const gatherEvidence = async (
       apiKey: configuration.recognitionFusionApiKey ?? "",
       timeoutMilliseconds: configuration.recognitionFusionTimeoutMilliseconds,
     });
-    const request: VlmRequest = {
-      images: verifiedImages.map((image) => ({
-        ordinal: image.ordinal,
-        base64: image.bytes.toString("base64"),
-        mediaType: image.mediaType,
-      })),
-      observations: photoResults.flatMap((photo) =>
-        photo.ocrLines.map((line) => ({ imageOrdinal: photo.imageOrdinal, text: line.text })),
-      ),
-      candidates: allowlist,
-      categories: [
-        ...new Set(photoResults.flatMap((photo) => photo.categories.map((c) => c.label))),
-      ],
-      webEvidence:
-        webOutcome?.results.map((result) => ({ title: result.title, snippet: result.snippet })) ??
-        [],
-    };
-
-    try {
-      const proposal = await client.proposeIdentity(request);
-      const stageResult = vlmStageResult(proposal, identityById);
-      if (stageResult !== null) results.push(stageResult);
-      stageReports.push({
-        stage: "Vlm",
-        outcome: "Succeeded",
-        imageOrdinal: null,
-        observations:
-          proposal.kind === "Unknown"
-            ? ["Photo analysis completed but did not identify the item."]
-            : ["Photo analysis proposed an identity."],
-      });
-    } catch (error: unknown) {
-      logger.error({
-        event: "recognition.fusion_unavailable",
-        errorName: error instanceof Error ? error.name : "Unknown",
-      });
+    /* Each photograph gets an independent bounded call. Combining two normal
+     * phone photos produced ~3,500 vision tokens on the 4,096-token staging
+     * context, took 40 seconds, and made one invalid answer discard both
+     * photographs. Per-photo calls stay small, isolate failures, and let
+     * deterministic fusion reward agreement across images. */
+    const requests = buildPerPhotoVlmRequests(
+      verifiedImages,
+      photoResults,
+      allowlist,
+      webOutcome?.results.map((result) => ({ title: result.title, snippet: result.snippet })) ?? [],
+    );
+    for (const { imageOrdinal, request } of requests) {
+      try {
+        const proposal = await client.proposeIdentity(request);
+        const stageResult = vlmStageResult(proposal, identityById, imageOrdinal);
+        if (stageResult !== null) results.push(stageResult);
+        suggestedDraft = preferDraft(suggestedDraft, draftFromVlmProposal(proposal));
+        stageReports.push({
+          stage: "Vlm",
+          outcome: "Succeeded",
+          imageOrdinal,
+          observations:
+            proposal.kind === "Unknown"
+              ? ["Photo analysis completed but did not identify the item."]
+              : ["Photo analysis proposed an identity."],
+        });
+      } catch (error: unknown) {
+        logger.error({
+          event: "recognition.fusion_unavailable",
+          imageOrdinal,
+          errorName: error instanceof Error ? error.name : "Unknown",
+          reason: error instanceof FusionUnavailableError ? error.reason : "Unknown",
+        });
+        stageReports.push({
+          stage: "Vlm",
+          outcome: "Unavailable",
+          imageOrdinal,
+          observations: [
+            error instanceof FusionUnavailableError && error.reason === "TimedOut"
+              ? `Photo analysis took longer than ${String(
+                  Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
+                )} seconds and was stopped.`
+              : "The photo-analysis service could not complete the request.",
+          ],
+        });
+      }
+    }
+  } else if (verifiedImages.length > 0) {
+    for (const image of verifiedImages) {
       stageReports.push({
         stage: "Vlm",
         outcome: "Unavailable",
-        imageOrdinal: null,
-        observations: [
-          error instanceof FusionUnavailableError && error.reason === "TimedOut"
-            ? `Photo analysis took longer than ${String(
-                Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
-              )} seconds and was stopped.`
-            : "The photo-analysis service could not complete the request.",
-        ],
+        imageOrdinal: image.ordinal,
+        observations: ["The photo-analysis service is not configured."],
       });
     }
-  } else if (verifiedImages.length > 0) {
-    stageReports.push({
-      stage: "Vlm",
-      outcome: "Unavailable",
-      imageOrdinal: null,
-      observations: ["The photo-analysis service is not configured."],
-    });
   }
 
-  return { results, stageReports };
+  return { results, stageReports, suggestedDraft };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -694,6 +818,7 @@ export const createRecognitionHandler = (
     const modelManifest = {
       fusionWeights: outcome.weightsVersion,
       stageReports: evidence.stageReports,
+      suggestedDraft: evidence.suggestedDraft,
     };
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);

@@ -160,6 +160,23 @@ describe("parseVlmResponse — hallucinated-id and schema-conformance defence", 
     expect(parseVlmResponse({ kind: "ExternalIdentity" }, ALLOWLIST)).toBeNull();
   });
 
+  it("builds a usable name from structured identity fields when the model leaves name blank", () => {
+    expect(
+      parseVlmResponse(
+        {
+          kind: "ExternalIdentity",
+          name: "",
+          manufacturer: "Honeywell",
+          partNumber: "W7752E2004",
+        },
+        ALLOWLIST,
+      ),
+    ).toMatchObject({
+      kind: "ExternalIdentity",
+      name: "Honeywell W7752E2004",
+    });
+  });
+
   it("caps variant attributes at the declared bound", () => {
     const result = parseVlmResponse(
       {
@@ -272,11 +289,20 @@ describe("FusionClient.proposeIdentity", () => {
     expect(sentBody).toBeDefined();
     const parsed = JSON.parse(sentBody ?? "{}") as {
       response_format: {
-        json_schema: { schema: { properties: { candidateId: { enum: string[] } } } };
+        json_schema: {
+          schema: {
+            required: string[];
+            properties: { candidateId: { enum: (string | null)[] } };
+          };
+        };
       };
     };
-    expect(parsed.response_format.json_schema.schema.properties.candidateId.enum).toEqual(
-      ALLOWLIST.map((candidate) => candidate.candidateId),
+    expect(parsed.response_format.json_schema.schema.properties.candidateId.enum).toEqual([
+      ...ALLOWLIST.map((candidate) => candidate.candidateId),
+      null,
+    ]);
+    expect(parsed.response_format.json_schema.schema.required).toEqual(
+      expect.arrayContaining(["kind", "candidateId", "name", "evidenceImageOrdinals"]),
     );
   });
 
@@ -489,11 +515,14 @@ describe("FusionClient.proposeIdentity", () => {
 
     const parsed = JSON.parse(sentBody ?? "{}") as {
       response_format: {
-        json_schema: { schema: { properties: { candidateId: { enum: readonly string[] } } } };
+        json_schema: {
+          schema: { properties: { candidateId: { enum: readonly (string | null)[] } } };
+        };
       };
     };
     expect(parsed.response_format.json_schema.schema.properties.candidateId.enum).toEqual([
       "__no_candidates_supplied__",
+      null,
     ]);
   });
 

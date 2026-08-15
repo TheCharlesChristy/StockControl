@@ -225,6 +225,8 @@ export interface RecognitionSessionView extends RecognitionSessionSummaryView {
   readonly photos: readonly RecognitionPhotoView[];
   readonly detectedBarcodes: readonly DetectedBarcodeView[];
   readonly candidates: readonly RecognitionCandidateView[];
+  /** Best editable product details recovered even when no catalogue candidate exists. */
+  readonly suggestedDraft: RecognitionIdentityDraft | null;
   /** The "Analysis details" disclosure: every stage, for every photograph. */
   readonly stageReports: readonly RecognitionStageReportView[];
   /** True when every stage failed and the person should just type the item in. */

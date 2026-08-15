@@ -118,6 +118,7 @@ export class FusionUnavailableError extends Error {
 const SYSTEM_PROMPT = [
   "You identify a physical stock item from photographs and structured evidence.",
   "Respond with JSON matching the supplied schema only.",
+  "Always emit every field in the schema; use null, an empty string, or an empty array for fields that do not apply.",
   'If you recognise the item as one of the supplied candidates, use "InternalCandidate" with its exact id.',
   'Otherwise, if the photographs show a clear product identity, use "ExternalIdentity".',
   'If you cannot tell, respond "Unknown".',
@@ -170,15 +171,31 @@ const buildUserContent = (request: VlmRequest): readonly unknown[] => {
 
 const candidateIdSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown =>
   candidates.length > 0
-    ? { type: "string", enum: candidates.map((candidate) => candidate.candidateId) }
-    : { type: "string", enum: ["__no_candidates_supplied__"] };
+    ? {
+        type: ["string", "null"],
+        enum: [...candidates.map((candidate) => candidate.candidateId), null],
+      }
+    : { type: ["string", "null"], enum: ["__no_candidates_supplied__", null] };
 
 /** The schema's `candidateId` enum is the load-bearing defence: constrained
  * decoding cannot emit an id that is not in the supplied allowlist. */
 const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => ({
   type: "object",
   additionalProperties: false,
-  required: ["kind"],
+  /* Keep the grammar and parser in lockstep. Previously only `kind` was
+   * required, so constrained decoding could legally emit
+   * `{ "kind": "ExternalIdentity" }`; the parser then rejected it and the
+   * deterministic retry produced the same invalid answer. */
+  required: [
+    "kind",
+    "candidateId",
+    "manufacturer",
+    "name",
+    "partNumber",
+    "barcode",
+    "variantAttributes",
+    "evidenceImageOrdinals",
+  ],
   properties: {
     kind: { type: "string", enum: ["InternalCandidate", "ExternalIdentity", "Unknown"] },
     candidateId: candidateIdSchema(candidates),
@@ -259,11 +276,16 @@ export const parseVlmResponse = (
   }
 
   if (kind === "ExternalIdentity") {
-    const name = raw.name;
-    if (typeof name !== "string" || name.trim().length === 0) return null;
     const manufacturer = raw.manufacturer;
     const partNumber = raw.partNumber;
     const barcode = raw.barcode;
+    const rawName = typeof raw.name === "string" ? raw.name.trim() : "";
+    const fallbackName = [manufacturer, partNumber]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(" ")
+      .trim();
+    const name = rawName || fallbackName || (typeof barcode === "string" ? barcode.trim() : "");
+    if (name.length === 0) return null;
     return {
       kind: "ExternalIdentity",
       manufacturer:

@@ -47,6 +47,7 @@ const sessionView = (over: Partial<RecognitionSessionView> = {}): RecognitionSes
   photos: [],
   detectedBarcodes: [],
   candidates: [],
+  suggestedDraft: null,
   stageReports: [],
   recommendManualEntry: false,
   ...over,
