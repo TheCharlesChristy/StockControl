@@ -88,6 +88,7 @@ const baseConfiguration = (
   recognitionFusionUrl: undefined,
   recognitionFusionApiKey: undefined,
   recognitionFusionTimeoutMilliseconds: 1_000,
+  recognitionFusionConcurrency: 2,
   braveSearchApiKey: undefined,
   webFetchTimeoutMilliseconds: 1_000,
   visualIndexEmbeddingModel: EMBEDDING_MODEL,
@@ -107,6 +108,7 @@ describe.sequential("exemplar handler", () => {
       .insertInto("users")
       .values({
         id,
+        username: `worker.${id.slice(0, 23)}`,
         email: `${id}@example.invalid`,
         display_name: "Exemplar Handler Test User",
         role: "Office",

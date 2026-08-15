@@ -12,8 +12,8 @@ export type StockCaptureBatchStatus = (typeof stockCaptureBatchStatuses)[number]
 
 /**
  * Spec section 7.1. `AwaitingUpload` covers a session that has been created but
- * whose photographs have not been declared complete; a session that resolved
- * from a barcode alone skips straight to `ReviewReady`.
+ * whose photographs have not been declared complete. Barcode evidence never
+ * skips the photographs: it is one input to the complete recognition pipeline.
  */
 export const recognitionSessionStatuses = [
   "AwaitingUpload",
@@ -134,11 +134,7 @@ export interface RecognitionSessionSummaryView {
   readonly failureCode: string | null;
 }
 
-/**
- * One row per photograph the browser must upload. A session that resolved from
- * a barcode alone returns none, which is how the browser knows to skip the
- * upload entirely.
- */
+/** One row per photograph the browser must upload. */
 export interface CaptureUploadGrant {
   readonly imageId: string;
   readonly ordinal: number;
@@ -209,9 +205,28 @@ export interface RecognitionStageReportView {
   readonly observations: readonly string[];
 }
 
+/** A retained capture photograph, served only through the authenticated API. */
+export interface RecognitionPhotoView {
+  readonly id: string;
+  readonly ordinal: number;
+  readonly url: string;
+  readonly mediaType: CaptureImageMediaType;
+}
+
+/** A decoded value retained for review even when it matched no catalogue item. */
+export interface DetectedBarcodeView {
+  readonly value: string;
+  readonly symbology: string;
+  readonly imageOrdinal: number;
+}
+
 export interface RecognitionSessionView extends RecognitionSessionSummaryView {
   readonly batchId: string;
+  readonly photos: readonly RecognitionPhotoView[];
+  readonly detectedBarcodes: readonly DetectedBarcodeView[];
   readonly candidates: readonly RecognitionCandidateView[];
+  /** Best editable product details recovered even when no catalogue candidate exists. */
+  readonly suggestedDraft: RecognitionIdentityDraft | null;
   /** The "Analysis details" disclosure: every stage, for every photograph. */
   readonly stageReports: readonly RecognitionStageReportView[];
   /** True when every stage failed and the person should just type the item in. */

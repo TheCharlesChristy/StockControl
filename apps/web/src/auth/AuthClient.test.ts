@@ -5,6 +5,7 @@ import { createDefaultAuthClient, createHttpAuthClient } from "./AuthClient";
 
 const officeUser: AuthenticatedUser = {
   id: "user-office",
+  username: "office",
   email: "office@example.com",
   displayName: "Office User",
   role: "Office",
@@ -93,7 +94,7 @@ describe("HTTP authentication client", () => {
   it("posts credentials directly and returns the established session", async () => {
     const fetch = createFetch(jsonResponse({ session: officeSession, features: officeFeatures }));
     const credentials = {
-      email: "office@example.com",
+      username: "office",
       password: "long-enough-password",
     };
 
@@ -121,7 +122,7 @@ describe("HTTP authentication client", () => {
 
     await expect(
       createHttpAuthClient(fetch.fetchImplementation).signIn({
-        email: "office@example.com",
+        username: "office",
         password: "wrong",
       }),
     ).rejects.toThrow("Sign in failed with status 401.");

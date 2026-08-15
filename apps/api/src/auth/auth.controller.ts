@@ -21,7 +21,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
-import { bodyOf } from "../inventory/request-parsing";
+import { bodyOf, requireText } from "../inventory/request-parsing";
 import { isStockCaptureEnabled } from "../stock-capture/capture-configuration";
 import { readSessionCookie } from "./auth.guard";
 import { hashPassword } from "./password";
@@ -89,19 +89,16 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<SessionWithCapabilities> {
     const body = bodyOf(rawBody);
-    const email = typeof body["email"] === "string" ? body["email"] : "";
+    const username = requireText(body, "username", "your username");
     const password = typeof body["password"] === "string" ? body["password"] : "";
 
-    if (email.trim().length === 0 || password.length === 0) {
+    if (password.length === 0) {
       throw new ApplicationFailureException(
-        validationFailed({
-          ...(email.trim().length === 0 ? { email: ["Enter your email address."] } : {}),
-          ...(password.length === 0 ? { password: ["Enter your password."] } : {}),
-        }),
+        validationFailed({ password: ["Enter your password."] }),
       );
     }
 
-    const rateLimit = this.signInRateLimiter.check(email, request.ip);
+    const rateLimit = this.signInRateLimiter.check(username, request.ip);
     if (!rateLimit.allowed) {
       reply.header("retry-after", String(rateLimit.retryAfterSeconds ?? 1));
       throw new HttpException(
@@ -110,10 +107,10 @@ export class AuthController {
       );
     }
 
-    const outcome = await this.sessions.signIn(email, password);
+    const outcome = await this.sessions.signIn(username, password);
 
     if (outcome === null) {
-      this.signInRateLimiter.recordFailure(email, request.ip);
+      this.signInRateLimiter.recordFailure(username, request.ip);
       /*
        * One message for a wrong password, an unknown account and a disabled
        * account: the client is not told which.
@@ -123,7 +120,7 @@ export class AuthController {
       );
     }
 
-    this.signInRateLimiter.recordSuccess(email);
+    this.signInRateLimiter.recordSuccess(username);
 
     const secure = this.cookieIsSecure;
 
@@ -182,7 +179,7 @@ export class AuthController {
      * Guessing the current password is guessing a password, so it is metered by
      * the same limiter as sign-in and against the same account.
      */
-    const rateLimit = this.signInRateLimiter.check(user.email, request.ip);
+    const rateLimit = this.signInRateLimiter.check(user.username, request.ip);
     if (!rateLimit.allowed) {
       throw new HttpException(
         "Too many password attempts. Try again later.",
@@ -197,13 +194,13 @@ export class AuthController {
     );
 
     if (!changed) {
-      this.signInRateLimiter.recordFailure(user.email, request.ip);
+      this.signInRateLimiter.recordFailure(user.username, request.ip);
       throw new ApplicationFailureException(
         validationFailed({ currentPassword: ["That password was not recognised."] }),
       );
     }
 
-    this.signInRateLimiter.recordSuccess(user.email);
+    this.signInRateLimiter.recordSuccess(user.username);
 
     const sessionId = readSessionCookie(request);
     if (sessionId !== undefined) {

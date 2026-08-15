@@ -100,7 +100,8 @@ export function ProfilePage(): ReactElement {
             <Typography variant="h3" component="h2">
               {user.displayName}
             </Typography>
-            <Typography color="text.secondary">{user.email}</Typography>
+            <Typography color="text.secondary">{user.username}</Typography>
+            <Typography color="text.secondary">{user.email ?? "No email address"}</Typography>
             <Typography variant="body2" color="text.secondary">
               {user.role}
             </Typography>

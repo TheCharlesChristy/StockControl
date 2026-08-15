@@ -19,7 +19,7 @@ import {
  *    signal — this sweep is what actually turns `AwaitingUpload`/`Queued`/…
  *    into `Expired` and queues the same "DeleteObjects" job commit and
  *    cancel already use.
- *  - the 24-hour hard limit on any image (`delete_after`), independent of
+ *  - the 30-day hard limit on any image (`delete_after`), independent of
  *    the session's own state. This exists because "the session moved on
  *    normally" and "its cleanup job actually ran" are different claims —
  *    a crash between the two, or a code path that forgot to schedule one,

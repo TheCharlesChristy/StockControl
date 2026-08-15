@@ -28,12 +28,13 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { Kysely, Transaction } from "kysely";
 
 import { createItemInTransaction } from "../inventory/catalogue-writer";
+import { matchesStoredPhoto } from "../media/photos.service";
 import { requireQuantity } from "../inventory/stock.service";
 import { receiveInTransaction, requireLocation } from "../inventory/stock-writer";
 import { S3PrivateObjectStorage, type PresigningObjectStorage } from "../media/media-storage";
 import { findItemDetail, type ItemDetailOptions } from "../persistence/read-models";
 import { formatQuantity } from "../stock/quantity";
-import { readLocalCodes, resolveLocalCodes } from "./barcode-resolution";
+import { readLocalCodes } from "./barcode-resolution";
 import type { StockCaptureConfiguration } from "./capture-configuration";
 import {
   batchNotOpen,
@@ -85,7 +86,7 @@ export interface StartSessionCommand {
 
 export interface StartSessionResult {
   readonly session: RecognitionSessionSummaryView;
-  /** Present when a barcode resolved without any photograph being uploaded. */
+  /** Retained for wire compatibility; barcode evidence no longer skips photographs. */
   readonly exactItemId: string | null;
   readonly exactItemIsActive: boolean;
 }
@@ -168,10 +169,33 @@ export class StockCaptureService {
     return this.presentBatch(batchId, actorUserId);
   }
 
+  /** The latest queue the actor can resume, if they have one. */
+  public async getOpenBatch(actorUserId: string): Promise<StockCaptureBatchView | null> {
+    const batch = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_capture_batches")
+      .select("id")
+      .where("actor_user_id", "=", actorUserId)
+      .where("status", "=", "Open")
+      .orderBy("created_at", "desc")
+      .executeTakeFirst();
+
+    return batch === undefined ? null : this.presentBatch(batch.id, actorUserId);
+  }
+
   public async completeBatch(batchId: string, actorUserId: string): Promise<StockCaptureBatchView> {
     const batch = await this.loadOwnedBatch(batchId, actorUserId);
 
     if (batch.status === "Open") {
+      const unresolved = await this.database
+        .withSchema(SCHEMA)
+        .selectFrom("stock_recognition_sessions")
+        .select("id")
+        .where("batch_id", "=", batchId)
+        .where("status", "not in", ["Committed", "Cancelled", "Expired"])
+        .executeTakeFirst();
+      if (unresolved !== undefined) throw sessionNotReady();
+
       await this.database
         .withSchema(SCHEMA)
         .updateTable("stock_capture_batches")
@@ -185,14 +209,7 @@ export class StockCaptureService {
     return this.presentBatch(batchId, actorUserId);
   }
 
-  /**
-   * Creates a recognition session, and decides in the same breath whether any
-   * photograph needs uploading at all.
-   *
-   * The session and its recognition job are inserted in one transaction. A
-   * session without its job would sit queued forever; a job without its
-   * session would fail on the first attempt.
-   */
+  /** Creates a recognition session whose photographs always run through the full pipeline. */
   public async startSession(command: StartSessionCommand): Promise<StartSessionResult> {
     const observations = readLocalCodes(command.localCodes);
     const requestHash = hashOf(
@@ -212,18 +229,11 @@ export class StockCaptureService {
       if (existing.request_hash !== requestHash) throw idempotencyConflict();
       return {
         session: this.presentSession(existing),
-        exactItemId: existing.committed_item_id,
+        exactItemId: null,
         exactItemIsActive: true,
       };
     }
 
-    const resolution = await resolveLocalCodes(this.database, observations);
-
-    /*
-     * Ambiguity suppresses the short cut rather than failing: the full
-     * pipeline is exactly the thing that can sort out which item it was.
-     */
-    const takeShortCut = resolution.outcome.kind === "ExactMatch";
     const expiresAt = new Date(
       this.now().getTime() + this.configuration.sessionLifetimeSeconds * 1_000,
     );
@@ -237,10 +247,10 @@ export class StockCaptureService {
           batch_id: command.batchId,
           actor_user_id: command.actorUserId,
           request_hash: requestHash,
-          status: takeShortCut ? "ReviewReady" : "AwaitingUpload",
-          photo_count: takeShortCut ? 0 : command.photoCount,
+          status: "AwaitingUpload",
+          photo_count: command.photoCount,
           local_codes: JSON.stringify(observations),
-          model_manifest: JSON.stringify({ pipeline: "barcode-only" }),
+          model_manifest: JSON.stringify({ pipeline: "full" }),
           expires_at: expiresAt,
         })
         .onConflict((conflict) => conflict.column("id").doNothing())
@@ -248,11 +258,6 @@ export class StockCaptureService {
         .executeTakeFirst();
 
       if (inserted === undefined) return undefined;
-
-      /* `takeShortCut` already narrows `resolution.outcome` to the exact-match case. */
-      if (takeShortCut) {
-        await this.publishExactCandidate(tx, command.clientSessionId, resolution.outcome);
-      }
 
       return inserted;
     });
@@ -267,9 +272,8 @@ export class StockCaptureService {
 
     return {
       session: this.presentSession(row),
-      exactItemId: resolution.outcome.kind === "ExactMatch" ? resolution.outcome.itemId : null,
-      exactItemIsActive:
-        resolution.outcome.kind === "ExactMatch" ? resolution.outcome.isActive : true,
+      exactItemId: null,
+      exactItemIsActive: true,
     };
   }
 
@@ -295,8 +299,6 @@ export class StockCaptureService {
       throw uploadInvalid("Those photographs do not match the ones this item started with.");
     }
 
-    const grants: CaptureUploadGrant[] = [];
-
     for (const image of command.images) {
       const imageId = randomUUID();
       const objectKey = `stock-capture/${command.sessionId}/${String(image.ordinal)}-${imageId}`;
@@ -314,20 +316,36 @@ export class StockCaptureService {
           byte_length: image.byteLength,
           width: image.width,
           height: image.height,
-          /* The hard limit from section 15, whatever else happens to the job. */
-          delete_after: new Date(this.now().getTime() + 24 * 60 * 60 * 1_000),
+          /* Unfinished evidence remains available for the session's review window. */
+          delete_after: session.expires_at,
         })
         .onConflict((conflict) => conflict.columns(["session_id", "ordinal"]).doNothing())
         .execute();
-
-      grants.push({
-        imageId,
-        ordinal: image.ordinal,
-        url: `/api/v1/stock-capture/sessions/${command.sessionId}/uploads/${imageId}`,
-        mediaType: image.mediaType === "image/webp" ? "image/webp" : "image/jpeg",
-        expiresAt: session.expires_at.toISOString(),
-      });
     }
+
+    /*
+     * Grants are read back rather than built from the ids minted above,
+     * because the insert does nothing when a row for that ordinal already
+     * exists. Handing back the id that was just generated therefore described
+     * a row that had never been written, and a browser that asked twice —
+     * a retry, a re-render, a resumed session — PUT every photograph to an
+     * id the upload route could not find. The rows are the truth.
+     */
+    const stored = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["id", "ordinal", "media_type"])
+      .where("session_id", "=", command.sessionId)
+      .orderBy("ordinal")
+      .execute();
+
+    const grants: CaptureUploadGrant[] = stored.map((row) => ({
+      imageId: row.id,
+      ordinal: row.ordinal,
+      url: `/api/v1/stock-capture/sessions/${command.sessionId}/uploads/${row.id}`,
+      mediaType: row.media_type === "image/webp" ? "image/webp" : "image/jpeg",
+      expiresAt: session.expires_at.toISOString(),
+    }));
 
     return { session: this.presentSession(session), grants };
   }
@@ -352,12 +370,10 @@ export class StockCaptureService {
       .executeTakeFirst();
 
     if (image === undefined) throw captureNotFound("That photograph");
-    if (image.media_type !== command.mediaType || image.byte_length !== command.bytes.length) {
-      throw uploadInvalid("That photograph no longer matches the declared upload.");
-    }
-
-    const digest = createHash("sha256").update(command.bytes).digest("hex");
-    if (digest !== image.sha256) {
+    if (
+      image.media_type !== command.mediaType ||
+      !matchesStoredPhoto(command.bytes, image.byte_length, image.sha256)
+    ) {
       throw uploadInvalid("That photograph no longer matches the declared upload.");
     }
 
@@ -379,6 +395,7 @@ export class StockCaptureService {
   public async completeUploads(
     sessionId: string,
     actorUserId: string,
+    uploadedImageIds: readonly string[] = [],
   ): Promise<RecognitionSessionSummaryView> {
     const session = await this.requireSession(sessionId, actorUserId);
 
@@ -395,6 +412,21 @@ export class StockCaptureService {
 
     if (declared.length !== session.photo_count || declared.length === 0) {
       throw uploadInvalid("Not every photograph finished uploading. Try again.");
+    }
+
+    /*
+     * The browser's own account of what it sent. It is not evidence — the
+     * worker still verifies the bytes — but a caller that names fewer
+     * photographs than it declared is telling us plainly that this session
+     * cannot succeed, and saying so now beats queueing work that fails on a
+     * missing object several stages later. An empty list is every caller that
+     * predates the check, and skips it.
+     */
+    if (uploadedImageIds.length > 0) {
+      const reported = new Set(uploadedImageIds);
+      if (declared.some((row) => !reported.has(row.id))) {
+        throw uploadInvalid("Not every photograph finished uploading. Try again.");
+      }
     }
 
     const updated = await this.database.transaction().execute(async (tx) => {
@@ -470,6 +502,27 @@ export class StockCaptureService {
   ): Promise<RecognitionSessionView> {
     await this.requireSession(sessionId, actorUserId);
     return presentRecognitionSession(this.database, sessionId, viewer);
+  }
+
+  /** Reads one retained photograph after proving the session belongs to the actor. */
+  public async getSessionImage(
+    sessionId: string,
+    imageId: string,
+    actorUserId: string,
+  ): Promise<{ readonly bytes: Buffer; readonly mediaType: CaptureImageMediaType }> {
+    await this.requireSession(sessionId, actorUserId);
+    const image = await this.database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["object_key", "media_type"])
+      .where("id", "=", imageId)
+      .where("session_id", "=", sessionId)
+      .where("deleted_at", "is", null)
+      .executeTakeFirst();
+
+    if (image === undefined) throw captureNotFound("That photograph");
+    const stored = await this.storage.getObject(image.object_key);
+    return { bytes: stored.bytes, mediaType: image.media_type };
   }
 
   /**
@@ -778,37 +831,6 @@ export class StockCaptureService {
     });
   }
 
-  private async publishExactCandidate(
-    tx: CaptureTransaction,
-    sessionId: string,
-    match: { readonly itemId: string; readonly isActive: boolean },
-  ): Promise<void> {
-    await tx
-      .withSchema(SCHEMA)
-      .insertInto("stock_recognition_candidates")
-      .values({
-        id: randomUUID(),
-        session_id: sessionId,
-        rank: 1,
-        kind: "InternalItem",
-        item_id: match.itemId,
-        identity: JSON.stringify({}),
-        /*
-         * A validated barcode that resolves to exactly one active item is the
-         * one piece of evidence that earns Strong without a model. It still
-         * requires a person to confirm.
-         */
-        confidence_band: "Strong",
-        fusion_score: 100,
-        evidence: JSON.stringify([
-          { stage: "Barcode", imageOrdinals: [], summary: "barcode", sourceUrl: null },
-        ]),
-        model_manifest: JSON.stringify({ pipeline: "barcode-only" }),
-      })
-      .onConflict((conflict) => conflict.columns(["session_id", "rank"]).doNothing())
-      .execute();
-  }
-
   private async loadOwnedBatch(
     batchId: string,
     actorUserId: string,
@@ -880,7 +902,7 @@ export class StockCaptureService {
         .selectFrom("stock_recognition_sessions")
         .selectAll()
         .where("batch_id", "=", batchId)
-        .orderBy("created_at")
+        .orderBy("created_at", "desc")
         .limit(200)
         .execute(),
       this.database

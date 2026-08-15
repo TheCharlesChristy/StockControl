@@ -62,6 +62,7 @@ describe.sequential("recognition handler", () => {
       .insertInto("users")
       .values({
         id,
+        username: `worker.${id.slice(0, 23)}`,
         email: `${id}@example.invalid`,
         display_name: "Recognition Handler Test User",
         role: "Office",
@@ -146,6 +147,16 @@ describe.sequential("recognition handler", () => {
     return row.status;
   };
 
+  const sessionModelManifest = async (sessionId: string): Promise<unknown> => {
+    const row = await database
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("stock_recognition_sessions")
+      .select("model_manifest")
+      .where("id", "=", sessionId)
+      .executeTakeFirstOrThrow();
+    return row.model_manifest;
+  };
+
   const imageStatus = async (imageId: string): Promise<string> => {
     const row = await database
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -179,6 +190,7 @@ describe.sequential("recognition handler", () => {
         recognitionFusionUrl: undefined,
         recognitionFusionApiKey: undefined,
         recognitionFusionTimeoutMilliseconds: 1_000,
+        recognitionFusionConcurrency: 2,
         braveSearchApiKey: undefined,
         webFetchTimeoutMilliseconds: 1_000,
         visualIndexEmbeddingModel: "unset",
@@ -310,6 +322,12 @@ describe.sequential("recognition handler", () => {
 
     expect(await imageStatus(imageId)).toBe("Verified");
     expect(await sessionStatus(sessionId)).toBe("ReviewReady");
+    await expect(sessionModelManifest(sessionId)).resolves.toMatchObject({
+      stageReports: expect.arrayContaining([
+        expect.objectContaining({ stage: "Ocr", outcome: "Unavailable", imageOrdinal: 1 }),
+        expect.objectContaining({ stage: "Vlm", outcome: "Unavailable", imageOrdinal: 1 }),
+      ]),
+    });
   });
 
   it("rejects an image whose downloaded bytes do not match the declared digest", async () => {

@@ -38,12 +38,12 @@ demo seed or demo passwords below.
 
 The seed creates one user per role. They all use the password `demo-password`.
 
-| Email                      | Role     | Can do                                                      |
-| -------------------------- | -------- | ----------------------------------------------------------- |
-| `admin.owner@example.com`  | Admin    | Everything, including managing people                       |
-| `office.desk@example.com`  | Office   | Everything except managing people                           |
-| `engineer.one@example.com` | Engineer | View, issue, collect, reserve against a job, request stock  |
-| `engineer.two@example.com` | Engineer | The same — sign in as both to see own-activity views differ |
+| Username       | Role     | Can do                                                                                |
+| -------------- | -------- | ------------------------------------------------------------------------------------- |
+| `admin.owner`  | Admin    | Everything, including managing people                                                 |
+| `office.desk`  | Office   | Everything except managing people                                                     |
+| `engineer.one` | Engineer | View, issue, collect, reserve against a job, request stock                            |
+| `engineer.two` | Engineer | The same, and has no email address — sign in as both to see own-activity views differ |
 
 Alongside them it seeds around 235 catalogue items, 24 locations drawn across 2 maps, 3 open jobs
 and 1 closed one, a

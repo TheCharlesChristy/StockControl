@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ApiClient } from "../../api/ApiClient";
 import { ApiProvider } from "../../api/ApiContext";
 import type { BarcodeProvider } from "./barcode/provider";
-import { saveCaptureProgress } from "./capture-storage";
-import { StockCapturePage } from "./StockCapturePage";
+import { loadCaptureProgress, saveCaptureProgress } from "./capture-storage";
+import { StockCapturePage, type CaptureImagePipeline } from "./StockCapturePage";
 
 const noBarcodes: BarcodeProvider = {
   readerVersion: "test-decoder",
@@ -68,10 +68,10 @@ const openBatch: StockCaptureBatchView = {
   committedEntryCount: 0,
 };
 
-const exactMatchSessionSummary: RecognitionSessionSummaryView = {
+const captureSessionSummary: RecognitionSessionSummaryView = {
   id: "session-1",
-  status: "ReviewReady",
-  photoCount: 0,
+  status: "AwaitingUpload",
+  photoCount: 1,
   createdAt: "2026-08-10T09:05:00.000Z",
   expiresAt: "2026-08-10T15:05:00.000Z",
   committedItemId: null,
@@ -79,8 +79,18 @@ const exactMatchSessionSummary: RecognitionSessionSummaryView = {
 };
 
 const exactMatchSessionView: RecognitionSessionView = {
-  ...exactMatchSessionSummary,
+  ...captureSessionSummary,
+  status: "ReviewReady",
   batchId: openBatch.id,
+  photos: [
+    {
+      id: "image-1",
+      ordinal: 1,
+      url: "/api/v1/stock-capture/sessions/session-1/images/image-1",
+      mediaType: "image/jpeg",
+    },
+  ],
+  detectedBarcodes: [{ value: item.barcode ?? "", symbology: "EAN_13", imageOrdinal: 1 }],
   candidates: [
     {
       id: "candidate-1",
@@ -107,6 +117,7 @@ const exactMatchSessionView: RecognitionSessionView = {
       ],
     },
   ],
+  suggestedDraft: null,
   stageReports: [],
   recommendManualEntry: false,
 };
@@ -118,13 +129,34 @@ const commitResult: CommitCaptureEntryResponse = {
   batch: { ...openBatch, committedEntryCount: 1 },
 };
 
+const testImagePipeline: CaptureImagePipeline = {
+  normalise: (source) =>
+    Promise.resolve({
+      file: source,
+      mediaType: "image/jpeg",
+      byteLength: source.size,
+      width: 800,
+      height: 600,
+      sha256: "a".repeat(64),
+    }),
+  upload: () => Promise.resolve(),
+};
+
 /**
  * Every server response this journey needs, canned by exact path. No
- * candidate-fusion or upload machinery is exercised here — an exact barcode
- * match resolves without a photograph ever leaving the browser, which is
- * exactly the fast path this test is built to cover.
+ * candidate-fusion machinery is exercised here; the photograph still follows
+ * the complete upload and recognition journey even when its barcode matches.
  */
-function createStockCaptureApi(onRequest?: (method: string, path: string) => void): ApiClient {
+interface StockCaptureApiOptions {
+  /** Sees each commit body and decides whether that attempt succeeds, so a
+   *  test can make the first one fail the way a dropped response does. */
+  readonly onEntry?: (body: string) => "fail" | "succeed";
+}
+
+function createStockCaptureApi(
+  onRequest?: (method: string, path: string) => void,
+  options: StockCaptureApiOptions = {},
+): ApiClient {
   const json = (payload: unknown, status = 200): Response =>
     new Response(JSON.stringify(payload), {
       status,
@@ -141,17 +173,56 @@ function createStockCaptureApi(onRequest?: (method: string, path: string) => voi
     if (path === "/stock-capture/batches" && method === "POST") {
       return Promise.resolve(json({ batch: openBatch }));
     }
+    if (path === "/stock-capture/batches/open" && method === "GET") {
+      return Promise.resolve(json({ batch: null }));
+    }
     if (path === `/stock-capture/batches/${openBatch.id}` && method === "GET") {
       return Promise.resolve(json({ batch: openBatch }));
     }
     if (path === "/stock-capture/sessions" && method === "POST") {
-      return Promise.resolve(json({ session: exactMatchSessionSummary, exactItemId: item.id }));
+      return Promise.resolve(json({ session: captureSessionSummary, exactItemId: null }));
     }
-    if (path === `/stock-capture/sessions/${exactMatchSessionSummary.id}` && method === "GET") {
+    if (
+      path === `/stock-capture/sessions/${captureSessionSummary.id}/uploads` &&
+      method === "POST"
+    ) {
+      return Promise.resolve(
+        json({
+          session: captureSessionSummary,
+          grants: [
+            {
+              imageId: "image-1",
+              ordinal: 1,
+              url: `/api/v1/stock-capture/sessions/${captureSessionSummary.id}/uploads/image-1`,
+              mediaType: "image/jpeg",
+              expiresAt: captureSessionSummary.expiresAt,
+            },
+          ],
+        }),
+      );
+    }
+    if (
+      path === `/stock-capture/sessions/${captureSessionSummary.id}/uploads/complete` &&
+      method === "POST"
+    ) {
+      return Promise.resolve(json({ session: { ...captureSessionSummary, status: "Queued" } }));
+    }
+    if (path === `/stock-capture/sessions/${captureSessionSummary.id}` && method === "GET") {
       return Promise.resolve(json({ session: exactMatchSessionView }));
     }
     if (path === `/stock-capture/batches/${openBatch.id}/entries` && method === "POST") {
-      return Promise.resolve(json(commitResult));
+      const body = typeof init?.body === "string" ? init.body : "";
+      const outcome = options.onEntry?.(body) ?? "succeed";
+      return Promise.resolve(
+        outcome === "succeed"
+          ? json(commitResult)
+          : json({ detail: "That could not be saved just now.", code: "test.transient" }, 503),
+      );
+    }
+    if (path === `/stock-capture/batches/${openBatch.id}/complete` && method === "POST") {
+      return Promise.resolve(
+        json({ batch: { ...openBatch, status: "Completed", committedEntryCount: 0 } }),
+      );
     }
 
     return Promise.resolve(
@@ -164,7 +235,7 @@ function renderPage(api: ApiClient): void {
   render(
     <ApiProvider client={api}>
       <MemoryRouter>
-        <StockCapturePage barcodeProvider={noBarcodes} />
+        <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
       </MemoryRouter>
     </ApiProvider>,
   );
@@ -172,11 +243,11 @@ function renderPage(api: ApiClient): void {
 
 describe("StockCapturePage", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("starts a fresh batch when nothing was in progress", async () => {
@@ -189,7 +260,7 @@ describe("StockCapturePage", () => {
     expect(requests).toContain("POST /stock-capture/batches");
   });
 
-  it("resumes a batch left in session storage instead of starting a new one", async () => {
+  it("resumes a batch left in local storage instead of starting a new one", async () => {
     saveCaptureProgress({ batchId: openBatch.id, sessionId: null });
     const requests: string[] = [];
     renderPage(createStockCaptureApi((method, path) => requests.push(`${method} ${path}`)));
@@ -201,20 +272,20 @@ describe("StockCapturePage", () => {
     expect(requests).toContain(`GET /stock-capture/batches/${openBatch.id}`);
   });
 
-  it("captures a photo, resolves an exact barcode match and commits a receipt", async () => {
+  it("runs a barcode match through the full photo pipeline and commits a receipt", async () => {
     const user = userEvent.setup();
     const { container } = render(
       <ApiProvider client={createStockCaptureApi()}>
         <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} />
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
         </MemoryRouter>
       </ApiProvider>,
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /add another item/iu })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
     });
-    await user.click(screen.getByRole("button", { name: /add another item/iu }));
+    await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
 
     const fileInput = container.querySelector('input[type="file"]');
     expect(fileInput).not.toBeNull();
@@ -233,7 +304,7 @@ describe("StockCapturePage", () => {
       { timeout: 3_000 },
     );
 
-    await user.click(screen.getByText(item.name));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^Quantity/u)).toBeInTheDocument();
@@ -243,6 +314,140 @@ describe("StockCapturePage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Stock received.")).toBeInTheDocument();
+      expect(screen.getByText(item.reference)).toBeInTheDocument();
     });
+  });
+
+  /*
+   * The bug this covers: `clientEntryId` used to be minted inside the commit
+   * handler, so a retry after a lost or failed response carried a key the
+   * server had never seen and was written as a second receipt. One delivery,
+   * two stock movements, no way to tell from the screen.
+   */
+  it("retries a failed confirmation under the same idempotency key", async () => {
+    const user = userEvent.setup();
+    const entryBodies: string[] = [];
+    let commitAttempts = 0;
+
+    const api = createStockCaptureApi(undefined, {
+      onEntry: (body) => {
+        entryBodies.push(body);
+        commitAttempts += 1;
+        return commitAttempts === 1 ? "fail" : "succeed";
+      },
+    });
+
+    const { container } = render(
+      <ApiProvider client={api}>
+        <MemoryRouter>
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
+
+    const fileInput = container.querySelector('input[type="file"]');
+    await user.upload(
+      fileInput as HTMLInputElement,
+      new File(["x"], "w.jpg", { type: "image/jpeg" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /continue/iu })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /continue/iu }));
+
+    await waitFor(() => {
+      expect(screen.getByText(item.name)).toBeInTheDocument();
+    });
+    await user.click(screen.getByText(item.name));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Quantity/u)).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText(/^Quantity/u), "5");
+
+    await user.click(screen.getByRole("button", { name: /confirm receipt/iu }));
+    await waitFor(() => {
+      expect(screen.getByText("That could not be saved just now.")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /confirm receipt/iu }));
+    await waitFor(() => {
+      expect(screen.getByText("Stock received.")).toBeInTheDocument();
+    });
+
+    expect(entryBodies).toHaveLength(2);
+    const keys = entryBodies.map(
+      (body) => (JSON.parse(body) as { clientEntryId: string }).clientEntryId,
+    );
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  /*
+   * Finishing a batch used to leave the batch overview on screen with its
+   * "Add another item" button still pointing at a batch the server had just
+   * closed, so the only thing left to press failed.
+   */
+  it("does not offer to add to a batch it has just closed", async () => {
+    const user = userEvent.setup();
+    renderPage(createStockCaptureApi());
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /finish this batch/iu })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /finish this batch/iu }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/that batch is finished/iu)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /add another item/iu })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start another batch/iu })).toBeInTheDocument();
+  });
+
+  /*
+   * Clearing the stored batch id here meant a refresh immediately after
+   * adding an item abandoned the batch that item had gone into.
+   */
+  it("keeps the batch recoverable after a receipt is confirmed", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ApiProvider client={createStockCaptureApi()}>
+        <MemoryRouter>
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={testImagePipeline} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
+    const fileInput = container.querySelector('input[type="file"]');
+    await user.upload(
+      fileInput as HTMLInputElement,
+      new File(["x"], "w.jpg", { type: "image/jpeg" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /continue/iu })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /continue/iu }));
+    await waitFor(() => {
+      expect(screen.getByText(item.name)).toBeInTheDocument();
+    });
+    await user.click(screen.getByText(item.name));
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Quantity/u)).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText(/^Quantity/u), "5");
+    await user.click(screen.getByRole("button", { name: /confirm receipt/iu }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Stock received.")).toBeInTheDocument();
+    });
+    expect(loadCaptureProgress()).toEqual({ batchId: openBatch.id, sessionId: null });
   });
 });

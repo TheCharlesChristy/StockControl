@@ -27,5 +27,10 @@ overrides:
   "fast-uri@>=4.0.0 <4.1.2": ^4.1.2
   # GHSA for unbounded intermediate arrays; reached only through eslint.
   "brace-expansion@>=4.0.0 <5.0.9": ^5.0.9
+  # GHSA-2v37-7h3g-55p8: a custom generator given size zero loops for ever.
+  # Reached only as postcss's dependency under vite and vitest, so no runtime
+  # code path touches it — but `pnpm audit --audit-level high` is a release
+  # gate, and an unpatched high blocks every branch until it is pinned.
+  "nanoid@<3.3.18": ^3.3.18
 
 strictPeerDependencies: true

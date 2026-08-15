@@ -10,11 +10,16 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import type { ConfidenceBand, RecognitionSessionView } from "@stockcontrol/contracts";
+import type {
+  ConfidenceBand,
+  RecognitionSessionView,
+  RecognitionStage,
+} from "@stockcontrol/contracts";
 import type { ReactElement } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { AnalysisDetails } from "./AnalysisDetails";
-import type { ReceiptSelection } from "./capture-reducer";
+import { topCandidateSelection, type ReceiptSelection } from "./capture-reducer";
 
 const confidenceColor: Readonly<Record<ConfidenceBand, "success" | "info" | "default">> = {
   Strong: "success",
@@ -22,8 +27,23 @@ const confidenceColor: Readonly<Record<ConfidenceBand, "success" | "info" | "def
   Weak: "default",
 };
 
+/* A band is only useful if the reader knows what it is claiming. */
+const confidenceMeaning: Readonly<Record<ConfidenceBand, string>> = {
+  Strong: "the evidence points clearly at this item",
+  Possible: "it matches, but check it before confirming",
+  Weak: "a long shot — check it carefully",
+};
+
+const AUTOMATIC_RECOGNITION_STAGES: ReadonlySet<RecognitionStage> = new Set([
+  "Ocr",
+  "VisualExample",
+  "Category",
+  "Vlm",
+]);
+
 const selectionFor = (
   candidate: RecognitionSessionView["candidates"][number],
+  detectedBarcode: string | null,
 ): ReceiptSelection | null => {
   if (candidate.kind === "InternalItem" && candidate.item !== null) {
     return {
@@ -31,6 +51,9 @@ const selectionFor = (
       itemId: candidate.item.id,
       candidateId: candidate.id,
       label: candidate.item.name,
+      reference: candidate.item.reference,
+      unit: candidate.item.unit,
+      onHand: candidate.item.onHand,
     };
   }
 
@@ -41,12 +64,39 @@ const selectionFor = (
       reference: null,
       name: candidate.identity.name,
       unit: candidate.identity.unit ?? "",
-      barcode: candidate.identity.barcode,
+      barcode: candidate.identity.barcode ?? detectedBarcode,
       partNumber: candidate.identity.partNumber,
     };
   }
 
   return null;
+};
+
+const selectionForSuggestedDraft = (
+  session: RecognitionSessionView,
+  detectedBarcode: string | null,
+): ReceiptSelection | null => {
+  /* Tolerate an API replica from the previous deploy during Railway's rolling
+   * handover; the new contract is required once the deploy converges. */
+  const draft = session.suggestedDraft ?? null;
+  if (draft === null) return null;
+  const manufacturer = draft.manufacturer?.trim() ?? "";
+  const recognisedName = draft.name.trim();
+  const name =
+    manufacturer !== "" &&
+    !recognisedName.toLocaleLowerCase().includes(manufacturer.toLocaleLowerCase())
+      ? `${manufacturer} ${recognisedName}`.trim()
+      : recognisedName || manufacturer;
+
+  return {
+    kind: "NewItem",
+    candidateId: null,
+    reference: null,
+    name,
+    unit: draft.unit ?? "",
+    barcode: draft.barcode ?? detectedBarcode,
+    partNumber: draft.partNumber,
+  };
 };
 
 interface CandidateReviewProps {
@@ -55,6 +105,7 @@ interface CandidateReviewProps {
   readonly onToggleDetails: () => void;
   readonly onSelect: (selection: ReceiptSelection) => void;
   readonly onManualEntry: () => void;
+  readonly onReviewLater: () => void;
   readonly onCancel: () => void;
 }
 
@@ -70,25 +121,85 @@ export function CandidateReview({
   onToggleDetails,
   onSelect,
   onManualEntry,
+  onReviewLater,
   onCancel,
 }: CandidateReviewProps): ReactElement {
+  /* Five cards of equal weight is a decision, not a suggestion. Naming the one
+   * the pipeline actually ranked first turns it back into a suggestion. */
+  const detectedBarcode = session.detectedBarcodes[0]?.value ?? null;
+  const best = topCandidateSelection(session.candidates, detectedBarcode);
+  const preferredSelection = best ?? selectionForSuggestedDraft(session, detectedBarcode);
+  const bestCandidateId = best === null ? null : best.candidateId;
+  const automaticRecognitionUnavailable = session.stageReports.some(
+    (report) => report.outcome === "Unavailable" && AUTOMATIC_RECOGNITION_STAGES.has(report.stage),
+  );
+
   return (
     <Stack spacing={2}>
+      {session.photos.length > 0 && (
+        <Stack spacing={1}>
+          <Typography variant="subtitle2">Your photographs</Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+            {session.photos.map((photo) => (
+              <Box
+                key={photo.id}
+                component="img"
+                src={photo.url}
+                alt={`Uploaded photograph ${String(photo.ordinal)}`}
+                loading="lazy"
+                sx={{
+                  width: 152,
+                  height: 152,
+                  flex: "0 0 auto",
+                  borderRadius: 1.5,
+                  border: 1,
+                  borderColor: "divider",
+                  objectFit: "cover",
+                }}
+              />
+            ))}
+          </Stack>
+        </Stack>
+      )}
+
+      {detectedBarcode !== null && (
+        <Alert severity="info">
+          Detected barcode <strong>{detectedBarcode}</strong>. It will be pre-filled if you create a
+          new item.
+        </Alert>
+      )}
+
       {session.candidates.length === 0 && (
         <Alert severity={session.recommendManualEntry ? "info" : "warning"}>
-          {session.recommendManualEntry
-            ? "Nothing was recognised. Enter the item yourself below."
-            : "No suggestions yet."}
+          {preferredSelection !== null
+            ? "We found product details but no existing stock match. Continue to check the pre-filled new-item form."
+            : session.recommendManualEntry
+              ? automaticRecognitionUnavailable
+                ? "Automatic photo recognition was unavailable. Show analysis details to see which checks could not run, or enter the item details manually."
+                : "Nothing was recognised. Enter the item details manually."
+              : "No suggestions yet."}
         </Alert>
+      )}
+
+      {session.candidates.length > 0 && (
+        <Typography variant="body2" color="text.secondary">
+          Check the best match below, then continue to the editable stock form. Nothing changes in
+          stock until you confirm it there.
+        </Typography>
       )}
 
       <Stack spacing={1.5}>
         {session.candidates.map((candidate) => {
-          const selection = selectionFor(candidate);
+          const selection = selectionFor(candidate, detectedBarcode);
           const archived = candidate.item !== null && !candidate.item.isActive;
+          const isBest = bestCandidateId !== null && candidate.id === bestCandidateId;
 
           return (
-            <Card key={candidate.id} variant="outlined">
+            <Card
+              key={candidate.id}
+              variant="outlined"
+              sx={isBest ? { borderColor: "primary.main", borderWidth: 2 } : undefined}
+            >
               <CardActionArea
                 disabled={!candidate.selectable || selection === null}
                 onClick={() => {
@@ -98,12 +209,20 @@ export function CandidateReview({
                 <CardContent>
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                     <Stack spacing={0.5}>
+                      {isBest && (
+                        <Chip
+                          size="small"
+                          color="primary"
+                          label="Best match"
+                          sx={{ alignSelf: "flex-start" }}
+                        />
+                      )}
                       <Typography variant="subtitle1">
                         {candidate.item?.name ?? candidate.identity.name}
                       </Typography>
                       {candidate.item !== null && (
                         <Typography variant="body2" color="text.secondary">
-                          {candidate.item.reference}
+                          {candidate.item.reference} · {candidate.item.unit}
                         </Typography>
                       )}
                       <Stack direction="row" spacing={0.75} flexWrap="wrap">
@@ -118,7 +237,8 @@ export function CandidateReview({
                       </Stack>
                       {archived && (
                         <Typography variant="body2" color="warning.main">
-                          This item is archived and cannot receive stock directly.
+                          This item is archived and cannot receive stock. Bring it back into use
+                          first.
                         </Typography>
                       )}
                     </Stack>
@@ -130,10 +250,30 @@ export function CandidateReview({
                   </Stack>
                 </CardContent>
               </CardActionArea>
+              {archived && (
+                <Box sx={{ px: 2, pb: 1.5 }}>
+                  <Button
+                    size="small"
+                    component={RouterLink}
+                    to={`/inventory/${candidate.item.id}`}
+                  >
+                    Open this item
+                  </Button>
+                </Box>
+              )}
             </Card>
           );
         })}
       </Stack>
+
+      {session.candidates.length > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          {(["Strong", "Possible", "Weak"] as const)
+            .map((band) => `${band} — ${confidenceMeaning[band]}`)
+            .join(". ")}
+          .
+        </Typography>
+      )}
 
       <Box>
         <Button size="small" onClick={onToggleDetails}>
@@ -146,11 +286,23 @@ export function CandidateReview({
         </Collapse>
       </Box>
 
-      <Stack direction="row" spacing={1.5} justifyContent="space-between">
-        <Button onClick={onCancel}>Cancel this item</Button>
-        <Button variant="outlined" onClick={onManualEntry}>
-          None are correct
-        </Button>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between">
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Button onClick={onReviewLater}>Review later</Button>
+          <Button color="inherit" onClick={onCancel}>
+            Cancel this item
+          </Button>
+        </Stack>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Button variant="outlined" onClick={onManualEntry}>
+            Enter details manually
+          </Button>
+          {preferredSelection !== null && (
+            <Button variant="contained" onClick={() => onSelect(preferredSelection)}>
+              Continue
+            </Button>
+          )}
+        </Stack>
       </Stack>
     </Stack>
   );

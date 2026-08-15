@@ -200,11 +200,19 @@ jobs:
           curl --fail --silent --show-error --retry 20 --retry-all-errors \
             --retry-delay 1 http://127.0.0.1:18000/health/live
 
-          # No model weights exist in this environment (specification section
-          # 20's S0 gate has not run against real hardware), so readiness is
-          # honestly reported as not ready rather than faked.
+          # The image carries the weights models/manifest.lock.json pins, so a
+          # ready service is the honest answer and this asserts something worth
+          # asserting: that the manifest resolved to files the service could
+          # actually load. A 503 here is what the Railway runbook tells an
+          # operator to read as exactly that failure. This step used to require
+          # the 503, from when the image shipped without weights; the
+          # no-weights path, where 503 is correct, is covered by the service's
+          # own tests rather than by this image.
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/health/ready)"
-          test "$status" = "503"
+          if [ "$status" != "200" ]; then
+            echo "readiness returned ${status}, expected 200" >&2
+            exit 1
+          fi
 
           docs_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/docs)"
           test "$docs_status" = "404"

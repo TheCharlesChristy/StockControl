@@ -22,12 +22,14 @@ import { ItemDetailPage } from "./ItemDetailPage";
 import { JobDetailPage } from "./JobDetailPage";
 import { RequestsPage } from "./RequestsPage";
 import { TransactionsPage } from "./TransactionsPage";
+import { ProfilePage } from "./ProfilePage";
 import { UsersPage } from "./UsersPage";
 
 function sessionFor(role: UserRole): AuthenticatedSession {
   return {
     user: {
       id: `user-${role}`,
+      username: role.toLowerCase(),
       email: `${role.toLowerCase()}@example.com`,
       displayName: `Sam Field`,
       role,
@@ -64,12 +66,19 @@ function renderScreen(
     readonly path?: string;
     readonly route?: string;
     readonly api?: ApiClient;
+    readonly session?: AuthenticatedSession;
   } = {},
 ): void {
-  const { role = "Office", path = "/", route = "/", api = createFakeApiClient() } = options;
+  const {
+    role = "Office",
+    path = "/",
+    route = "/",
+    api = createFakeApiClient(),
+    session = sessionFor(role),
+  } = options;
 
   render(
-    <StockControlProviders authClient={new StubAuthClient(sessionFor(role))} apiClient={api}>
+    <StockControlProviders authClient={new StubAuthClient(session)} apiClient={api}>
       <MemoryRouter initialEntries={[route]}>
         <Routes>
           <Route path={path} element={element} />
@@ -428,5 +437,44 @@ describe("users", () => {
 
     expect(within(table).getByText("admin@example.com")).toBeInTheDocument();
     expect(within(table).getByRole("checkbox", { name: "Active: Admin User" })).toBeChecked();
+  });
+
+  it("shows the username each person signs in with", async () => {
+    renderScreen(<UsersPage />, { role: "Admin" });
+
+    const table = await screen.findByRole("table", { name: "Users" });
+
+    expect(within(table).getByText("admin")).toBeInTheDocument();
+    expect(within(table).getByText("engineer.two")).toBeInTheDocument();
+  });
+
+  /*
+   * A blank cell reads as a rendering fault. An account with no address is a
+   * deliberate state and the table should say so.
+   */
+  it("marks an account that has no email address rather than leaving it blank", async () => {
+    renderScreen(<UsersPage />, { role: "Admin" });
+
+    const table = await screen.findByRole("table", { name: "Users" });
+
+    expect(within(table).getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("profile", () => {
+  it("shows the username and the email address", async () => {
+    renderScreen(<ProfilePage />);
+
+    expect(await screen.findByText("office")).toBeInTheDocument();
+    expect(screen.getByText("office@example.com")).toBeInTheDocument();
+  });
+
+  it("says so plainly when the account has no email address", async () => {
+    const session = sessionFor("Engineer");
+    renderScreen(<ProfilePage />, {
+      session: { ...session, user: { ...session.user, email: null } },
+    });
+
+    expect(await screen.findByText("No email address")).toBeInTheDocument();
   });
 });

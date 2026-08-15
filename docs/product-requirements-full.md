@@ -406,7 +406,8 @@ The standard role defaults are:
 ### 9.3 Authentication
 
 - Accounts are invite-only and belong to named individuals; shared user accounts are not permitted.
-- Initial authentication uses email address and password.
+- Initial authentication uses a username and password. An email address is
+  optional contact information and is never accepted as a sign-in credential.
 - Multi-factor authentication is mandatory for Admin users and optional for other users.
 - A shared physical device may be used, but each action must occur in the named user’s authenticated session.
 - Disabling a user prevents new authentication and must invalidate their active sessions.

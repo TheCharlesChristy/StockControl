@@ -13,6 +13,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { normaliseUsername, usernameFormatErrors } from "@stockcontrol/contracts";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -94,7 +95,7 @@ export function SignInPage(): ReactElement {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -104,10 +105,11 @@ export function SignInPage(): ReactElement {
     event.preventDefault();
     setErrorMessage(null);
 
-    const normalizedEmail = email.trim();
+    const normalizedUsername = normaliseUsername(username);
+    const usernameErrors = usernameFormatErrors(normalizedUsername);
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setErrorMessage("Enter a valid work email address.");
+    if (usernameErrors.length > 0) {
+      setErrorMessage(usernameErrors[0] ?? "Enter your username.");
       return;
     }
 
@@ -118,7 +120,7 @@ export function SignInPage(): ReactElement {
 
     setSubmitting(true);
 
-    void signIn(normalizedEmail, password)
+    void signIn(normalizedUsername, password)
       .then(() => {
         void navigate(getRedirectPath(location.state, location.search), { replace: true });
       })
@@ -252,18 +254,18 @@ export function SignInPage(): ReactElement {
                 <Stack spacing={0.75}>
                   <Typography
                     component="label"
-                    htmlFor="email"
+                    htmlFor="username"
                     sx={{ color: "#263247", fontSize: "0.875rem", fontWeight: 600 }}
                   >
-                    Work email
+                    Username
                   </Typography>
                   <TextField
-                    id="email"
-                    data-help-target="sign-in-email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    autoComplete="email"
+                    id="username"
+                    data-help-target="sign-in-username"
+                    type="text"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    autoComplete="username"
                     required
                     fullWidth
                     disabled={submitting}

@@ -17,12 +17,19 @@ import { useApi } from "../api/ApiContext";
 interface ReportIssueDialogProps {
   readonly onClose: () => void;
   readonly page: string;
+  readonly initialTitle?: string;
+  readonly initialDescription?: string;
 }
 
-export function ReportIssueDialog({ onClose, page }: ReportIssueDialogProps): ReactElement {
+export function ReportIssueDialog({
+  onClose,
+  page,
+  initialTitle = "",
+  initialDescription = "",
+}: ReportIssueDialogProps): ReactElement {
   const api = useApi();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initialTitle);
+  const [description, setDescription] = useState(initialDescription);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | undefined>(undefined);
   const [issueUrl, setIssueUrl] = useState<string | undefined>(undefined);

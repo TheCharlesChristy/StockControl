@@ -97,11 +97,32 @@ export type VlmProposal =
     }
   | { readonly kind: "Unknown" };
 
+export type FusionResponseFailure =
+  "MalformedEnvelope" | "NonStringContent" | "InvalidJson" | "InvalidProposal";
+
+export interface FusionAttemptDiagnostic {
+  readonly attempt: 1 | 2;
+  readonly failure: FusionResponseFailure;
+  readonly finishReason: string | null;
+}
+
 export class FusionUnavailableError extends Error {
   public readonly code = "recognition.fusion_unavailable";
-  public constructor(detail: string) {
-    super(detail);
+  public readonly reason: "InvalidResponse" | "TimedOut" | "Unavailable";
+  /** Safe metadata only: never contains OCR, model output, credentials or image data. */
+  public readonly diagnostics: readonly FusionAttemptDiagnostic[];
+
+  public constructor(
+    detail: string,
+    options?: ErrorOptions & {
+      readonly reason?: "InvalidResponse" | "TimedOut" | "Unavailable";
+      readonly diagnostics?: readonly FusionAttemptDiagnostic[];
+    },
+  ) {
+    super(detail, options);
     this.name = "FusionUnavailableError";
+    this.reason = options?.reason ?? "Unavailable";
+    this.diagnostics = options?.diagnostics ?? [];
   }
 }
 
@@ -110,6 +131,7 @@ export class FusionUnavailableError extends Error {
 const SYSTEM_PROMPT = [
   "You identify a physical stock item from photographs and structured evidence.",
   "Respond with JSON matching the supplied schema only.",
+  "Always emit every field in the schema; use null, an empty string, or an empty array for fields that do not apply.",
   'If you recognise the item as one of the supplied candidates, use "InternalCandidate" with its exact id.',
   'Otherwise, if the photographs show a clear product identity, use "ExternalIdentity".',
   'If you cannot tell, respond "Unknown".',
@@ -162,42 +184,99 @@ const buildUserContent = (request: VlmRequest): readonly unknown[] => {
 
 const candidateIdSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown =>
   candidates.length > 0
-    ? { type: "string", enum: candidates.map((candidate) => candidate.candidateId) }
-    : { type: "string", enum: ["__no_candidates_supplied__"] };
+    ? {
+        type: ["string", "null"],
+        enum: [...candidates.map((candidate) => candidate.candidateId), null],
+      }
+    : { type: "null", enum: [null] };
 
-/** The schema's `candidateId` enum is the load-bearing defence: constrained
- * decoding cannot emit an id that is not in the supplied allowlist. */
-const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => ({
-  type: "object",
-  additionalProperties: false,
-  required: ["kind"],
-  properties: {
-    kind: { type: "string", enum: ["InternalCandidate", "ExternalIdentity", "Unknown"] },
-    candidateId: candidateIdSchema(candidates),
-    manufacturer: { type: ["string", "null"], maxLength: MAX_FIELD_LENGTH },
-    name: { type: "string", maxLength: MAX_FIELD_LENGTH },
-    partNumber: { type: ["string", "null"], maxLength: MAX_FIELD_LENGTH },
-    barcode: { type: ["string", "null"], maxLength: 40 },
-    variantAttributes: {
-      type: "array",
-      maxItems: MAX_VARIANT_ATTRIBUTES,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["label", "value"],
-        properties: {
-          label: { type: "string", maxLength: 40 },
-          value: { type: "string", maxLength: 80 },
-        },
-      },
-    },
-    evidenceImageOrdinals: {
-      type: "array",
-      maxItems: MAX_IMAGES,
-      items: { type: "integer", minimum: 1, maximum: MAX_IMAGES },
+const REQUIRED_PROPOSAL_FIELDS = [
+  "kind",
+  "candidateId",
+  "manufacturer",
+  "name",
+  "partNumber",
+  "barcode",
+  "variantAttributes",
+  "evidenceImageOrdinals",
+] as const;
+
+const variantAttributesSchema = {
+  type: "array",
+  maxItems: MAX_VARIANT_ATTRIBUTES,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["label", "value"],
+    properties: {
+      label: { type: "string", maxLength: 40 },
+      value: { type: "string", maxLength: 80 },
     },
   },
-});
+};
+
+const evidenceImageOrdinalsSchema = {
+  type: "array",
+  maxItems: MAX_IMAGES,
+  items: { type: "integer", minimum: 1, maximum: MAX_IMAGES },
+};
+
+/** The conditional branches are the load-bearing defence: every output that
+ * satisfies the grammar also satisfies parseVlmResponse. In particular, an
+ * InternalCandidate is impossible when the allowlist is empty and a real
+ * allowlisted id is mandatory when that branch is selected. */
+const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => {
+  const candidateIds = candidates.map((candidate) => candidate.candidateId);
+  const kinds =
+    candidateIds.length > 0
+      ? ["InternalCandidate", "ExternalIdentity", "Unknown"]
+      : ["ExternalIdentity", "Unknown"];
+  const branches: unknown[] = [
+    ...(candidateIds.length === 0
+      ? []
+      : [
+          {
+            required: ["kind", "candidateId"],
+            properties: {
+              kind: { type: "string", const: "InternalCandidate" },
+              candidateId: { type: "string", enum: candidateIds },
+            },
+          },
+        ]),
+    {
+      required: ["kind", "candidateId", "name"],
+      properties: {
+        kind: { type: "string", const: "ExternalIdentity" },
+        candidateId: { type: "null" },
+        name: { type: "string", minLength: 1, maxLength: MAX_FIELD_LENGTH },
+      },
+    },
+    {
+      required: ["kind", "candidateId"],
+      properties: {
+        kind: { type: "string", const: "Unknown" },
+        candidateId: { type: "null" },
+      },
+    },
+  ];
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: REQUIRED_PROPOSAL_FIELDS,
+    properties: {
+      kind: { type: "string", enum: kinds },
+      candidateId: candidateIdSchema(candidates),
+      manufacturer: { type: ["string", "null"], maxLength: MAX_FIELD_LENGTH },
+      name: { type: "string", maxLength: MAX_FIELD_LENGTH },
+      partNumber: { type: ["string", "null"], maxLength: MAX_FIELD_LENGTH },
+      barcode: { type: ["string", "null"], maxLength: 40 },
+      variantAttributes: variantAttributesSchema,
+      evidenceImageOrdinals: evidenceImageOrdinalsSchema,
+    },
+    oneOf: branches,
+  };
+};
 
 // ---- Response parsing ---------------------------------------------------
 
@@ -218,7 +297,10 @@ const readVariantAttributes = (value: unknown): readonly VlmVariantAttribute[] =
     if (!isRecord(entry)) continue;
     const { label, value: attributeValue } = entry;
     if (typeof label !== "string" || typeof attributeValue !== "string") continue;
-    attributes.push({ label: label.slice(0, 40), value: attributeValue.slice(0, 80) });
+    attributes.push({
+      label: label.slice(0, 40),
+      value: attributeValue.slice(0, 80),
+    });
   }
   return attributes;
 };
@@ -251,11 +333,16 @@ export const parseVlmResponse = (
   }
 
   if (kind === "ExternalIdentity") {
-    const name = raw.name;
-    if (typeof name !== "string" || name.trim().length === 0) return null;
     const manufacturer = raw.manufacturer;
     const partNumber = raw.partNumber;
     const barcode = raw.barcode;
+    const rawName = typeof raw.name === "string" ? raw.name.trim() : "";
+    const fallbackName = [manufacturer, partNumber]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(" ")
+      .trim();
+    const name = rawName || fallbackName || (typeof barcode === "string" ? barcode.trim() : "");
+    if (name.length === 0) return null;
     return {
       kind: "ExternalIdentity",
       manufacturer:
@@ -281,17 +368,35 @@ export interface FusionClientOptions {
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+interface CompletionAttempt {
+  readonly value: unknown;
+  readonly failure: Exclude<FusionResponseFailure, "InvalidProposal"> | null;
+  readonly finishReason: string | null;
+}
+
+const correctiveInstruction = (
+  failure: FusionResponseFailure,
+  hasInternalCandidates: boolean,
+): string =>
+  [
+    `Correction: the previous answer was rejected as ${failure}.`,
+    "Return exactly one JSON object matching the supplied schema.",
+    hasInternalCandidates
+      ? "Use InternalCandidate only with one of the supplied candidate ids."
+      : "No internal candidates were supplied, so use ExternalIdentity or Unknown.",
+    "ExternalIdentity requires a non-empty name; if the evidence is insufficient, use Unknown.",
+  ].join(" ");
+
 export class FusionClient {
   public constructor(
     private readonly options: FusionClientOptions,
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
-  /** One item-level call, plus the one constrained retry the specification
-   * allows on invalid JSON (section 7.9). Everything else — an unreachable
-   * service, a non-2xx status, two failed parses — surfaces as
-   * `FusionUnavailableError` so the caller can mark the stage failed and
-   * carry on with every other stage's evidence. */
+  /** One item-level call, plus one corrective constrained retry when the
+   * response is syntactically or semantically invalid. The retry deliberately
+   * changes the prompt: repeating an identical temperature-zero request only
+   * reproduces the same invalid output. */
   public async proposeIdentity(request: VlmRequest): Promise<VlmProposal> {
     const schema = buildResponseSchema(request.candidates);
     const body = {
@@ -302,21 +407,52 @@ export class FusionClient {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserContent(request) },
       ],
-      response_format: { type: "json_schema", json_schema: { name: "vlm_proposal", schema } },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "vlm_proposal", schema },
+      },
     };
 
-    const first = await this.complete(body).catch(() => null);
-    const firstProposal = first === null ? null : parseVlmResponse(first, request.candidates);
+    const first = await this.complete(body);
+    const firstProposal =
+      first.value === null ? null : parseVlmResponse(first.value, request.candidates);
     if (firstProposal !== null) return firstProposal;
+    const firstFailure: FusionResponseFailure = first.failure ?? "InvalidProposal";
 
-    const retry = await this.complete(body).catch(() => null);
-    const retryProposal = retry === null ? null : parseVlmResponse(retry, request.candidates);
+    const retryBody = {
+      ...body,
+      messages: [
+        ...body.messages,
+        {
+          role: "user",
+          content: correctiveInstruction(firstFailure, request.candidates.length > 0),
+        },
+      ],
+    };
+    const retry = await this.complete(retryBody);
+    const retryProposal =
+      retry.value === null ? null : parseVlmResponse(retry.value, request.candidates);
     if (retryProposal !== null) return retryProposal;
+    const retryFailure: FusionResponseFailure = retry.failure ?? "InvalidProposal";
 
-    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.");
+    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.", {
+      reason: "InvalidResponse",
+      diagnostics: [
+        {
+          attempt: 1,
+          failure: firstFailure,
+          finishReason: first.finishReason,
+        },
+        {
+          attempt: 2,
+          failure: retryFailure,
+          finishReason: retry.finishReason,
+        },
+      ],
+    });
   }
 
-  private async complete(body: unknown): Promise<unknown> {
+  private async complete(body: unknown): Promise<CompletionAttempt> {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort();
@@ -338,20 +474,63 @@ export class FusionClient {
         );
       }
 
-      const json: unknown = await response.json();
-      if (!isRecord(json)) return null;
-      const choices = json.choices;
-      if (!Array.isArray(choices)) return null;
-      const message = choices[0] as unknown;
-      if (!isRecord(message) || !isRecord(message.message)) return null;
-      const content = message.message.content;
-      if (typeof content !== "string") return null;
+      let json: unknown;
+      try {
+        json = await response.json();
+      } catch {
+        return {
+          value: null,
+          failure: "MalformedEnvelope",
+          finishReason: null,
+        };
+      }
+      if (!isRecord(json) || !Array.isArray(json.choices)) {
+        return {
+          value: null,
+          failure: "MalformedEnvelope",
+          finishReason: null,
+        };
+      }
+      const choice = json.choices[0] as unknown;
+      if (!isRecord(choice)) {
+        return {
+          value: null,
+          failure: "MalformedEnvelope",
+          finishReason: null,
+        };
+      }
+      const finishReason = typeof choice.finish_reason === "string" ? choice.finish_reason : null;
+      if (!isRecord(choice.message)) {
+        return { value: null, failure: "MalformedEnvelope", finishReason };
+      }
+      const content = choice.message.content;
+      if (typeof content !== "string") {
+        return { value: null, failure: "NonStringContent", finishReason };
+      }
 
       try {
-        return JSON.parse(content) as unknown;
+        return {
+          value: JSON.parse(content) as unknown,
+          failure: null,
+          finishReason,
+        };
       } catch {
-        return null;
+        return { value: null, failure: "InvalidJson", finishReason };
       }
+    } catch (error: unknown) {
+      if (error instanceof FusionUnavailableError) throw error;
+      if (controller.signal.aborted) {
+        throw new FusionUnavailableError(
+          `recognition-fusion exceeded its ${String(this.options.timeoutMilliseconds)} ms deadline.`,
+          { cause: error, reason: "TimedOut" },
+        );
+      }
+      throw new FusionUnavailableError(
+        error instanceof Error
+          ? `recognition-fusion request failed: ${error.name}: ${error.message}`
+          : "recognition-fusion request failed with a non-Error value.",
+        { cause: error },
+      );
     } finally {
       clearTimeout(timer);
     }

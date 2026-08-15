@@ -14,9 +14,8 @@ export interface StockCaptureConfiguration {
   /** How long a presigned upload grant lives. Minutes, not hours. */
   readonly uploadGrantSeconds: number;
   /**
-   * How long a session's photographs and evidence survive. Section 15 puts a
-   * hard 24-hour limit on the objects themselves; the session expires sooner
-   * so a person is not offered suggestions whose photographs have gone.
+   * How long an unfinished session's photographs and evidence survive. The
+   * product queue keeps both for the same bounded review period.
    */
   readonly sessionLifetimeSeconds: number;
   /** Attempts a recognition job gets before it dead-letters visibly. */
@@ -24,9 +23,9 @@ export interface StockCaptureConfiguration {
 }
 
 const DEFAULT_UPLOAD_GRANT_SECONDS = 600;
-const DEFAULT_SESSION_LIFETIME_SECONDS = 6 * 60 * 60;
+const DEFAULT_SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_RECOGNITION_MAX_ATTEMPTS = 3;
-const MAXIMUM_OBJECT_LIFETIME_SECONDS = 24 * 60 * 60;
+const MAXIMUM_OBJECT_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
 const readPositiveInteger = (
   environment: CaptureEnvironment,
@@ -67,7 +66,7 @@ export const loadStockCaptureConfiguration = (
    */
   if (sessionLifetimeSeconds > MAXIMUM_OBJECT_LIFETIME_SECONDS) {
     throw new Error(
-      "STOCK_CAPTURE_SESSION_LIFETIME_SECONDS cannot exceed the 24-hour limit on stored photographs.",
+      "STOCK_CAPTURE_SESSION_LIFETIME_SECONDS cannot exceed the 30-day limit on stored photographs.",
     );
   }
 

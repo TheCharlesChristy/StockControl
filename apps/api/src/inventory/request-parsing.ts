@@ -77,6 +77,20 @@ export function readBoolean(body: Body, field: string): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * Three states, because a PATCH that can remove a value needs all three:
+ * absent leaves it alone, present-but-blank clears it, anything else sets it.
+ * `readText` collapses the first two into `""` and cannot express the
+ * difference.
+ */
+export function readClearableText(body: Body, field: string): string | null | undefined {
+  const value = body[field];
+
+  if (value === undefined) return undefined;
+
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 /** Present-but-blank is a different thing from absent, and callers care. */
 export function readOptionalId(body: Body, field: string): string | null {
   const value = body[field];

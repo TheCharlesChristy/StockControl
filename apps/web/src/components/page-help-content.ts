@@ -60,10 +60,10 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
       "Enter the credentials supplied by your StockControl administrator.",
       [
         guidedStep(
-          "Type your work email",
-          "Select the Work email field and enter the address supplied by your Admin. StockControl checks the format before it sends the sign-in request.",
-          "#email",
-          "Work email field",
+          "Type your username",
+          "Select the Username field and enter the name supplied by your Admin. StockControl checks the format before it sends the sign-in request.",
+          "#username",
+          "Username field",
         ),
         guidedStep(
           "Type your password",
@@ -157,6 +157,31 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
           "Select an item code to open its detail page. Office and Admin users can use New item to add a catalogue record or Export CSV to download the current search.",
           '[data-help-target="inventory-actions"]',
           "Inventory actions",
+        ),
+      ],
+    );
+  }
+
+  if (path === "/stock-capture") {
+    return content(
+      "Add stock",
+      "Photograph an item, check what StockControl thinks it is, then confirm the quantity and where it went.",
+      [
+        guidedStep(
+          "Set where the delivery is going",
+          "Choose the store once for the whole batch. Each item starts from that store, and you can still change it for any single item.",
+        ),
+        guidedStep(
+          "Photograph the item",
+          "Take one to five photographs, or choose ones you have already taken. Extra angles and a close-up of a label or barcode help. A readable barcode usually identifies the item on its own, without waiting.",
+        ),
+        guidedStep(
+          "Check the suggestion",
+          "The best match is marked. Strong, Possible and Weak describe how much the evidence supports each one. Show analysis details lists what was checked for every photograph. Choose None are correct to type the item in yourself.",
+        ),
+        guidedStep(
+          "Confirm the receipt",
+          "Enter the quantity and confirm the store. Nothing changes in stock until you select Confirm receipt, and the next screen shows the item's reference and its new balance.",
         ),
       ],
     );
@@ -374,7 +399,7 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
         ),
         guidedStep(
           "Keep your sign-in private",
-          "Use only your own work email and password. Every stock movement is recorded against the person who performed it.",
+          "Use only your own username and password. Every stock movement is recorded against the person who performed it.",
         ),
       ]);
     }
@@ -385,13 +410,13 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
       [
         guidedStep(
           "Find a person",
-          "Search by name, email, or role. Select a person’s name to open the account and review their work.",
+          "Search by name, username, email, or role. Select a person’s name to open the account and review their work.",
           '[data-help-target="team-search"]',
           "Team search",
         ),
         guidedStep(
           "Create a user when they need access",
-          "Select New user, enter Work email, Name, Role, and Initial password, then select Create user. Give the initial password to the person securely.",
+          "Select New user, enter Username, Name, Role, and Initial password, then select Create user. A work email is optional. Give the initial password to the person securely.",
           '[data-help-target="team-new-user"]',
           "New user",
         ),
@@ -413,7 +438,7 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
         guidedStep(
           "Update account details",
           role === "Admin"
-            ? "Edit Work email, Name, Role, or Account is active, then select Save changes. You cannot change your own role or disable yourself."
+            ? "Edit Username, Work email, Name, Role, or Account is active, then select Save changes. Emptying the email removes it. You cannot change your own role or disable yourself."
             : "This page is Admin-only. Ask an Admin to update account details or review a colleague’s activity.",
           role === "Admin" ? '[data-help-target="user-details-form"]' : undefined,
           role === "Admin" ? "Details form" : undefined,
@@ -447,7 +472,7 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
         ),
         guidedStep(
           "Remove a photo if needed",
-          "Select Remove to return to your initials. Your work email, name, and role cannot be changed on this page.",
+          "Select Remove to return to your initials. Your username, work email, name, and role cannot be changed on this page.",
           '[data-help-target="profile-remove"]',
           "Remove photo",
         ),

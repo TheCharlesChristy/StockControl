@@ -33,7 +33,7 @@ describe("assisted stock capture configuration", () => {
     expect(loadStockCaptureConfiguration({})).toEqual({
       enabled: false,
       uploadGrantSeconds: 600,
-      sessionLifetimeSeconds: 6 * 60 * 60,
+      sessionLifetimeSeconds: 30 * 24 * 60 * 60,
       recognitionMaxAttempts: 3,
     });
   });
@@ -66,21 +66,21 @@ describe("assisted stock capture configuration", () => {
   /*
    * A session that outlives its photographs would offer suggestions nobody
    * can act on, and would quietly ask the janitor to keep objects past the
-   * 24-hour deadline the privacy notice promises.
+   * 30-day deadline the privacy notice promises.
    */
-  it("refuses a session lifetime longer than the 24-hour photograph deadline", () => {
+  it("refuses a session lifetime longer than the 30-day photograph deadline", () => {
     expect(() =>
       loadStockCaptureConfiguration({
-        STOCK_CAPTURE_SESSION_LIFETIME_SECONDS: String(25 * 60 * 60),
+        STOCK_CAPTURE_SESSION_LIFETIME_SECONDS: String(31 * 24 * 60 * 60),
       }),
-    ).toThrow(/24-hour limit/u);
+    ).toThrow(/30-day limit/u);
   });
 
-  it("accepts a session lifetime exactly at the 24-hour limit", () => {
+  it("accepts a session lifetime exactly at the 30-day limit", () => {
     expect(
       loadStockCaptureConfiguration({
-        STOCK_CAPTURE_SESSION_LIFETIME_SECONDS: String(24 * 60 * 60),
+        STOCK_CAPTURE_SESSION_LIFETIME_SECONDS: String(30 * 24 * 60 * 60),
       }).sessionLifetimeSeconds,
-    ).toBe(24 * 60 * 60);
+    ).toBe(30 * 24 * 60 * 60);
   });
 });

@@ -3,7 +3,6 @@
 .editorconfig
 .git
 .github
-.node-version
 .prettierignore
 .prettierrc.json
 .terraform
@@ -22,7 +21,6 @@
 **/*.spec.*
 **/*.test.*
 **/vitest*.ts
-apps/e2e
 compose.yaml
 docs
 eslint.config.mjs

@@ -160,6 +160,23 @@ describe("parseVlmResponse — hallucinated-id and schema-conformance defence", 
     expect(parseVlmResponse({ kind: "ExternalIdentity" }, ALLOWLIST)).toBeNull();
   });
 
+  it("builds a usable name from structured identity fields when the model leaves name blank", () => {
+    expect(
+      parseVlmResponse(
+        {
+          kind: "ExternalIdentity",
+          name: "",
+          manufacturer: "Honeywell",
+          partNumber: "W7752E2004",
+        },
+        ALLOWLIST,
+      ),
+    ).toMatchObject({
+      kind: "ExternalIdentity",
+      name: "Honeywell W7752E2004",
+    });
+  });
+
   it("caps variant attributes at the declared bound", () => {
     const result = parseVlmResponse(
       {
@@ -256,7 +273,7 @@ const chatCompletionResponse = (content: unknown): string =>
   JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] });
 
 describe("FusionClient.proposeIdentity", () => {
-  it("sends a JSON schema whose candidateId enum matches the supplied allowlist exactly", async () => {
+  it("couples each proposal kind to parser-valid fields and the exact allowlist", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
       void readBody(request).then((body) => {
@@ -272,12 +289,44 @@ describe("FusionClient.proposeIdentity", () => {
     expect(sentBody).toBeDefined();
     const parsed = JSON.parse(sentBody ?? "{}") as {
       response_format: {
-        json_schema: { schema: { properties: { candidateId: { enum: string[] } } } };
+        json_schema: {
+          schema: {
+            required: string[];
+            properties: {
+              kind: { enum: string[] };
+              candidateId: { enum: (string | null)[] };
+            };
+            oneOf: {
+              properties: {
+                kind: { const: string };
+                candidateId?: { enum?: string[]; type?: string };
+                name?: { minLength?: number };
+              };
+            }[];
+          };
+        };
       };
     };
-    expect(parsed.response_format.json_schema.schema.properties.candidateId.enum).toEqual(
+    const schema = parsed.response_format.json_schema.schema;
+    expect(schema.properties.candidateId.enum).toEqual([
+      ...ALLOWLIST.map((candidate) => candidate.candidateId),
+      null,
+    ]);
+    expect(schema.required).toEqual(
+      expect.arrayContaining(["kind", "candidateId", "name", "evidenceImageOrdinals"]),
+    );
+
+    const internal = schema.oneOf.find(
+      (branch) => branch.properties.kind.const === "InternalCandidate",
+    );
+    expect(internal?.properties.candidateId?.enum).toEqual(
       ALLOWLIST.map((candidate) => candidate.candidateId),
     );
+    const external = schema.oneOf.find(
+      (branch) => branch.properties.kind.const === "ExternalIdentity",
+    );
+    expect(external?.properties.candidateId?.type).toBe("null");
+    expect(external?.properties.name?.minLength).toBe(1);
   });
 
   it("embeds untrusted OCR text as an inert JSON string value, not as instructions", async () => {
@@ -361,38 +410,53 @@ describe("FusionClient.proposeIdentity", () => {
     expect(requestCount).toBe(1);
   });
 
-  it("retries once on invalid JSON and succeeds on the second attempt", async () => {
-    let requestCount = 0;
-    const baseUrl = await startServer((_request, response) => {
-      requestCount += 1;
-      response.writeHead(200, { "content-type": "application/json" });
-      if (requestCount === 1) {
-        response.end(JSON.stringify({ choices: [{ message: { content: "not valid json" } }] }));
-      } else {
-        response.end(chatCompletionResponse({ kind: "Unknown" }));
-      }
+  it("changes the prompt for a corrective retry after invalid JSON", async () => {
+    const requestBodies: string[] = [];
+    const baseUrl = await startServer((request, response) => {
+      void readBody(request).then((body) => {
+        requestBodies.push(body);
+        response.writeHead(200, { "content-type": "application/json" });
+        if (requestBodies.length === 1) {
+          response.end(JSON.stringify({ choices: [{ message: { content: "not valid json" } }] }));
+        } else {
+          response.end(chatCompletionResponse({ kind: "Unknown" }));
+        }
+      });
     });
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
     const result = await client.proposeIdentity(baseRequest());
 
     expect(result).toEqual({ kind: "Unknown" });
-    expect(requestCount).toBe(2);
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[1]).not.toBe(requestBodies[0]);
+    const retry = JSON.parse(requestBodies[1] ?? "{}") as {
+      messages: readonly { role: string; content: unknown }[];
+    };
+    expect(retry.messages).toHaveLength(3);
+    expect(retry.messages[2]?.content).toContain("previous answer was rejected as InvalidJson");
   });
 
-  it("fails after the retry also returns invalid JSON", async () => {
+  it("reports safe validation diagnostics after both attempts return invalid JSON", async () => {
     let requestCount = 0;
     const baseUrl = await startServer((_request, response) => {
       requestCount += 1;
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ choices: [{ message: { content: "still not json" } }] }));
+      response.end(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "still not json" } }],
+        }),
+      );
     });
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
 
-    await expect(client.proposeIdentity(baseRequest())).rejects.toBeInstanceOf(
-      FusionUnavailableError,
-    );
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as FusionUnavailableError).diagnostics).toEqual([
+      { attempt: 1, failure: "InvalidJson", finishReason: "stop" },
+      { attempt: 2, failure: "InvalidJson", finishReason: "stop" },
+    ]);
     expect(requestCount).toBe(2);
   });
 
@@ -425,9 +489,26 @@ describe("FusionClient.proposeIdentity", () => {
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
 
-    await expect(client.proposeIdentity(baseRequest())).rejects.toBeInstanceOf(
-      FusionUnavailableError,
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as Error).message).toContain("status 500");
+  });
+
+  it("preserves the underlying fetch error in its diagnostic message", async () => {
+    const client = new FusionClient(
+      {
+        baseUrl: "https://example.invalid",
+        apiKey: "test-key",
+        timeoutMilliseconds: 2_000,
+      },
+      () => Promise.reject(new TypeError("connect failed")),
     );
+
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as Error).message).toContain("TypeError: connect failed");
   });
 
   it("sends the API key as a bearer token", async () => {
@@ -451,12 +532,13 @@ describe("FusionClient.proposeIdentity", () => {
 
     const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 50 });
 
-    await expect(client.proposeIdentity(baseRequest())).rejects.toBeInstanceOf(
-      FusionUnavailableError,
-    );
+    const error = await client.proposeIdentity(baseRequest()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FusionUnavailableError);
+    expect((error as FusionUnavailableError).reason).toBe("TimedOut");
   });
 
-  it("uses a single placeholder enum value when no candidates are supplied", async () => {
+  it("removes the InternalCandidate branch when no candidates are supplied", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
       void readBody(request).then((body) => {
@@ -471,12 +553,23 @@ describe("FusionClient.proposeIdentity", () => {
 
     const parsed = JSON.parse(sentBody ?? "{}") as {
       response_format: {
-        json_schema: { schema: { properties: { candidateId: { enum: readonly string[] } } } };
+        json_schema: {
+          schema: {
+            properties: {
+              kind: { enum: string[] };
+              candidateId: { enum: readonly (string | null)[] };
+            };
+            oneOf: { properties: { kind: { const: string } } }[];
+          };
+        };
       };
     };
-    expect(parsed.response_format.json_schema.schema.properties.candidateId.enum).toEqual([
-      "__no_candidates_supplied__",
-    ]);
+    const schema = parsed.response_format.json_schema.schema;
+    expect(schema.properties.kind.enum).toEqual(["ExternalIdentity", "Unknown"]);
+    expect(schema.properties.candidateId.enum).toEqual([null]);
+    expect(schema.oneOf.map((branch) => branch.properties.kind.const)).not.toContain(
+      "InternalCandidate",
+    );
   });
 
   it("bounds observations per image at the declared limit", async () => {
@@ -510,9 +603,11 @@ describe("FusionClient.proposeIdentity", () => {
   });
 
   it.each([
+    ["an invalid JSON response body", "{"],
     ["a non-object body", '"just a string"'],
     ["a body with no choices array", "{}"],
-    ["a choice with no message object", JSON.stringify({ choices: ["not an object"] })],
+    ["a non-object choice", JSON.stringify({ choices: ["not an object"] })],
+    ["a choice with no message object", JSON.stringify({ choices: [{ finish_reason: "stop" }] })],
     [
       "a message with non-string content",
       JSON.stringify({ choices: [{ message: { content: 123 } }] }),

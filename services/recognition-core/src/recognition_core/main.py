@@ -39,9 +39,7 @@ def create_app(settings: Settings | None = None, backends: Backends | None = Non
 
     app = FastAPI(title="recognition-core", docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(
-        build_router(
-            resolved_settings, resolved_backends, model_manifest_version=manifest_version
-        )
+        build_router(resolved_settings, resolved_backends, model_manifest_version=manifest_version)
     )
 
     @app.get("/health/live")

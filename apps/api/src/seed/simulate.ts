@@ -37,7 +37,8 @@ const q = (value: string): Quantity => {
 
 export interface SeededUser {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
+  readonly email: string | null;
   readonly displayName: string;
   readonly role: "Engineer" | "Office" | "Admin";
 }
@@ -239,18 +240,21 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
   const users: readonly SeededUser[] = [
     {
       id: options.createId(),
+      username: "admin.owner",
       email: "admin.owner@example.com",
       displayName: "Alex Owner",
       role: "Admin",
     },
     {
       id: options.createId(),
+      username: "office.desk",
       email: "office.desk@example.com",
       displayName: "Olivia Desk",
       role: "Office",
     },
     {
       id: options.createId(),
+      username: "engineer.one",
       email: "engineer.one@example.com",
       displayName: "Sam Field",
       role: "Engineer",
@@ -259,9 +263,14 @@ export function buildDemoWorld(options: BuildDemoWorldOptions): DemoWorld {
      * A second engineer is what makes "only your own activity" visible: sign in
      * as one and the other's movements are absent, which is the point.
      */
+    /*
+     * No address, because an account without one is now a supported state and
+     * the demo set is where supported states are meant to be visible.
+     */
     {
       id: options.createId(),
-      email: "engineer.two@example.com",
+      username: "engineer.two",
+      email: null,
       displayName: "Priya Kaur",
       role: "Engineer",
     },

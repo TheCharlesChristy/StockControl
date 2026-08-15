@@ -62,6 +62,7 @@ describe.sequential("capture cleanup handler", () => {
       .insertInto("users")
       .values({
         id,
+        username: `worker.${id.slice(0, 23)}`,
         email: `${id}@example.invalid`,
         display_name: "Capture Cleanup Test User",
         role: "Office",

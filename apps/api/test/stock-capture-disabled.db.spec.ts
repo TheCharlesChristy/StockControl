@@ -37,12 +37,13 @@ describe("assisted stock capture, disabled", () => {
     migrator = createMigratorDatabase(configuration);
     await runMigrations(migrator, { runtimeRole });
 
-    const email = `capture-disabled.${randomUUID()}@example.invalid`;
+    const username = `capture-disabled.${randomUUID().slice(0, 8)}`;
     await schema()
       .insertInto("users")
       .values({
         id: randomUUID(),
-        email,
+        username,
+        email: `${username}@example.invalid`,
         display_name: "Capture disabled fixture",
         role: "Office",
         password_hash: await hashPassword("integration-password"),
@@ -55,7 +56,7 @@ describe("assisted stock capture, disabled", () => {
     const signIn = await app.inject({
       method: "POST",
       url: "/api/v1/auth/sign-in",
-      payload: { email, password: "integration-password" },
+      payload: { username, password: "integration-password" },
     });
     const sessionCookie = signIn.cookies.find(
       (candidate) => candidate.name === "stockcontrol.session",
@@ -66,7 +67,7 @@ describe("assisted stock capture, disabled", () => {
   afterAll(async () => {
     await app.close();
     await schema().deleteFrom("sessions").execute();
-    await schema().deleteFrom("users").where("email", "like", "capture-disabled.%").execute();
+    await schema().deleteFrom("users").where("username", "like", "capture-disabled.%").execute();
     await migrator.destroy();
   });
 

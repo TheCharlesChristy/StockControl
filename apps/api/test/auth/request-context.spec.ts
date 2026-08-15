@@ -16,6 +16,7 @@ import {
 const sessionFor = (role: AuthenticatedSession["user"]["role"]): AuthenticatedSession => ({
   user: {
     id: `user-${role}`,
+    username: role.toLowerCase(),
     email: `${role}@example.com`,
     displayName: role,
     role,
@@ -40,7 +41,7 @@ describe("session on the request", () => {
     attachSession(request, session);
 
     expect(sessionOf(request)).toEqual(session);
-    expect(currentUser(request).email).toBe("Office@example.com");
+    expect(currentUser(request).username).toBe("office");
   });
 
   it("refuses an unauthenticated request with a 401 failure", () => {

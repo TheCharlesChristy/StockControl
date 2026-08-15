@@ -93,8 +93,8 @@ export interface RenderExemplarResult {
 
 export class RecognitionCoreUnavailableError extends Error {
   public readonly code = "recognition.core_unavailable";
-  public constructor(detail: string) {
-    super(detail);
+  public constructor(detail: string, options?: ErrorOptions) {
+    super(detail, options);
     this.name = "RecognitionCoreUnavailableError";
   }
 }
@@ -340,7 +340,10 @@ export class RecognitionCoreClient {
     } catch (error: unknown) {
       if (error instanceof RecognitionCoreUnavailableError) throw error;
       throw new RecognitionCoreUnavailableError(
-        error instanceof Error ? error.name : "recognition-core request failed.",
+        error instanceof Error
+          ? `recognition-core request failed: ${error.name}: ${error.message}`
+          : "recognition-core request failed with a non-Error value.",
+        { cause: error },
       );
     } finally {
       clearTimeout(timer);

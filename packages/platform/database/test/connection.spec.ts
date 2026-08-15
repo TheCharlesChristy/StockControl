@@ -44,7 +44,11 @@ vi.mock("kysely", () => ({
   },
 }));
 
-import { createMigratorDatabase, createRuntimeDatabase } from "../src/connection";
+import {
+  createAdminDatabase,
+  createMigratorDatabase,
+  createRuntimeDatabase,
+} from "../src/connection";
 
 describe("database connection factory", () => {
   const configuration = {
@@ -62,9 +66,14 @@ describe("database connection factory", () => {
     connectionMocks.constructedPools.length = 0;
   });
 
+  /* All three roles are public API and are wired identically, so all three are
+   * asserted. The administrator factory was the one nobody called: it is used
+   * only by role bootstrapping, which runs as a release step rather than in a
+   * request, and so had never had its pool settings checked at all. */
   it.each([
     ["runtime", createRuntimeDatabase],
     ["migrator", createMigratorDatabase],
+    ["administrator", createAdminDatabase],
   ])("constructs the %s database with the configured PostgreSQL pool", (_name, factory) => {
     const database = factory(configuration);
 

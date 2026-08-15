@@ -106,10 +106,11 @@ export const webStageResult = (result: WebSearchResult, rank: number): StageResu
 export const vlmStageResult = (
   proposal: VlmProposal,
   candidateIdentities: ReadonlyMap<string, CandidateIdentityInput>,
+  imageOrdinal: number | null = proposal.kind === "Unknown"
+    ? null
+    : (proposal.evidenceImageOrdinals[0] ?? null),
 ): StageResult | null => {
   if (proposal.kind === "Unknown") return null;
-
-  const imageOrdinal = proposal.evidenceImageOrdinals[0] ?? null;
 
   if (proposal.kind === "InternalCandidate") {
     const identity = candidateIdentities.get(proposal.candidateId);

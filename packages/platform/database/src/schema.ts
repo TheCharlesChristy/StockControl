@@ -45,7 +45,10 @@ export type TransactionKind =
 
 export interface UsersTable {
   readonly id: ImmutableColumn<string>;
-  readonly email: string;
+  /** The sign-in identifier, stored lowercase. */
+  readonly username: string;
+  /** Optional contact information; nothing is ever sent to it. */
+  readonly email: string | null;
   readonly display_name: string;
   readonly role: UserRole;
   readonly password_hash: string;

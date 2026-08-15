@@ -1,13 +1,16 @@
-import type {
-  ConfidenceBand,
-  RecognitionCandidateKind,
-  RecognitionCandidateView,
-  RecognitionEvidenceView,
-  RecognitionIdentityDraft,
-  RecognitionSessionStatus,
-  RecognitionSessionView,
-  RecognitionStage,
-  RecognitionStageReportView,
+import {
+  recognitionStageOutcomes,
+  recognitionStages,
+  type ConfidenceBand,
+  type DetectedBarcodeView,
+  type RecognitionCandidateKind,
+  type RecognitionCandidateView,
+  type RecognitionEvidenceView,
+  type RecognitionIdentityDraft,
+  type RecognitionSessionStatus,
+  type RecognitionSessionView,
+  type RecognitionStage,
+  type RecognitionStageReportView,
 } from "@stockcontrol/contracts";
 import { isTerminal } from "@stockcontrol/module-stock-capture";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
@@ -42,17 +45,61 @@ interface SessionRow {
   readonly status: RecognitionSessionStatus;
   readonly photo_count: number;
   readonly local_codes: unknown;
+  readonly model_manifest: unknown;
   readonly committed_item_id: string | null;
   readonly failure_code: string | null;
   readonly created_at: Date;
   readonly expires_at: Date;
 }
 
+const isRecognitionStage = (value: unknown): value is RecognitionStage =>
+  typeof value === "string" && (recognitionStages as readonly string[]).includes(value);
+
+const isRecognitionStageOutcome = (
+  value: unknown,
+): value is RecognitionStageReportView["outcome"] =>
+  typeof value === "string" && (recognitionStageOutcomes as readonly string[]).includes(value);
+
+export const stageReportsFromManifest = (value: unknown): readonly RecognitionStageReportView[] => {
+  if (typeof value !== "object" || value === null) return [];
+  const reports = (value as Record<string, unknown>).stageReports;
+  if (!Array.isArray(reports)) return [];
+
+  return reports.flatMap((entry): readonly RecognitionStageReportView[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    if (!isRecognitionStage(record.stage) || !isRecognitionStageOutcome(record.outcome)) return [];
+    if (record.imageOrdinal !== null && typeof record.imageOrdinal !== "number") return [];
+    const observations = Array.isArray(record.observations)
+      ? record.observations.filter(
+          (observation): observation is string => typeof observation === "string",
+        )
+      : [];
+    return [
+      {
+        stage: record.stage,
+        outcome: record.outcome,
+        imageOrdinal: record.imageOrdinal,
+        observations,
+      },
+    ];
+  });
+};
+
 export const identityDraftFrom = (value: unknown): RecognitionIdentityDraft => {
   const record =
     typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const text = (field: string): string | null =>
     typeof record[field] === "string" && record[field] !== "" ? record[field] : null;
+  const variantAttributes = Array.isArray(record.variantAttributes)
+    ? record.variantAttributes.flatMap((entry): readonly { label: string; value: string }[] => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const attribute = entry as Record<string, unknown>;
+        return typeof attribute.label === "string" && typeof attribute.value === "string"
+          ? [{ label: attribute.label, value: attribute.value }]
+          : [];
+      })
+    : [];
 
   return {
     manufacturer: text("manufacturer"),
@@ -60,8 +107,23 @@ export const identityDraftFrom = (value: unknown): RecognitionIdentityDraft => {
     partNumber: text("partNumber"),
     barcode: text("barcode"),
     unit: text("unit"),
-    variantAttributes: [],
+    variantAttributes,
   };
+};
+
+export const suggestedDraftFromManifest = (value: unknown): RecognitionIdentityDraft | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const suggestedDraft = (value as Record<string, unknown>).suggestedDraft;
+  if (typeof suggestedDraft !== "object" || suggestedDraft === null) return null;
+
+  const draft = identityDraftFrom(suggestedDraft);
+  return draft.name.trim() !== "" ||
+    draft.manufacturer !== null ||
+    draft.partNumber !== null ||
+    draft.barcode !== null ||
+    draft.variantAttributes.length > 0
+    ? draft
+    : null;
 };
 
 export const evidenceFrom = (value: unknown): readonly RecognitionEvidenceView[] => {
@@ -104,7 +166,16 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
     const record = code as Record<string, unknown>;
     const value = record.value;
     const imageOrdinal = record.imageOrdinal;
-    if (typeof value !== "string" || typeof imageOrdinal !== "number") return [];
+    if (record.readerVersion === "recognition-core") return [];
+    if (
+      typeof value !== "string" ||
+      value.trim() === "" ||
+      typeof imageOrdinal !== "number" ||
+      !Number.isInteger(imageOrdinal) ||
+      imageOrdinal < 1
+    ) {
+      return [];
+    }
 
     return [
       {
@@ -114,6 +185,37 @@ export const barcodeStageReports = (localCodes: unknown): readonly RecognitionSt
         observations: [`Decoded ${value}`],
       },
     ];
+  });
+};
+
+export const detectedBarcodesFrom = (localCodes: unknown): readonly DetectedBarcodeView[] => {
+  if (!Array.isArray(localCodes)) return [];
+
+  const seen = new Set<string>();
+  return localCodes.flatMap((code): readonly DetectedBarcodeView[] => {
+    if (typeof code !== "object" || code === null) return [];
+    const { value, symbology, imageOrdinal } = code as Record<string, unknown>;
+    if (
+      typeof value !== "string" ||
+      value.trim() === "" ||
+      typeof symbology !== "string" ||
+      symbology.trim() === "" ||
+      typeof imageOrdinal !== "number" ||
+      !Number.isInteger(imageOrdinal) ||
+      imageOrdinal < 1
+    ) {
+      return [];
+    }
+
+    const barcode = {
+      value: value.trim(),
+      symbology: symbology.trim(),
+      imageOrdinal,
+    };
+    const key = `${barcode.symbology.toLocaleUpperCase()}:${barcode.value.toLocaleUpperCase()}:${String(barcode.imageOrdinal)}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [barcode];
   });
 };
 
@@ -150,13 +252,23 @@ export const presentRecognitionSession = async (
     .where("id", "=", sessionId)
     .executeTakeFirstOrThrow();
 
-  const candidateRows = await database
-    .withSchema(SCHEMA)
-    .selectFrom("stock_recognition_candidates")
-    .selectAll()
-    .where("session_id", "=", sessionId)
-    .orderBy("rank")
-    .execute();
+  const [candidateRows, imageRows] = await Promise.all([
+    database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_candidates")
+      .selectAll()
+      .where("session_id", "=", sessionId)
+      .orderBy("rank")
+      .execute(),
+    database
+      .withSchema(SCHEMA)
+      .selectFrom("stock_recognition_images")
+      .select(["id", "ordinal", "media_type"])
+      .where("session_id", "=", sessionId)
+      .where("deleted_at", "is", null)
+      .orderBy("ordinal")
+      .execute(),
+  ]);
 
   const candidates = await Promise.all(
     candidateRows.map((row) =>
@@ -187,8 +299,19 @@ export const presentRecognitionSession = async (
     expiresAt: typedSession.expires_at.toISOString(),
     committedItemId: typedSession.committed_item_id,
     failureCode: typedSession.failure_code,
+    photos: imageRows.map((image) => ({
+      id: image.id,
+      ordinal: image.ordinal,
+      url: `/api/v1/stock-capture/sessions/${typedSession.id}/images/${image.id}`,
+      mediaType: image.media_type,
+    })),
+    detectedBarcodes: detectedBarcodesFrom(typedSession.local_codes),
     candidates,
-    stageReports: barcodeStageReports(typedSession.local_codes),
+    suggestedDraft: suggestedDraftFromManifest(typedSession.model_manifest),
+    stageReports: [
+      ...barcodeStageReports(typedSession.local_codes),
+      ...stageReportsFromManifest(typedSession.model_manifest),
+    ],
     recommendManualEntry:
       candidates.length === 0 &&
       (isTerminal(typedSession.status) || typedSession.status === "ReviewReady"),

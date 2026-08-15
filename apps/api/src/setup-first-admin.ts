@@ -15,7 +15,8 @@ import {
 } from "./setup/confirmed-password-prompt";
 
 export interface InitialAdminCliArguments {
-  readonly email: string;
+  readonly username: string;
+  readonly email?: string | undefined;
   readonly displayName: string;
 }
 
@@ -41,11 +42,21 @@ const readArgumentValue = (arguments_: readonly string[], index: number): string
 export const parseInitialAdminArguments = (
   arguments_: readonly string[],
 ): InitialAdminCliArguments => {
+  let username: string | undefined;
   let email: string | undefined;
   let displayName: string | undefined;
 
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
+
+    if (argument === "--username") {
+      if (username !== undefined) {
+        throw new InitialAdminCliError("DuplicateArgument");
+      }
+      username = readArgumentValue(arguments_, index);
+      index += 1;
+      continue;
+    }
 
     if (argument === "--email") {
       if (email !== undefined) {
@@ -68,11 +79,12 @@ export const parseInitialAdminArguments = (
     throw new InitialAdminCliError("UnknownArgument");
   }
 
-  if (email === undefined || displayName === undefined) {
+  if (username === undefined || displayName === undefined) {
     throw new InitialAdminCliError("MissingArgument");
   }
 
-  return { email, displayName };
+  /* The address stays optional here, so it is only passed on when given. */
+  return { username, ...(email === undefined ? {} : { email }), displayName };
 };
 
 const run = async (): Promise<void> => {

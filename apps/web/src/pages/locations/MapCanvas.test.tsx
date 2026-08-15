@@ -41,6 +41,7 @@ const at = (x: number, y: number): { clientX: number; clientY: number } => ({
 const session: AuthenticatedSession = {
   user: {
     id: "user-admin",
+    username: "admin",
     email: "admin@example.com",
     displayName: "Sam Field",
     role: "Admin",

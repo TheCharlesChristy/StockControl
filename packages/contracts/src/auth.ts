@@ -26,9 +26,70 @@ export const passwordPolicyErrors = (password: string): readonly string[] => {
   return [];
 };
 
+/**
+ * The sign-in identifier. Kept deliberately narrow: sign-in accepts a username
+ * and nothing else, so a name shaped like an email address would be typed at
+ * the field, refused, and read as a bug. Excluding `@` outright is cheaper than
+ * explaining that. Names are stored lowercase, which makes uniqueness
+ * case-insensitive without a functional index.
+ */
+export const usernameRules = Object.freeze({
+  minimumCharacters: 3,
+  maximumCharacters: 32,
+});
+
+const USERNAME_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
+
+export const normaliseUsername = (value: string): string => value.trim().toLowerCase();
+
+export const usernameFormatErrors = (username: string): readonly string[] => {
+  const characterCount = [...username].length;
+
+  if (characterCount < usernameRules.minimumCharacters) {
+    return [`Use at least ${String(usernameRules.minimumCharacters)} characters.`];
+  }
+
+  if (characterCount > usernameRules.maximumCharacters) {
+    return [`Use no more than ${String(usernameRules.maximumCharacters)} characters.`];
+  }
+
+  if (!USERNAME_PATTERN.test(username)) {
+    return [
+      "Use letters, numbers, dots, hyphens and underscores only, starting and ending with a letter or number.",
+    ];
+  }
+
+  return [];
+};
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+export const emailRules = Object.freeze({ maximumCharacters: 320 });
+
+/**
+ * Deliberately forgiving. The address is contact information the product never
+ * sends to, so the only thing worth refusing is something that plainly is not
+ * an address at all — a stricter rule would reject real mailboxes to no end.
+ */
+export const emailFormatErrors = (email: string): readonly string[] => {
+  /*
+   * The length check runs first and short-circuits, because EMAIL_PATTERN's
+   * two adjacent `[^\s@]+` groups can backtrack polynomially on a long,
+   * dot-heavy string — bounding the input before the regex ever runs is what
+   * keeps that cheap.
+   */
+  if ([...email].length > emailRules.maximumCharacters || !EMAIL_PATTERN.test(email)) {
+    return ["Enter a valid email address."];
+  }
+
+  return [];
+};
+
 export interface AuthenticatedUser {
   readonly id: string;
-  readonly email: string;
+  readonly username: string;
+  /** Optional contact information. Nothing is ever sent to it; see ADR 0003. */
+  readonly email: string | null;
   readonly displayName: string;
   readonly role: UserRole;
   readonly profilePhotoUrl: string | null;
@@ -58,7 +119,7 @@ export interface SessionResponse {
 }
 
 export interface SignInRequest {
-  readonly email: string;
+  readonly username: string;
   readonly password: string;
 }
 
@@ -87,7 +148,8 @@ export function isAuthenticatedUser(value: unknown): value is AuthenticatedUser 
   return (
     isRecord(value) &&
     typeof value["id"] === "string" &&
-    typeof value["email"] === "string" &&
+    typeof value["username"] === "string" &&
+    (typeof value["email"] === "string" || value["email"] === null) &&
     typeof value["displayName"] === "string" &&
     isUserRole(value["role"]) &&
     (typeof value["profilePhotoUrl"] === "string" || value["profilePhotoUrl"] === null) &&

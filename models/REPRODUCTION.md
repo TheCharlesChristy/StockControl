@@ -39,10 +39,14 @@ no model download request.
   `preprocessor_config.json` supplies CLIP resize/centre-crop preprocessing;
   the runtime uses the declared 224x224 crop and mean/std values, then L2
   normalises the first visual token.
-- `lfm2.5-vl-3b-q4-0`: the user-selected `unsloth/LFM2.5-VL-3B-GGUF` Q4_0
-  GGUF and matching F16 projector. No local quantisation or conversion is
-  applied. The runtime is built from llama.cpp commit
-  `e23e9440eb0c625c30d6c40266e9335071a4debc`, with context 4096 and one slot.
+- `lfm2.5-vl-1.6b-q4-0`: the staging evaluation candidate from the official
+  `LiquidAI/LFM2.5-VL-1.6B-GGUF` repository, using its Q4_0 GGUF and matching
+  F16 projector. No local quantisation or conversion is applied. The runtime
+  is built from llama.cpp commit
+  `e23e9440eb0c625c30d6c40266e9335071a4debc`. The image's default
+  `--ctx-size 8192` is split across `--parallel 2` slots (see
+  `services/recognition-fusion/docker-entrypoint.sh`), giving each of the two
+  concurrently analysed photographs the same 4,096-token budget as before.
 
 The exact revisions, file digests, and licence strings are authoritative in
 `manifest.lock.json`. The LFM Open License v1.0 is not Apache-2.0; its annual
@@ -50,8 +54,9 @@ revenue threshold and redistribution conditions are repeated in `NOTICE.txt`.
 
 ## Promotion status
 
-The LFM choice is a user decision based on local performance testing. A
-consented customer evaluation set was not supplied, so section 19/20 accuracy,
-latency, RSS-soak, customer pilot, and Railway-cost gates remain unmeasured.
-This manifest proves reproducible artefact loading and runtime smoke tests; it
-does not claim model promotion or production readiness.
+The LFM choice is a user-directed staging experiment intended to measure
+whether the smaller model meets the required latency without losing acceptable
+recognition quality. A consented customer evaluation set was not supplied, so
+section 19/20 accuracy, latency, RSS-soak, customer pilot, and Railway-cost
+gates remain unmeasured. This manifest proves reproducible artefact loading and
+runtime smoke tests; it does not claim model promotion or production readiness.

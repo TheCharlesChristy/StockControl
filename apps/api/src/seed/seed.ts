@@ -71,6 +71,7 @@ const seed = async (): Promise<void> => {
       .values(
         world.users.map((user) => ({
           id: user.id,
+          username: user.username,
           email: user.email,
           display_name: user.displayName,
           role: user.role,
@@ -296,7 +297,7 @@ const seed = async (): Promise<void> => {
         stockLevels: world.stockLevels.length,
         transactions: world.transactions.length,
         password: DEMO_PASSWORD,
-        signIn: world.users.map((user) => `${user.email} (${user.role})`),
+        signIn: world.users.map((user) => `${user.username} (${user.role})`),
       })}\n`,
     );
   } finally {

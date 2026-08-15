@@ -264,6 +264,10 @@ const ROLE_BOOTSTRAP_SQL = sql`
             message = 'Existing StockControl database role has incompatible attributes.';
         end if;
 
+        if current_setting('stockcontrol.bootstrap_rotate_existing_passwords') = 'true' then
+          execute format('alter role %I password %L', role_name, role_password);
+        end if;
+
       else
         execute format(
           'create role %I with login password %L nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls connection limit -1',
@@ -339,6 +343,7 @@ const ROLE_BOOTSTRAP_SQL = sql`
 export const bootstrapDatabaseRoles = async (
   database: Kysely<StockControlDatabase>,
   configuration: DatabaseRoleBootstrapConfiguration,
+  rotateExistingRolePasswords = false,
 ): Promise<DatabaseRoleBootstrapResult> =>
   database.transaction().execute(async (transaction) => {
     await sql`select pg_advisory_xact_lock(1398034255, 1380929363)`.execute(transaction);
@@ -370,6 +375,11 @@ export const bootstrapDatabaseRoles = async (
           'stockcontrol.bootstrap_runtime_password',
           ${configuration.runtimePassword},
           true
+        ),
+        set_config(
+          'stockcontrol.bootstrap_rotate_existing_passwords',
+          ${rotateExistingRolePasswords ? "true" : "false"},
+          true
         )
     `.execute(transaction);
     await ROLE_BOOTSTRAP_SQL.execute(transaction);
@@ -388,7 +398,11 @@ export const bootstrapConfiguredDatabaseRoles = async (
   const database = createAdminDatabase(configuration.adminConnection);
 
   try {
-    const result = await bootstrapDatabaseRoles(database, configuration);
+    const result = await bootstrapDatabaseRoles(
+      database,
+      configuration,
+      environment.DATABASE_ROLE_BOOTSTRAP_ROTATE_PASSWORDS === "true",
+    );
     const migrator = createAdminDatabase(configuration.migratorConnection);
     const runtime = createAdminDatabase(configuration.runtimeConnection);
 

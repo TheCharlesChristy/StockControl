@@ -2,7 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Kysely, Transaction } from "kysely";
 
-import type { BackgroundJobEnvelope, RecognitionSessionStatus } from "@stockcontrol/contracts";
+import type {
+  BackgroundJobEnvelope,
+  LocalBarcodeObservation,
+  RecognitionIdentityDraft,
+  RecognitionSessionStatus,
+  RecognitionStageReportView,
+} from "@stockcontrol/contracts";
 import type { StructuredLogger } from "@stockcontrol/platform";
 import {
   canonicalGtin,
@@ -13,6 +19,7 @@ import {
 } from "@stockcontrol/module-stock-capture";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 
+import { mapWithConcurrency } from "./bounded-concurrency";
 import {
   barcodeStageResult,
   catalogueStageResult,
@@ -29,7 +36,13 @@ import {
   type CorePhotoResult,
   type RecognitionCoreImageInput,
 } from "./core-client";
-import { FusionClient, type VlmCandidateAllowlistEntry, type VlmRequest } from "./fusion-client";
+import {
+  FusionClient,
+  FusionUnavailableError,
+  type VlmCandidateAllowlistEntry,
+  type VlmProposal,
+  type VlmRequest,
+} from "./fusion-client";
 import type { ImageStorage } from "./image-storage";
 import type { RecognitionPipelineConfiguration } from "./recognition-configuration";
 import { encodeFloat16Buffer, findNearestNeighbours } from "./visual-index";
@@ -65,6 +78,12 @@ interface VerifiedImage {
   readonly ordinal: number;
   readonly bytes: Buffer;
   readonly mediaType: string;
+}
+
+interface GatheredEvidence {
+  readonly results: readonly StageResult[];
+  readonly stageReports: readonly RecognitionStageReportView[];
+  readonly suggestedDraft: RecognitionIdentityDraft | null;
 }
 
 export interface RecognitionHandlerDependencies {
@@ -107,18 +126,60 @@ const advanceStatus = async (
   return Number(result.numUpdatedRows) > 0;
 };
 
-const readLocalCodeValues = (
-  localCodes: unknown,
-): readonly { value: string; symbology: string }[] => {
+const readLocalCodeValues = (localCodes: unknown): readonly LocalBarcodeObservation[] => {
   if (!Array.isArray(localCodes)) return [];
-  const codes: { value: string; symbology: string }[] = [];
+  const codes: LocalBarcodeObservation[] = [];
   for (const entry of localCodes) {
     if (typeof entry !== "object" || entry === null) continue;
-    const { value, symbology } = entry as Record<string, unknown>;
-    if (typeof value === "string" && typeof symbology === "string")
-      codes.push({ value, symbology });
+    const { value, symbology, imageOrdinal, readerVersion } = entry as Record<string, unknown>;
+    if (typeof value !== "string" || typeof symbology !== "string") continue;
+    const safeImageOrdinal =
+      typeof imageOrdinal === "number" &&
+      Number.isInteger(imageOrdinal) &&
+      imageOrdinal >= 1 &&
+      imageOrdinal <= 5
+        ? imageOrdinal
+        : 1;
+    codes.push({
+      value,
+      symbology,
+      imageOrdinal: safeImageOrdinal,
+      readerVersion: typeof readerVersion === "string" ? readerVersion : "unknown",
+    });
   }
   return codes;
+};
+
+/** Retains both browser and server decodes, preferring the browser on duplicates. */
+export const mergeDetectedBarcodes = (
+  localCodes: readonly LocalBarcodeObservation[],
+  photoResults: readonly CorePhotoResult[],
+): readonly LocalBarcodeObservation[] => {
+  const merged: LocalBarcodeObservation[] = [];
+  const seen = new Set<string>();
+  const add = (code: LocalBarcodeObservation): void => {
+    const value = code.value.trim();
+    const symbology = code.symbology.trim();
+    if (value === "" || symbology === "") return;
+    const key = `${symbology.toUpperCase()}:${value.toUpperCase()}:${String(code.imageOrdinal)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push({ ...code, value, symbology });
+  };
+
+  localCodes.forEach(add);
+  for (const photo of photoResults) {
+    for (const barcode of photo.barcodes) {
+      add({
+        value: barcode.value,
+        symbology: barcode.symbology,
+        imageOrdinal: photo.imageOrdinal,
+        readerVersion: "recognition-core",
+      });
+    }
+  }
+
+  return merged.slice(0, 20);
 };
 
 /** Downloads each declared image and keeps only the ones whose bytes match
@@ -172,7 +233,7 @@ const verifyImages = async (
   return verified;
 };
 
-interface AggregatedIdentifiers {
+export interface AggregatedIdentifiers {
   readonly barcodeLikeCandidates: readonly string[];
   readonly partNumberCandidates: readonly string[];
   readonly nameFragments: readonly string[];
@@ -182,7 +243,7 @@ interface AggregatedIdentifiers {
 
 const aggregateIdentifiers = (
   photoResults: readonly CorePhotoResult[],
-  localCodes: readonly { value: string; symbology: string }[],
+  localCodes: readonly LocalBarcodeObservation[],
 ): AggregatedIdentifiers => {
   const barcodeLike = new Set<string>();
   const partNumbers = new Set<string>();
@@ -225,6 +286,119 @@ const aggregateIdentifiers = (
     validatedGtin,
   };
 };
+
+const draftHasEvidence = (draft: RecognitionIdentityDraft): boolean =>
+  draft.name.trim() !== "" ||
+  draft.manufacturer !== null ||
+  draft.partNumber !== null ||
+  draft.barcode !== null ||
+  draft.variantAttributes.length > 0;
+
+/**
+ * Keeps useful structured evidence even when deterministic fusion cannot
+ * produce a catalogue candidate. The person still confirms every field; this
+ * only prevents OCR/VLM work that already succeeded from disappearing behind
+ * a blank manual-entry form.
+ */
+export const suggestedDraftFromEvidence = (
+  identifiers: AggregatedIdentifiers,
+  photoResults: readonly CorePhotoResult[],
+  localCodes: readonly LocalBarcodeObservation[],
+): RecognitionIdentityDraft | null => {
+  const manufacturer = identifiers.manufacturerTokens[0] ?? null;
+  const nameFragment = identifiers.nameFragments.find((value) => /[A-Za-z]/u.test(value)) ?? "";
+  const name =
+    manufacturer !== null &&
+    nameFragment !== "" &&
+    !nameFragment.toLocaleLowerCase().includes(manufacturer.toLocaleLowerCase())
+      ? `${manufacturer} ${nameFragment}`
+      : nameFragment || manufacturer || "";
+  const variants = photoResults
+    .flatMap((photo) => photo.identifiers.variantAttributes)
+    .filter(
+      (attribute, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.label.toLocaleLowerCase() === attribute.label.toLocaleLowerCase() &&
+            candidate.value.toLocaleLowerCase() === attribute.value.toLocaleLowerCase(),
+        ) === index,
+    )
+    .slice(0, 8);
+  const draft: RecognitionIdentityDraft = {
+    manufacturer,
+    name: name.slice(0, 120),
+    partNumber: identifiers.partNumberCandidates[0] ?? null,
+    barcode:
+      identifiers.validatedGtin ??
+      identifiers.barcodeLikeCandidates[0] ??
+      localCodes[0]?.value ??
+      null,
+    unit: null,
+    variantAttributes: variants,
+  };
+
+  return draftHasEvidence(draft) ? draft : null;
+};
+
+const draftFromVlmProposal = (proposal: VlmProposal): RecognitionIdentityDraft | null => {
+  if (proposal.kind !== "ExternalIdentity") return null;
+  return {
+    manufacturer: proposal.manufacturer,
+    name: proposal.name,
+    partNumber: proposal.partNumber,
+    barcode: proposal.barcode,
+    unit: null,
+    variantAttributes: proposal.variantAttributes,
+  };
+};
+
+const draftCompleteness = (draft: RecognitionIdentityDraft): number =>
+  (draft.name.trim() === "" ? 0 : 4) +
+  (draft.manufacturer === null ? 0 : 1) +
+  (draft.partNumber === null ? 0 : 2) +
+  (draft.barcode === null ? 0 : 2) +
+  draft.variantAttributes.length;
+
+const preferDraft = (
+  current: RecognitionIdentityDraft | null,
+  proposed: RecognitionIdentityDraft | null,
+): RecognitionIdentityDraft | null => {
+  if (proposed === null) return current;
+  if (current === null || draftCompleteness(proposed) >= draftCompleteness(current))
+    return proposed;
+  return current;
+};
+
+export const buildPerPhotoVlmRequests = (
+  images: readonly {
+    readonly ordinal: number;
+    readonly bytes: Buffer;
+    readonly mediaType: string;
+  }[],
+  photoResults: readonly CorePhotoResult[],
+  candidates: readonly VlmCandidateAllowlistEntry[],
+  webEvidence: VlmRequest["webEvidence"],
+): readonly { readonly imageOrdinal: number; readonly request: VlmRequest }[] =>
+  images.map((image) => {
+    const photo = photoResults.find((result) => result.imageOrdinal === image.ordinal);
+    return {
+      imageOrdinal: image.ordinal,
+      request: {
+        images: [
+          {
+            ordinal: image.ordinal,
+            base64: image.bytes.toString("base64"),
+            mediaType: image.mediaType,
+          },
+        ],
+        observations:
+          photo?.ocrLines.map((line) => ({ imageOrdinal: image.ordinal, text: line.text })) ?? [],
+        candidates,
+        categories: photo?.categories.map((category) => category.label) ?? [],
+        webEvidence,
+      },
+    };
+  });
 
 const catalogueMatchSummary = (match: CatalogueMatch): string =>
   `${match.name}${match.partNumber !== null ? ` (${match.partNumber})` : ""}`;
@@ -280,13 +454,15 @@ const persistImageEvidence = async (
  */
 const gatherEvidence = async (
   database: Database,
+  sessionId: string,
   configuration: RecognitionPipelineConfiguration,
   verifiedImages: readonly VerifiedImage[],
   imageRows: readonly ImageRow[],
-  localCodes: readonly { value: string; symbology: string }[],
+  localCodes: readonly LocalBarcodeObservation[],
   logger: StructuredLogger,
-): Promise<readonly StageResult[]> => {
+): Promise<GatheredEvidence | null> => {
   const results: StageResult[] = [];
+  const stageReports: RecognitionStageReportView[] = [];
 
   let photoResults: readonly CorePhotoResult[] = [];
   if (configuration.recognitionCoreUrl !== undefined && verifiedImages.length > 0) {
@@ -302,16 +478,81 @@ const gatherEvidence = async (
     try {
       const analysed: AnalyseSessionResult = await client.analyseSession(randomUUID(), inputs);
       photoResults = analysed.photoResults;
+      const detectedBarcodes = mergeDetectedBarcodes(localCodes, photoResults);
+      await database
+        .withSchema(SCHEMA)
+        .updateTable("stock_recognition_sessions")
+        .set({ local_codes: JSON.stringify(detectedBarcodes) })
+        .where("id", "=", sessionId)
+        .execute();
       await persistImageEvidence(database, imageRows, photoResults);
+      for (const photo of photoResults) {
+        stageReports.push(
+          {
+            stage: "Barcode",
+            outcome: photo.barcodeOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.barcodes.map((barcode) => `${barcode.symbology}: ${barcode.value}`),
+          },
+          {
+            stage: "Ocr",
+            outcome: photo.ocrOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.ocrLines.map((line) => line.text),
+          },
+          {
+            stage: "VisualExample",
+            outcome: photo.embeddingOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations:
+              photo.embedding === null
+                ? []
+                : [`Image embedding created by ${photo.embedding.modelRevision}`],
+          },
+          {
+            stage: "Category",
+            outcome: photo.categoryOutcome,
+            imageOrdinal: photo.imageOrdinal,
+            observations: photo.categories.map((category) => category.label),
+          },
+        );
+      }
     } catch (error: unknown) {
       logger.error({
         event: "recognition.core_unavailable",
         errorName: error instanceof Error ? error.name : "Unknown",
       });
+      for (const image of verifiedImages) {
+        for (const stage of ["Barcode", "Ocr", "VisualExample", "Category"] as const) {
+          stageReports.push({
+            stage,
+            outcome: "Unavailable",
+            imageOrdinal: image.ordinal,
+            observations: ["The recognition service could not be reached."],
+          });
+        }
+      }
+    }
+  } else if (verifiedImages.length > 0) {
+    for (const image of verifiedImages) {
+      for (const stage of ["Barcode", "Ocr", "VisualExample", "Category"] as const) {
+        stageReports.push({
+          stage,
+          outcome: "Unavailable",
+          imageOrdinal: image.ordinal,
+          observations: ["This recognition service is not configured."],
+        });
+      }
     }
   }
 
+  // recognition-core (barcode, OCR, category and embedding) is the image
+  // processing stage. Do not claim enrichment has started until that remote
+  // call has actually finished.
+  if (!(await advanceStatus(database, sessionId, "Enriching"))) return null;
+
   const identifiers = aggregateIdentifiers(photoResults, localCodes);
+  let suggestedDraft = suggestedDraftFromEvidence(identifiers, photoResults, localCodes);
 
   const catalogueMatches = await queryCatalogue(database, {
     barcodeLikeCandidates: identifiers.barcodeLikeCandidates,
@@ -369,6 +610,11 @@ const gatherEvidence = async (
     results.push(webStageResult(result, index + 1));
   });
 
+  // The VLM is part of fusion, and can be the slowest call in the pipeline.
+  // Publish this boundary before making the call so polling reports where the
+  // worker is really waiting rather than remaining on "Enriching".
+  if (!(await advanceStatus(database, sessionId, "Fusing"))) return null;
+
   if (configuration.recognitionFusionUrl !== undefined && verifiedImages.length > 0) {
     const allowlist: VlmCandidateAllowlistEntry[] = catalogueMatches.slice(0, 5).map((match) => ({
       candidateId: match.itemId,
@@ -383,37 +629,91 @@ const gatherEvidence = async (
       apiKey: configuration.recognitionFusionApiKey ?? "",
       timeoutMilliseconds: configuration.recognitionFusionTimeoutMilliseconds,
     });
-    const request: VlmRequest = {
-      images: verifiedImages.map((image) => ({
-        ordinal: image.ordinal,
-        base64: image.bytes.toString("base64"),
-        mediaType: image.mediaType,
-      })),
-      observations: photoResults.flatMap((photo) =>
-        photo.ocrLines.map((line) => ({ imageOrdinal: photo.imageOrdinal, text: line.text })),
-      ),
-      candidates: allowlist,
-      categories: [
-        ...new Set(photoResults.flatMap((photo) => photo.categories.map((c) => c.label))),
-      ],
-      webEvidence:
-        webOutcome?.results.map((result) => ({ title: result.title, snippet: result.snippet })) ??
-        [],
-    };
+    /* Each photograph gets an independent bounded call. Combining two normal
+     * phone photos produced ~3,500 vision tokens on the 4,096-token staging
+     * context, took 40 seconds, and made one invalid answer discard both
+     * photographs. Per-photo calls stay small, isolate failures, and let
+     * deterministic fusion reward agreement across images. */
+    const requests = buildPerPhotoVlmRequests(
+      verifiedImages,
+      photoResults,
+      allowlist,
+      webOutcome?.results.map((result) => ({ title: result.title, snippet: result.snippet })) ?? [],
+    );
+    const outcomes = await mapWithConcurrency(
+      requests,
+      configuration.recognitionFusionConcurrency,
+      async ({ imageOrdinal, request }) => {
+        try {
+          return {
+            imageOrdinal,
+            proposal: await client.proposeIdentity(request),
+            error: null,
+          };
+        } catch (error: unknown) {
+          return { imageOrdinal, proposal: null, error };
+        }
+      },
+    );
 
-    try {
-      const proposal = await client.proposeIdentity(request);
-      const stageResult = vlmStageResult(proposal, identityById);
-      if (stageResult !== null) results.push(stageResult);
-    } catch (error: unknown) {
+    // mapWithConcurrency preserves request order, so deterministic fusion and
+    // suggested-draft tie breaking do not depend on which model call finishes first.
+    for (const { imageOrdinal, proposal, error } of outcomes) {
+      if (proposal !== null) {
+        const stageResult = vlmStageResult(proposal, identityById, imageOrdinal);
+        if (stageResult !== null) results.push(stageResult);
+        suggestedDraft = preferDraft(suggestedDraft, draftFromVlmProposal(proposal));
+        stageReports.push({
+          stage: "Vlm",
+          outcome: "Succeeded",
+          imageOrdinal,
+          observations:
+            proposal.kind === "Unknown"
+              ? ["Photo analysis completed but did not identify the item."]
+              : ["Photo analysis proposed an identity."],
+        });
+        continue;
+      }
+
       logger.error({
         event: "recognition.fusion_unavailable",
+        imageOrdinal,
         errorName: error instanceof Error ? error.name : "Unknown",
+        reason: error instanceof FusionUnavailableError ? error.reason : "Unknown",
+        validationFailures:
+          error instanceof FusionUnavailableError
+            ? error.diagnostics.map((diagnostic) => diagnostic.failure)
+            : [],
+        finishReasons:
+          error instanceof FusionUnavailableError
+            ? error.diagnostics.map((diagnostic) => diagnostic.finishReason)
+            : [],
+      });
+      stageReports.push({
+        stage: "Vlm",
+        outcome: "Unavailable",
+        imageOrdinal,
+        observations: [
+          error instanceof FusionUnavailableError && error.reason === "TimedOut"
+            ? `Photo analysis took longer than ${String(
+                Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
+              )} seconds and was stopped.`
+            : "The photo-analysis service could not complete the request.",
+        ],
+      });
+    }
+  } else if (verifiedImages.length > 0) {
+    for (const image of verifiedImages) {
+      stageReports.push({
+        stage: "Vlm",
+        outcome: "Unavailable",
+        imageOrdinal: image.ordinal,
+        observations: ["The photo-analysis service is not configured."],
       });
     }
   }
 
-  return results;
+  return { results, stageReports, suggestedDraft };
 };
 
 const candidateKind = (candidate: FusedCandidate): "InternalItem" | "ExternalDraft" =>
@@ -529,21 +829,24 @@ export const createRecognitionHandler = (
     }
 
     if (!(await advanceStatus(database, sessionId, "ProcessingImages"))) return;
-    if (!(await advanceStatus(database, sessionId, "Enriching"))) return;
 
     const evidence = await gatherEvidence(
       database,
+      sessionId,
       configuration,
       verifiedImages,
       imageRows,
       localCodes,
       logger,
     );
+    if (evidence === null) return;
 
-    if (!(await advanceStatus(database, sessionId, "Fusing"))) return;
-
-    const outcome = runFusion(evidence);
-    const modelManifest = { fusionWeights: outcome.weightsVersion };
+    const outcome = runFusion(evidence.results);
+    const modelManifest = {
+      fusionWeights: outcome.weightsVersion,
+      stageReports: evidence.stageReports,
+      suggestedDraft: evidence.suggestedDraft,
+    };
 
     const wrote = await writeResults(database, sessionId, outcome.candidates, modelManifest);
     if (!wrote) {

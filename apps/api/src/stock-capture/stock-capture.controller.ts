@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Put, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Put, Req, Res } from "@nestjs/common";
 import type {
   CaptureUploadGrantResponse,
   CaptureImageMediaType,
@@ -15,7 +15,7 @@ import {
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { DeclaredImage } from "@stockcontrol/module-stock-capture";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
 import { canViewAllActivity, requireCapability } from "../auth/request-context";
@@ -65,6 +65,14 @@ export class StockCaptureController {
         defaultLocationId: optionalUuid(body, "defaultLocationId", "a location"),
       }),
     };
+  }
+
+  @Get("stock-capture/batches/open")
+  public async getOpenBatch(
+    @Req() request: FastifyRequest,
+  ): Promise<{ readonly batch: StockCaptureBatchView | null }> {
+    const user = requireCapability(request, "manageStock");
+    return { batch: await this.capture.getOpenBatch(user.id) };
   }
 
   @Get("stock-capture/batches/:batchId")
@@ -130,6 +138,27 @@ export class StockCaptureController {
     };
   }
 
+  @Get("stock-capture/sessions/:sessionId/images/:imageId")
+  public async getSessionImage(
+    @Req() request: FastifyRequest,
+    @Param("sessionId") sessionId: string,
+    @Param("imageId") imageId: string,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    const user = requireCapability(request, "manageStock");
+    const image = await this.capture.getSessionImage(
+      requireUuidParameter(sessionId, "session"),
+      requireUuidParameter(imageId, "image"),
+      user.id,
+    );
+
+    return reply
+      .type(image.mediaType)
+      .header("content-disposition", 'inline; filename="capture-photo"')
+      .header("cache-control", "private, max-age=60")
+      .send(image.bytes);
+  }
+
   @Post("stock-capture/sessions/:sessionId/uploads")
   public async requestUploads(
     @Req() request: FastifyRequest,
@@ -182,6 +211,7 @@ export class StockCaptureController {
   public async completeUploads(
     @Req() request: FastifyRequest,
     @Param("sessionId") sessionId: string,
+    @Body() rawBody: unknown,
   ): Promise<{ readonly session: RecognitionSessionSummaryView }> {
     const user = requireCapability(request, "manageStock");
 
@@ -189,6 +219,7 @@ export class StockCaptureController {
       session: await this.capture.completeUploads(
         requireUuidParameter(sessionId, "session"),
         user.id,
+        readUploadedImageIds(bodyOf(rawBody)),
       ),
     };
   }
@@ -275,15 +306,28 @@ export const readSelection = (body: ParsedBody): CommitCaptureEntryRequest["sele
   throw selectionInvalid();
 };
 
+/**
+ * Which photographs the browser believes it managed to send. The contract has
+ * always carried these and the server has always thrown them away, so a
+ * browser that uploaded two of three could still say it had finished and the
+ * failure would not surface until the worker went looking for the missing
+ * object. Reported ids are checked against the declared rows; an empty list
+ * means the caller said nothing, which is how every caller behaved until now.
+ */
+export const readUploadedImageIds = (body: ParsedBody): readonly string[] =>
+  readBoundedArray(body, "uploadedImageIds", CAPTURE_MAX_PHOTOS).filter(
+    (entry): entry is string => typeof entry === "string",
+  );
+
 export const readPhotoCount = (body: ParsedBody): number => {
   const value = body.photoCount;
   if (
     typeof value !== "number" ||
     !Number.isInteger(value) ||
-    value < 0 ||
+    value < 1 ||
     value > CAPTURE_MAX_PHOTOS
   ) {
-    throw uploadInvalid(`Send between 0 and ${String(CAPTURE_MAX_PHOTOS)} photographs.`);
+    throw uploadInvalid(`Send between 1 and ${String(CAPTURE_MAX_PHOTOS)} photographs.`);
   }
   return value;
 };

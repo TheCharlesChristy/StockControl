@@ -52,6 +52,7 @@ describe.sequential("visual index loading", () => {
       .insertInto("users")
       .values({
         id,
+        username: `worker.${id.slice(0, 23)}`,
         email: `${id}@example.invalid`,
         display_name: "Visual Index Test User",
         role: "Office",

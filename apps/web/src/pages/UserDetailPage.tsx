@@ -65,7 +65,8 @@ function DetailsForm({
   readonly onSaved: () => void;
 }): ReactElement {
   const api = useApi();
-  const [email, setEmail] = useState(user.email);
+  const [username, setUsername] = useState(user.username);
+  const [email, setEmail] = useState(user.email ?? "");
   const [displayName, setDisplayName] = useState(user.displayName);
   const [role, setRole] = useState<UserRole>(user.role);
   const [isActive, setIsActive] = useState(user.isActive);
@@ -103,7 +104,14 @@ function DetailsForm({
     setError(undefined);
 
     void api
-      .updateUser(user.id, { email, displayName, role, isActive })
+      /* An emptied address is sent as null, which is what removes it. */
+      .updateUser(user.id, {
+        username,
+        email: email.trim().length === 0 ? null : email,
+        displayName,
+        role,
+        isActive,
+      })
       .then(() => {
         setSaved(true);
         onSaved();
@@ -162,13 +170,22 @@ function DetailsForm({
 
           <TextField
             required
+            type="text"
+            label="Username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            disabled={saving}
+            error={error?.fieldError("username") !== undefined}
+            helperText={error?.fieldError("username") ?? "What this person signs in with."}
+          />
+          <TextField
             type="email"
-            label="Work email"
+            label="Work email (optional)"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={saving}
             error={error?.fieldError("email") !== undefined}
-            helperText={error?.fieldError("email")}
+            helperText={error?.fieldError("email") ?? "Clearing this removes the address."}
           />
           <TextField
             required
@@ -356,7 +373,7 @@ export function UserDetailPage(): ReactElement {
           <PageHeader
             eyebrow={data.user.role}
             title={data.user.displayName}
-            description={`${data.user.email} · joined ${formatDateTime(data.user.createdAt)}`}
+            description={`${data.user.username} · joined ${formatDateTime(data.user.createdAt)}`}
             actions={
               <Button
                 variant="outlined"
