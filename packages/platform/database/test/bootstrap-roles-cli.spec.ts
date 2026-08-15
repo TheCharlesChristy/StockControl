@@ -64,7 +64,9 @@ describe("database role bootstrap CLI", () => {
     await executeCli();
     await vi.waitFor(() => expect(stdout).toHaveBeenCalledOnce());
 
-    expect(cliMocks.bootstrapConfiguredDatabaseRoles).toHaveBeenCalledWith(process.env);
+    expect(cliMocks.bootstrapConfiguredDatabaseRoles).toHaveBeenCalledWith(
+      process.env,
+    );
     expect(stderr).not.toHaveBeenCalled();
     expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
       event: "database.roles.bootstrap.complete",
@@ -73,7 +75,9 @@ describe("database role bootstrap CLI", () => {
 
   it("fails the deployment after flushing a sanitized configuration error", async () => {
     cliMocks.bootstrapConfiguredDatabaseRoles.mockRejectedValue(
-      new cliMocks.MockDatabaseRoleBootstrapConfigurationError("InvalidPassword"),
+      new cliMocks.MockDatabaseRoleBootstrapConfigurationError(
+        "InvalidPassword",
+      ),
     );
 
     await executeCli();
@@ -114,7 +118,9 @@ describe("database role bootstrap CLI", () => {
 
   it("keeps stable bootstrap error codes while failing the deployment", async () => {
     cliMocks.bootstrapConfiguredDatabaseRoles.mockRejectedValue(
-      new cliMocks.MockDatabaseRoleBootstrapError("ConnectedRuntimeRoleMismatch"),
+      new cliMocks.MockDatabaseRoleBootstrapError(
+        "ConnectedRuntimeRoleMismatch",
+      ),
     );
 
     await executeCli();
