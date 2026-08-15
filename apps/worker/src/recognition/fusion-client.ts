@@ -138,9 +138,8 @@ const SYSTEM_PROMPT = [
   "Never invent an id that was not supplied. Do not call a tool or ask a question.",
 ].join(" ");
 
-const clampImages = (
-  images: readonly VlmImageInput[],
-): readonly VlmImageInput[] => images.slice(0, MAX_IMAGES);
+const clampImages = (images: readonly VlmImageInput[]): readonly VlmImageInput[] =>
+  images.slice(0, MAX_IMAGES);
 
 const buildUserContent = (request: VlmRequest): readonly unknown[] => {
   const observationsByImage = new Map<number, string[]>();
@@ -153,38 +152,27 @@ const buildUserContent = (request: VlmRequest): readonly unknown[] => {
   }
 
   const evidence = {
-    candidates: request.candidates
-      .slice(0, MAX_CANDIDATES)
-      .map((candidate) => ({
-        id: candidate.candidateId,
-        summary: sanitiseForPrompt(
-          candidate.summary,
-          MAX_CANDIDATE_SUMMARY_LENGTH,
-        ),
-      })),
+    candidates: request.candidates.slice(0, MAX_CANDIDATES).map((candidate) => ({
+      id: candidate.candidateId,
+      summary: sanitiseForPrompt(candidate.summary, MAX_CANDIDATE_SUMMARY_LENGTH),
+    })),
     categories: request.categories
       .slice(0, MAX_CATEGORIES)
       .map((category) => sanitiseForPrompt(category, MAX_FIELD_LENGTH)),
-    observations: [...observationsByImage.entries()].map(
-      ([imageOrdinal, lines]) => ({
-        imageOrdinal,
-        lines,
-      }),
-    ),
+    observations: [...observationsByImage.entries()].map(([imageOrdinal, lines]) => ({
+      imageOrdinal,
+      lines,
+    })),
     // Untrusted, delimited as data: this object is JSON-encoded below, never
     // concatenated into instruction text.
-    webEvidence: request.webEvidence
-      .slice(0, MAX_WEB_RESULTS)
-      .map((result) => ({
-        title: sanitiseForPrompt(result.title, MAX_WEB_FIELD_LENGTH),
-        snippet: sanitiseForPrompt(result.snippet, MAX_WEB_FIELD_LENGTH),
-      })),
+    webEvidence: request.webEvidence.slice(0, MAX_WEB_RESULTS).map((result) => ({
+      title: sanitiseForPrompt(result.title, MAX_WEB_FIELD_LENGTH),
+      snippet: sanitiseForPrompt(result.snippet, MAX_WEB_FIELD_LENGTH),
+    })),
   };
 
   const images = clampImages(request.images);
-  const content: unknown[] = [
-    { type: "text", text: `Evidence: ${JSON.stringify(evidence)}` },
-  ];
+  const content: unknown[] = [{ type: "text", text: `Evidence: ${JSON.stringify(evidence)}` }];
   for (const image of images) {
     content.push({
       type: "image_url",
@@ -194,9 +182,7 @@ const buildUserContent = (request: VlmRequest): readonly unknown[] => {
   return content;
 };
 
-const candidateIdSchema = (
-  candidates: readonly VlmCandidateAllowlistEntry[],
-): unknown =>
+const candidateIdSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown =>
   candidates.length > 0
     ? {
         type: ["string", "null"],
@@ -239,9 +225,7 @@ const evidenceImageOrdinalsSchema = {
  * satisfies the grammar also satisfies parseVlmResponse. In particular, an
  * InternalCandidate is impossible when the allowlist is empty and a real
  * allowlisted id is mandatory when that branch is selected. */
-const buildResponseSchema = (
-  candidates: readonly VlmCandidateAllowlistEntry[],
-): unknown => {
+const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => {
   const candidateIds = candidates.map((candidate) => candidate.candidateId);
   const kinds =
     candidateIds.length > 0
@@ -302,21 +286,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const readOrdinals = (value: unknown): readonly number[] => {
   if (!Array.isArray(value)) return [];
   return value.filter(
-    (entry): entry is number =>
-      typeof entry === "number" && Number.isInteger(entry),
+    (entry): entry is number => typeof entry === "number" && Number.isInteger(entry),
   );
 };
 
-const readVariantAttributes = (
-  value: unknown,
-): readonly VlmVariantAttribute[] => {
+const readVariantAttributes = (value: unknown): readonly VlmVariantAttribute[] => {
   if (!Array.isArray(value)) return [];
   const attributes: VlmVariantAttribute[] = [];
   for (const entry of value.slice(0, MAX_VARIANT_ATTRIBUTES)) {
     if (!isRecord(entry)) continue;
     const { label, value: attributeValue } = entry;
-    if (typeof label !== "string" || typeof attributeValue !== "string")
-      continue;
+    if (typeof label !== "string" || typeof attributeValue !== "string") continue;
     attributes.push({
       label: label.slice(0, 40),
       value: attributeValue.slice(0, 80),
@@ -343,9 +323,7 @@ export const parseVlmResponse = (
   if (kind === "InternalCandidate") {
     const candidateId = raw.candidateId;
     if (typeof candidateId !== "string") return null;
-    const allowed = candidates.some(
-      (candidate) => candidate.candidateId === candidateId,
-    );
+    const allowed = candidates.some((candidate) => candidate.candidateId === candidateId);
     if (!allowed) return null;
     return {
       kind: "InternalCandidate",
@@ -360,28 +338,17 @@ export const parseVlmResponse = (
     const barcode = raw.barcode;
     const rawName = typeof raw.name === "string" ? raw.name.trim() : "";
     const fallbackName = [manufacturer, partNumber]
-      .filter(
-        (value): value is string =>
-          typeof value === "string" && value.trim().length > 0,
-      )
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
       .join(" ")
       .trim();
-    const name =
-      rawName ||
-      fallbackName ||
-      (typeof barcode === "string" ? barcode.trim() : "");
+    const name = rawName || fallbackName || (typeof barcode === "string" ? barcode.trim() : "");
     if (name.length === 0) return null;
     return {
       kind: "ExternalIdentity",
       manufacturer:
-        typeof manufacturer === "string"
-          ? manufacturer.slice(0, MAX_FIELD_LENGTH)
-          : null,
+        typeof manufacturer === "string" ? manufacturer.slice(0, MAX_FIELD_LENGTH) : null,
       name: name.slice(0, MAX_FIELD_LENGTH),
-      partNumber:
-        typeof partNumber === "string"
-          ? partNumber.slice(0, MAX_FIELD_LENGTH)
-          : null,
+      partNumber: typeof partNumber === "string" ? partNumber.slice(0, MAX_FIELD_LENGTH) : null,
       barcode: typeof barcode === "string" ? barcode.slice(0, 40) : null,
       variantAttributes: readVariantAttributes(raw.variantAttributes),
       evidenceImageOrdinals: readOrdinals(raw.evidenceImageOrdinals),
@@ -448,12 +415,9 @@ export class FusionClient {
 
     const first = await this.complete(body);
     const firstProposal =
-      first.value === null
-        ? null
-        : parseVlmResponse(first.value, request.candidates);
+      first.value === null ? null : parseVlmResponse(first.value, request.candidates);
     if (firstProposal !== null) return firstProposal;
-    const firstFailure: FusionResponseFailure =
-      first.failure ?? "InvalidProposal";
+    const firstFailure: FusionResponseFailure = first.failure ?? "InvalidProposal";
 
     const retryBody = {
       ...body,
@@ -461,40 +425,31 @@ export class FusionClient {
         ...body.messages,
         {
           role: "user",
-          content: correctiveInstruction(
-            firstFailure,
-            request.candidates.length > 0,
-          ),
+          content: correctiveInstruction(firstFailure, request.candidates.length > 0),
         },
       ],
     };
     const retry = await this.complete(retryBody);
     const retryProposal =
-      retry.value === null
-        ? null
-        : parseVlmResponse(retry.value, request.candidates);
+      retry.value === null ? null : parseVlmResponse(retry.value, request.candidates);
     if (retryProposal !== null) return retryProposal;
-    const retryFailure: FusionResponseFailure =
-      retry.failure ?? "InvalidProposal";
+    const retryFailure: FusionResponseFailure = retry.failure ?? "InvalidProposal";
 
-    throw new FusionUnavailableError(
-      "recognition-fusion did not return a valid proposal.",
-      {
-        reason: "InvalidResponse",
-        diagnostics: [
-          {
-            attempt: 1,
-            failure: firstFailure,
-            finishReason: first.finishReason,
-          },
-          {
-            attempt: 2,
-            failure: retryFailure,
-            finishReason: retry.finishReason,
-          },
-        ],
-      },
-    );
+    throw new FusionUnavailableError("recognition-fusion did not return a valid proposal.", {
+      reason: "InvalidResponse",
+      diagnostics: [
+        {
+          attempt: 1,
+          failure: firstFailure,
+          finishReason: first.finishReason,
+        },
+        {
+          attempt: 2,
+          failure: retryFailure,
+          finishReason: retry.finishReason,
+        },
+      ],
+    });
   }
 
   private async complete(body: unknown): Promise<CompletionAttempt> {
@@ -504,18 +459,15 @@ export class FusionClient {
     }, this.options.timeoutMilliseconds);
 
     try {
-      const response = await this.fetchImpl(
-        `${this.options.baseUrl}/v1/chat/completions`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${this.options.apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
+      const response = await this.fetchImpl(`${this.options.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.options.apiKey}`,
         },
-      );
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new FusionUnavailableError(
           `recognition-fusion responded with status ${String(response.status)}.`,
@@ -547,8 +499,7 @@ export class FusionClient {
           finishReason: null,
         };
       }
-      const finishReason =
-        typeof choice.finish_reason === "string" ? choice.finish_reason : null;
+      const finishReason = typeof choice.finish_reason === "string" ? choice.finish_reason : null;
       if (!isRecord(choice.message)) {
         return { value: null, failure: "MalformedEnvelope", finishReason };
       }

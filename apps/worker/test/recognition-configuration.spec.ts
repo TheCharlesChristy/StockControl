@@ -55,9 +55,7 @@ describe("loadRecognitionPipelineConfiguration", () => {
   });
 
   it("defaults the visual index embedding model to 'unset'", () => {
-    expect(
-      loadRecognitionPipelineConfiguration({}).visualIndexEmbeddingModel,
-    ).toBe("unset");
+    expect(loadRecognitionPipelineConfiguration({}).visualIndexEmbeddingModel).toBe("unset");
   });
 
   it.each([
@@ -66,14 +64,8 @@ describe("loadRecognitionPipelineConfiguration", () => {
     "RECOGNITION_FUSION_CONCURRENCY",
     "WEB_FETCH_TIMEOUT_MS",
   ])("rejects a non-positive-integer %s", (name) => {
-    expect(() =>
-      loadRecognitionPipelineConfiguration({ [name]: "not-a-number" }),
-    ).toThrow();
-    expect(() =>
-      loadRecognitionPipelineConfiguration({ [name]: "0" }),
-    ).toThrow();
-    expect(() =>
-      loadRecognitionPipelineConfiguration({ [name]: "-5" }),
-    ).toThrow();
+    expect(() => loadRecognitionPipelineConfiguration({ [name]: "not-a-number" })).toThrow();
+    expect(() => loadRecognitionPipelineConfiguration({ [name]: "0" })).toThrow();
+    expect(() => loadRecognitionPipelineConfiguration({ [name]: "-5" })).toThrow();
   });
 });
