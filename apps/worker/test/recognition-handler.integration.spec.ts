@@ -325,7 +325,7 @@ describe.sequential("recognition handler", () => {
     await expect(sessionModelManifest(sessionId)).resolves.toMatchObject({
       stageReports: expect.arrayContaining([
         expect.objectContaining({ stage: "Ocr", outcome: "Unavailable", imageOrdinal: 1 }),
-        expect.objectContaining({ stage: "Vlm", outcome: "Unavailable", imageOrdinal: null }),
+        expect.objectContaining({ stage: "Vlm", outcome: "Unavailable", imageOrdinal: 1 }),
       ]),
     });
   });

@@ -22,8 +22,8 @@ describe("mapWithConcurrency", () => {
   });
 
   it.each([0, -1, 1.5])("rejects invalid concurrency %s", async (concurrency) => {
-    await expect(mapWithConcurrency([1], concurrency, async (value) => value)).rejects.toThrow(
-      "concurrency must be a positive integer",
-    );
+    await expect(
+      mapWithConcurrency([1], concurrency, (value) => Promise.resolve(value)),
+    ).rejects.toThrow("concurrency must be a positive integer");
   });
 });

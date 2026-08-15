@@ -369,7 +369,7 @@ export interface FusionClientOptions {
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 interface CompletionAttempt {
-  readonly value: unknown | null;
+  readonly value: unknown;
   readonly failure: Exclude<FusionResponseFailure, "InvalidProposal"> | null;
   readonly finishReason: string | null;
 }
@@ -476,7 +476,7 @@ export class FusionClient {
 
       let json: unknown;
       try {
-        json = (await response.json()) as unknown;
+        json = await response.json();
       } catch {
         return {
           value: null,
