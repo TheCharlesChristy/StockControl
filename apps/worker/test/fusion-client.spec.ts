@@ -603,9 +603,11 @@ describe("FusionClient.proposeIdentity", () => {
   });
 
   it.each([
+    ["an invalid JSON response body", "{"],
     ["a non-object body", '"just a string"'],
     ["a body with no choices array", "{}"],
-    ["a choice with no message object", JSON.stringify({ choices: ["not an object"] })],
+    ["a non-object choice", JSON.stringify({ choices: ["not an object"] })],
+    ["a choice with no message object", JSON.stringify({ choices: [{ finish_reason: "stop" }] })],
     [
       "a message with non-string content",
       JSON.stringify({ choices: [{ message: { content: 123 } }] }),
