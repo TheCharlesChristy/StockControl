@@ -21,7 +21,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { API_TOKENS } from "../api.tokens";
-import { bodyOf } from "../inventory/request-parsing";
+import { bodyOf, requireText } from "../inventory/request-parsing";
 import { isStockCaptureEnabled } from "../stock-capture/capture-configuration";
 import { readSessionCookie } from "./auth.guard";
 import { hashPassword } from "./password";
@@ -89,15 +89,12 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<SessionWithCapabilities> {
     const body = bodyOf(rawBody);
-    const username = typeof body["username"] === "string" ? body["username"] : "";
+    const username = requireText(body, "username", "your username");
     const password = typeof body["password"] === "string" ? body["password"] : "";
 
-    if (username.trim().length === 0 || password.length === 0) {
+    if (password.length === 0) {
       throw new ApplicationFailureException(
-        validationFailed({
-          ...(username.trim().length === 0 ? { username: ["Enter your username."] } : {}),
-          ...(password.length === 0 ? { password: ["Enter your password."] } : {}),
-        }),
+        validationFailed({ password: ["Enter your password."] }),
       );
     }
 

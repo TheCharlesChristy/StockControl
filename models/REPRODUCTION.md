@@ -43,7 +43,10 @@ no model download request.
   `LiquidAI/LFM2.5-VL-1.6B-GGUF` repository, using its Q4_0 GGUF and matching
   F16 projector. No local quantisation or conversion is applied. The runtime
   is built from llama.cpp commit
-  `e23e9440eb0c625c30d6c40266e9335071a4debc`, with context 4096 and one slot.
+  `e23e9440eb0c625c30d6c40266e9335071a4debc`. The image's default
+  `--ctx-size 8192` is split across `--parallel 2` slots (see
+  `services/recognition-fusion/docker-entrypoint.sh`), giving each of the two
+  concurrently analysed photographs the same 4,096-token budget as before.
 
 The exact revisions, file digests, and licence strings are authoritative in
 `manifest.lock.json`. The LFM Open License v1.0 is not Apache-2.0; its annual

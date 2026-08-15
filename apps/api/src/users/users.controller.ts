@@ -154,13 +154,22 @@ export class UsersController {
     }
 
     const displayName = readText(body, "displayName");
-    const username = readText(body, "username");
+    /*
+     * `readText` collapses "omitted" and "present but blank" to the same "",
+     * which would make an explicit blank silently read as "unchanged" instead
+     * of the rejection it deserves — a username cannot be cleared the way an
+     * email address can.
+     */
+    const username = readClearableText(body, "username");
+    if (username === null) {
+      throw new ApplicationFailureException(validationFailed({ username: ["Enter a username."] }));
+    }
     /* Emptying the address removes it, so blank cannot mean "unchanged" here. */
     const email = readClearableText(body, "email");
 
     return {
       user: await this.users.update(id, {
-        ...(username.length === 0 ? {} : { username }),
+        ...(username === undefined ? {} : { username }),
         ...(email === undefined ? {} : { email }),
         ...(displayName.length === 0 ? {} : { displayName }),
         ...(role === undefined ? {} : { role }),
