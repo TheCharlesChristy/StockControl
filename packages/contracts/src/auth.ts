@@ -72,7 +72,13 @@ export const emailRules = Object.freeze({ maximumCharacters: 320 });
  * an address at all — a stricter rule would reject real mailboxes to no end.
  */
 export const emailFormatErrors = (email: string): readonly string[] => {
-  if (!EMAIL_PATTERN.test(email) || [...email].length > emailRules.maximumCharacters) {
+  /*
+   * The length check runs first and short-circuits, because EMAIL_PATTERN's
+   * two adjacent `[^\s@]+` groups can backtrack polynomially on a long,
+   * dot-heavy string — bounding the input before the regex ever runs is what
+   * keeps that cheap.
+   */
+  if ([...email].length > emailRules.maximumCharacters || !EMAIL_PATTERN.test(email)) {
     return ["Enter a valid email address."];
   }
 
