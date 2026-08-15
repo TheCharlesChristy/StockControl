@@ -7,6 +7,11 @@
 set -eu
 
 : "${PORT:=8000}"
+# llama.cpp divides the total KV context between parallel slots. Two 4,096
+# token slots allow the worker to analyse two photographs concurrently while
+# retaining the per-photo context budget used by the response contract.
+: "${LLAMA_ARG_N_PARALLEL:=2}"
+: "${LLAMA_ARG_CTX_SIZE:=8192}"
 
 require_file() {
   variable_name=$1
@@ -36,8 +41,8 @@ exec llama-server \
   --port "${PORT}" \
   --model "${RECOGNITION_FUSION_MODEL_PATH}" \
   --mmproj "${RECOGNITION_FUSION_MMPROJ_PATH}" \
-  --ctx-size 4096 \
-  --parallel 1 \
+  --ctx-size "${LLAMA_ARG_CTX_SIZE}" \
+  --parallel "${LLAMA_ARG_N_PARALLEL}" \
   --api-key "${RECOGNITION_FUSION_API_KEY}" \
   --no-webui \
   --no-slots

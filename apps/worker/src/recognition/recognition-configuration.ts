@@ -23,6 +23,7 @@ export interface RecognitionPipelineConfiguration {
   readonly recognitionFusionUrl: string | undefined;
   readonly recognitionFusionApiKey: string | undefined;
   readonly recognitionFusionTimeoutMilliseconds: number;
+  readonly recognitionFusionConcurrency: number;
   readonly braveSearchApiKey: string | undefined;
   readonly webFetchTimeoutMilliseconds: number;
   readonly visualIndexEmbeddingModel: string;
@@ -51,6 +52,11 @@ export const loadRecognitionPipelineConfiguration = (
     environment,
     "RECOGNITION_FUSION_TIMEOUT_MS",
     15_000,
+  ),
+  recognitionFusionConcurrency: readPositiveInteger(
+    environment,
+    "RECOGNITION_FUSION_CONCURRENCY",
+    2,
   ),
   braveSearchApiKey: trimmedOrUndefined(environment.BRAVE_SEARCH_API_KEY),
   webFetchTimeoutMilliseconds: readPositiveInteger(environment, "WEB_FETCH_TIMEOUT_MS", 5_000),

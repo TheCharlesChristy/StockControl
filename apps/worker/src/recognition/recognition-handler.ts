@@ -19,6 +19,7 @@ import {
 } from "@stockcontrol/module-stock-capture";
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 
+import { mapWithConcurrency } from "./bounded-concurrency";
 import {
   barcodeStageResult,
   catalogueStageResult,
@@ -639,9 +640,26 @@ const gatherEvidence = async (
       allowlist,
       webOutcome?.results.map((result) => ({ title: result.title, snippet: result.snippet })) ?? [],
     );
-    for (const { imageOrdinal, request } of requests) {
-      try {
-        const proposal = await client.proposeIdentity(request);
+    const outcomes = await mapWithConcurrency(
+      requests,
+      configuration.recognitionFusionConcurrency,
+      async ({ imageOrdinal, request }) => {
+        try {
+          return {
+            imageOrdinal,
+            proposal: await client.proposeIdentity(request),
+            error: null,
+          };
+        } catch (error: unknown) {
+          return { imageOrdinal, proposal: null, error };
+        }
+      },
+    );
+
+    // mapWithConcurrency preserves request order, so deterministic fusion and
+    // suggested-draft tie breaking do not depend on which model call finishes first.
+    for (const { imageOrdinal, proposal, error } of outcomes) {
+      if (proposal !== null) {
         const stageResult = vlmStageResult(proposal, identityById, imageOrdinal);
         if (stageResult !== null) results.push(stageResult);
         suggestedDraft = preferDraft(suggestedDraft, draftFromVlmProposal(proposal));
@@ -654,26 +672,35 @@ const gatherEvidence = async (
               ? ["Photo analysis completed but did not identify the item."]
               : ["Photo analysis proposed an identity."],
         });
-      } catch (error: unknown) {
-        logger.error({
-          event: "recognition.fusion_unavailable",
-          imageOrdinal,
-          errorName: error instanceof Error ? error.name : "Unknown",
-          reason: error instanceof FusionUnavailableError ? error.reason : "Unknown",
-        });
-        stageReports.push({
-          stage: "Vlm",
-          outcome: "Unavailable",
-          imageOrdinal,
-          observations: [
-            error instanceof FusionUnavailableError && error.reason === "TimedOut"
-              ? `Photo analysis took longer than ${String(
-                  Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
-                )} seconds and was stopped.`
-              : "The photo-analysis service could not complete the request.",
-          ],
-        });
+        continue;
       }
+
+      logger.error({
+        event: "recognition.fusion_unavailable",
+        imageOrdinal,
+        errorName: error instanceof Error ? error.name : "Unknown",
+        reason: error instanceof FusionUnavailableError ? error.reason : "Unknown",
+        validationFailures:
+          error instanceof FusionUnavailableError
+            ? error.diagnostics.map((diagnostic) => diagnostic.failure)
+            : [],
+        finishReasons:
+          error instanceof FusionUnavailableError
+            ? error.diagnostics.map((diagnostic) => diagnostic.finishReason)
+            : [],
+      });
+      stageReports.push({
+        stage: "Vlm",
+        outcome: "Unavailable",
+        imageOrdinal,
+        observations: [
+          error instanceof FusionUnavailableError && error.reason === "TimedOut"
+            ? `Photo analysis took longer than ${String(
+                Math.round(configuration.recognitionFusionTimeoutMilliseconds / 1_000),
+              )} seconds and was stopped.`
+            : "The photo-analysis service could not complete the request.",
+        ],
+      });
     }
   } else if (verifiedImages.length > 0) {
     for (const image of verifiedImages) {

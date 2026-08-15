@@ -165,6 +165,8 @@ PORT=8000
 RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-1.6b-q4-0/LFM2.5-VL-1.6B-Q4_0.gguf
 RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-1.6b-q4-0/mmproj-LFM2.5-VL-1.6b-F16.gguf
 RECOGNITION_FUSION_API_KEY=<a fresh 64-hex-character secret>
+LLAMA_ARG_N_PARALLEL=2
+LLAMA_ARG_CTX_SIZE=8192
 ```
 
 The image contains one-release compatibility aliases for the former 3B paths,
@@ -180,6 +182,12 @@ where the image build placed those files; wrong or missing paths fail the
 container at startup (`docker-entrypoint.sh`'s own check), not silently.
 Deploy and confirm `/health` passes.
 
+`LLAMA_ARG_CTX_SIZE` is the total llama.cpp KV context, not a per-request
+limit. Keep it at least `4096 * LLAMA_ARG_N_PARALLEL`; otherwise adding slots
+silently reduces the context available to each photograph. Keep
+`RECOGNITION_FUSION_CONCURRENCY` on the worker no higher than the server's
+parallel-slot count so requests do not begin their deadlines while queued.
+
 ### 3. Point `worker` at both
 
 Add to `worker` and redeploy it:
@@ -188,6 +196,7 @@ Add to `worker` and redeploy it:
 RECOGNITION_CORE_URL=http://${{recognition-core.RAILWAY_PRIVATE_DOMAIN}}:8000
 RECOGNITION_FUSION_URL=http://${{recognition-fusion.RAILWAY_PRIVATE_DOMAIN}}:8000
 RECOGNITION_FUSION_API_KEY=<the same secret set on recognition-fusion>
+RECOGNITION_FUSION_CONCURRENCY=2
 VISUAL_INDEX_EMBEDDING_MODEL=<the embedding model revision recognition-core reports>
 ```
 
