@@ -217,23 +217,28 @@ const photographAndSend = async (
   });
   await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
 
-  /* The sheet is a dialog, so it renders in a portal rather than inside the
-   * page's own container. */
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    expect(found).not.toBeNull();
-    return found;
-  });
-
   for (let index = 0; index < count; index += 1) {
+    /* Each shot returns the sheet to the question it asks about the last one,
+     * so a second angle is reached the way a person reaches it. */
+    if (index > 0) {
+      await user.click(await screen.findByRole("button", { name: /another angle/iu }));
+    }
+
+    /* The sheet is a dialog, so it renders in a portal rather than inside the
+     * page's own container. Its library input is the way in without a camera. */
+    const input = await waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      expect(found).not.toBeNull();
+      return found;
+    });
+
     await user.upload(
       input as HTMLInputElement,
       new File(["photo"], `photo-${String(index)}.jpg`, { type: "image/jpeg" }),
     );
   }
 
-  const send = await screen.findByRole("button", { name: /to be identified/iu });
-  await user.click(send);
+  await user.click(await screen.findByRole("button", { name: /add this as a new item/iu }));
 };
 
 describe("the capture upload journey", () => {

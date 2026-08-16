@@ -173,11 +173,11 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
         ),
         guidedStep(
           "Photograph an item",
-          "This opens the same scan sheet as the round button on every other screen. Take up to five photographs, or choose ones you already have. They are read on your device first, so a readable barcode identifies the item without anything being sent.",
+          "This opens the same camera as the round button on every other screen. Press the shutter, or choose a photo you already have. It is read on your device first, so a readable barcode identifies the item without anything being sent — and takes you straight to that item.",
         ),
         guidedStep(
-          "Choose whether to send them",
-          "Nothing leaves your device until you select Send this photo to be identified. Only Office and Admin users are offered that, and only where your administrator has turned assisted capture on.",
+          "Answer the question it asks",
+          "When nothing is recognised you are asked whether it is something new. Nothing leaves your device until you select Add this as a new item. Another angle takes up to five photos of the same item first, which improves the result. Only Office and Admin users are asked, and only where your administrator has turned assisted capture on.",
         ),
         guidedStep(
           "Check the suggestion",

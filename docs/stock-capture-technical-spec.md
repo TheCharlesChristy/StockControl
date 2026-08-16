@@ -153,22 +153,25 @@ Assisted capture is not a separate journey. It is what the one scan surface
 falls back to when nothing cheaper has identified the item, and it is entered by
 an explicit choice rather than by arriving on a screen.
 
-1. Anybody, on any screen, opens the scan sheet from the floating scan button.
-   It takes a live camera decode, a typed or wanded code, and one to five
-   photographs. Guidance says only that the item should be visible and that
-   extra angles or a label close-up improve the result. There is no required
-   backdrop or frame.
-2. The browser attempts barcode recognition on the original-resolution images,
-   on the device. A code that resolves ends the journey here: the item is shown,
-   and a user with `manageStock` may receive stock against it directly through
-   the ordinary receive route. No image is uploaded and no session is opened.
-3. Where nothing resolves, and only for a role holding `manageStock` in an
-   installation with the feature enabled, the sheet offers to send the
-   photographs to be identified. **This is the opt-in**: photographs are read
-   locally by default, and the affirmative choice is the only path by which
-   image bytes leave the device. It is never remembered, inferred, or defaulted
-   on. Both the role and the flag are re-checked server-side on every request
-   that follows.
+1. Anybody, on any screen, presses the floating scan button and gets a camera.
+   The live decoder runs on the stream; a shutter captures a frame from the
+   same stream; a photograph already on the device and a typed or wanded code
+   are the two secondary ways in. Guidance says only that the item should be
+   visible and that extra angles or a label close-up improve the result. There
+   is no required backdrop or frame.
+2. The browser attempts barcode recognition on the device — on the live frames,
+   and on each captured photograph at the stream's own resolution. A code that
+   resolves to a catalogue item ends the journey there: the sheet navigates to
+   that item's page and closes. No image is uploaded and no session is opened.
+   Stock operations are reached from the item page, where they already live.
+3. Where nothing resolves, the sheet states that plainly and asks a single
+   question — is this something new? For a role holding `manageStock` in an
+   installation with the feature enabled, answering yes is **the opt-in**:
+   photographs are read locally by default, and that affirmative answer is the
+   only path by which image bytes leave the device. It is never remembered,
+   inferred, or defaulted on. Both the role and the flag are re-checked
+   server-side on every request that follows. Up to five angles may be taken
+   before answering.
 4. Taking that choice opens a capture batch (or joins the one already open) and
    hands the photographs to it. A default location may be selected now or left
    until review.
@@ -905,15 +908,19 @@ Two features, and the boundary between them is the opt-in.
 sent. It is reachable from every screen and available to every role:
 
 ```text
-ScanSheet.tsx                    the single camera/code/photo surface
-scan-reducer.ts                  explicit outcomes for one scan
-PhotoTray.tsx                    1-5 thumbnails and the two file inputs
-IdentifyPanel.tsx                the opt-in, and the only route to an upload
-ScanResult.tsx                   an identified item and the actions it allows
-ReceiveScannedStock.tsx          the direct receive an identified item permits
+ScanSheet.tsx                    the camera, and the sequence one scan runs
+Viewfinder.tsx                   full-bleed picture, reticle, shutter, edge controls
+scan-reducer.ts                  explicit stages for one scan
+UnidentifiedPanel.tsx            the dead end as a question, and the opt-in
+PhotoTray.tsx                    the shots being held, and discarding one
 photo-tray.ts                    CapturedPhoto, ordinals and preview lifetime
+frame-grabber.ts                 a frame out of the live stream, as a File
 barcode/provider.ts              native/WASM capability boundary
 ```
+
+A match is not a screen. The sheet navigates to the item's page and closes,
+because there is nothing left to decide once the item is known — every stock
+operation already lives on that page.
 
 `apps/web/src/features/stock-capture/` owns everything after it:
 
