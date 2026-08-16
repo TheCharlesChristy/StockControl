@@ -11,8 +11,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ApiClient } from "../../api/ApiClient";
 import { ApiProvider } from "../../api/ApiContext";
-import type { BarcodeProvider } from "./barcode/provider";
+import { AuthProvider } from "../../auth/AuthContext";
+import { createStubAuthClient } from "../../test/auth";
+import type { BarcodeProvider } from "../scan/barcode/provider";
 import { clearCaptureProgress } from "./capture-storage";
+import { discardOfferedPhotos } from "./handoff";
 import { StockCapturePage, type CaptureImagePipeline } from "./StockCapturePage";
 import type { NormalisedImage } from "./upload/normalise";
 
@@ -189,13 +192,38 @@ function createUploadApi(
   });
 }
 
-const addPhotos = async (
+const renderPage = (api: ApiClient, pipeline: CaptureImagePipeline): void => {
+  render(
+    <ApiProvider client={api}>
+      <AuthProvider client={createStubAuthClient()}>
+        <MemoryRouter>
+          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={pipeline} />
+        </MemoryRouter>
+      </AuthProvider>
+    </ApiProvider>,
+  );
+};
+
+/**
+ * Photographs reach the capture page through the scan sheet, which is where
+ * somebody opts in to sending them, so the journey starts by opening it.
+ */
+const photographAndSend = async (
   user: ReturnType<typeof userEvent.setup>,
-  container: HTMLElement,
   count: number,
 ): Promise<void> => {
-  const input = container.querySelector('input[type="file"]');
-  expect(input).not.toBeNull();
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
+  });
+  await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
+
+  /* The sheet is a dialog, so it renders in a portal rather than inside the
+   * page's own container. */
+  const input = await waitFor(() => {
+    const found = document.querySelector('input[type="file"]');
+    expect(found).not.toBeNull();
+    return found;
+  });
 
   for (let index = 0; index < count; index += 1) {
     await user.upload(
@@ -203,6 +231,9 @@ const addPhotos = async (
       new File(["photo"], `photo-${String(index)}.jpg`, { type: "image/jpeg" }),
     );
   }
+
+  const send = await screen.findByRole("button", { name: /to be identified/iu });
+  await user.click(send);
 };
 
 describe("the capture upload journey", () => {
@@ -212,6 +243,7 @@ describe("the capture upload journey", () => {
 
   afterEach(() => {
     clearCaptureProgress();
+    discardOfferedPhotos();
   });
 
   /*
@@ -228,24 +260,12 @@ describe("the capture upload journey", () => {
     const requests: string[] = [];
     const { pipeline, uploaded } = recordingPipeline();
 
-    const { container } = render(
-      <ApiProvider client={createUploadApi((method, path) => requests.push(`${method} ${path}`))}>
-        <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={pipeline} />
-        </MemoryRouter>
-      </ApiProvider>,
+    renderPage(
+      createUploadApi((method, path) => requests.push(`${method} ${path}`)),
+      pipeline,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
-    });
-    await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
-    await addPhotos(user, container, 2);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /continue/iu })).toBeEnabled();
-    });
-    await user.click(screen.getByRole("button", { name: /continue/iu }));
+    await photographAndSend(user, 2);
 
     await waitFor(
       () => {
@@ -272,28 +292,14 @@ describe("the capture upload journey", () => {
     const requests: string[] = [];
     const { pipeline, uploaded } = recordingPipeline();
 
-    const { container } = render(
-      <ApiProvider
-        client={createUploadApi((method, path) => requests.push(`${method} ${path}`), {
-          stableGrants: true,
-        })}
-      >
-        <MemoryRouter>
-          <StockCapturePage barcodeProvider={noBarcodes} imagePipeline={pipeline} />
-        </MemoryRouter>
-      </ApiProvider>,
+    renderPage(
+      createUploadApi((method, path) => requests.push(`${method} ${path}`), {
+        stableGrants: true,
+      }),
+      pipeline,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /photograph an item/iu })).toBeEnabled();
-    });
-    await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
-    await addPhotos(user, container, 2);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /continue/iu })).toBeEnabled();
-    });
-    await user.click(screen.getByRole("button", { name: /continue/iu }));
+    await photographAndSend(user, 2);
 
     await waitFor(
       () => {

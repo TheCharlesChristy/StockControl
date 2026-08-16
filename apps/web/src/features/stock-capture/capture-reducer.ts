@@ -1,11 +1,12 @@
 import type {
   CommitCaptureEntryResponse,
-  LocalBarcodeObservation,
   RecognitionCandidateView,
   RecognitionSessionSummaryView,
   RecognitionSessionView,
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
+
+import type { CapturedPhoto } from "../scan/photo-tray";
 
 /*
  * Explicit recoverable states, not boolean loading flags. Every screen the
@@ -17,17 +18,11 @@ import type {
  * `CapturedPhoto.file` is a `File` held for the lifetime of one capture only,
  * and nothing here is what gets persisted to browser storage — the page
  * decides that separately, keeping only IDs and the manual-entry draft.
+ *
+ * Photographs are no longer chosen here. They arrive already taken and already
+ * decoded, from the scan sheet, which is where somebody opts in to sending
+ * them; this page's first job is getting them to the server.
  */
-
-export interface CapturedPhoto {
-  readonly ordinal: number;
-  readonly file: File;
-  readonly previewUrl: string;
-  /** What the camera or picker produced. The media type that is actually
-   *  uploaded is decided by `normaliseImage`, which re-encodes every file. */
-  readonly sourceType: string;
-  readonly localCodes: readonly LocalBarcodeObservation[];
-}
 
 export type ReceiptSelection =
   | {
@@ -67,8 +62,15 @@ export type CaptureStage =
    * a dead end reachable by pressing the only other button on the page.
    */
   | { readonly kind: "BatchCompleted"; readonly batch: StockCaptureBatchView }
+  /**
+   * Photographs the person has opted in to sending, on their way to the
+   * server. It is a stage of its own rather than a flag because sending can
+   * fail twice over — starting the session, and the uploads themselves — and
+   * both land back here with the photographs still in hand, which is the only
+   * state from which a retry means anything.
+   */
   | {
-      readonly kind: "CapturingPhotos";
+      readonly kind: "SendingPhotos";
       readonly batch: StockCaptureBatchView;
       readonly photos: readonly CapturedPhoto[];
       readonly submitting: boolean;
@@ -133,14 +135,17 @@ export type CaptureAction =
   | { readonly type: "BatchStartFailed"; readonly message: string }
   | { readonly type: "BatchReady"; readonly batch: StockCaptureBatchView }
   | { readonly type: "BatchClosed"; readonly batch: StockCaptureBatchView }
-  | { readonly type: "StartNewItem"; readonly batch: StockCaptureBatchView }
+  /** Photographs handed over from the scan sheet, already opted in to. */
+  | {
+      readonly type: "PhotosOffered";
+      readonly batch: StockCaptureBatchView;
+      readonly photos: readonly CapturedPhoto[];
+    }
   | {
       readonly type: "SessionResumed";
       readonly batch: StockCaptureBatchView;
       readonly session: RecognitionSessionView;
     }
-  | { readonly type: "PhotoAdded"; readonly photo: CapturedPhoto }
-  | { readonly type: "PhotoRemoved"; readonly ordinal: number }
   | { readonly type: "SessionSubmitting" }
   | { readonly type: "SessionSubmitFailed"; readonly message: string }
   | {
@@ -236,12 +241,12 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
     case "BatchClosed":
       return { kind: "BatchCompleted", batch: action.batch };
 
-    case "StartNewItem":
+    case "PhotosOffered":
       return {
-        kind: "CapturingPhotos",
+        kind: "SendingPhotos",
         batch: action.batch,
-        photos: [],
-        submitting: false,
+        photos: action.photos,
+        submitting: true,
         error: null,
       };
 
@@ -265,31 +270,18 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
       return { kind: "AwaitingRecognition", batch: action.batch, session, checkFailures: 0 };
     }
 
-    case "PhotoAdded": {
-      if (stage.kind !== "CapturingPhotos") return stage;
-      return { ...stage, photos: [...stage.photos, action.photo], error: null };
-    }
-
-    case "PhotoRemoved": {
-      if (stage.kind !== "CapturingPhotos") return stage;
-      return {
-        ...stage,
-        photos: stage.photos.filter((photo) => photo.ordinal !== action.ordinal),
-      };
-    }
-
     case "SessionSubmitting": {
-      if (stage.kind !== "CapturingPhotos") return stage;
+      if (stage.kind !== "SendingPhotos") return stage;
       return { ...stage, submitting: true, error: null };
     }
 
     case "SessionSubmitFailed": {
-      if (stage.kind !== "CapturingPhotos") return stage;
+      if (stage.kind !== "SendingPhotos") return stage;
       return { ...stage, submitting: false, error: action.message };
     }
 
     case "SessionStarted": {
-      if (stage.kind !== "CapturingPhotos") return stage;
+      if (stage.kind !== "SendingPhotos") return stage;
       return {
         kind: "Uploading",
         batch: stage.batch,
@@ -320,7 +312,7 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
        * from the action: an effect that had to carry it would need `stage` in
        * its dependencies, which is exactly what used to restart it mid-upload. */
       return {
-        kind: "CapturingPhotos",
+        kind: "SendingPhotos",
         batch: stage.batch,
         photos: action.photos,
         submitting: false,

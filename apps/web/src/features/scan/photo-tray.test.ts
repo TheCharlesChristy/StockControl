@@ -1,7 +1,7 @@
 import { CAPTURE_MAX_PHOTOS } from "@stockcontrol/contracts";
 import { describe, expect, it } from "vitest";
 
-import { nextOrdinals } from "./CapturePhotos";
+import { isAcceptedSource, nextOrdinals } from "./photo-tray";
 
 describe("nextOrdinals", () => {
   it("numbers the first photographs from one", () => {
@@ -39,5 +39,19 @@ describe("nextOrdinals", () => {
 
   it("fills the gaps a scattered set leaves, in order", () => {
     expect(nextOrdinals([2, 5], 3)).toEqual([1, 3, 4]);
+  });
+});
+
+describe("isAcceptedSource", () => {
+  it("keeps a photograph a phone declined to describe", () => {
+    expect(isAcceptedSource("")).toBe(true);
+  });
+
+  it("keeps a format only the browser can decode", () => {
+    expect(isAcceptedSource("image/heic")).toBe(true);
+  });
+
+  it("leaves out a file that is not an image at all", () => {
+    expect(isAcceptedSource("application/pdf")).toBe(false);
   });
 });

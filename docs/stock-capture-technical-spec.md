@@ -110,8 +110,9 @@ The design optimises for:
 
 The implementation extends the current architecture:
 
-- `apps/web` is React/MUI and already has a camera/barcode flow in
-  `ScanDialog`.
+- `apps/web` is React/MUI, and its camera/barcode flow — `ScanSheet`, reachable
+  from every screen — is where this feature is entered rather than a second
+  one alongside it.
 - `apps/api` is NestJS/Fastify with authenticated `/api/v1` routes and
   capability checks.
 - `apps/worker` already has a production Docker target but currently performs
@@ -148,13 +149,29 @@ The following are non-negotiable:
 
 ### 5.1 Capture and recognition
 
-1. An Office or Admin user selects **Add stock**.
-2. StockControl opens a capture batch. A default location may be selected now or
-   left until review.
-3. The user takes or selects one to five photographs of the same item. Guidance
-   says only that the item should be visible and that extra angles or a label
-   close-up improve the result. There is no required backdrop or frame.
-4. The browser attempts barcode recognition on the original-resolution images.
+Assisted capture is not a separate journey. It is what the one scan surface
+falls back to when nothing cheaper has identified the item, and it is entered by
+an explicit choice rather than by arriving on a screen.
+
+1. Anybody, on any screen, opens the scan sheet from the floating scan button.
+   It takes a live camera decode, a typed or wanded code, and one to five
+   photographs. Guidance says only that the item should be visible and that
+   extra angles or a label close-up improve the result. There is no required
+   backdrop or frame.
+2. The browser attempts barcode recognition on the original-resolution images,
+   on the device. A code that resolves ends the journey here: the item is shown,
+   and a user with `manageStock` may receive stock against it directly through
+   the ordinary receive route. No image is uploaded and no session is opened.
+3. Where nothing resolves, and only for a role holding `manageStock` in an
+   installation with the feature enabled, the sheet offers to send the
+   photographs to be identified. **This is the opt-in**: photographs are read
+   locally by default, and the affirmative choice is the only path by which
+   image bytes leave the device. It is never remembered, inferred, or defaulted
+   on. Both the role and the flag are re-checked server-side on every request
+   that follows.
+4. Taking that choice opens a capture batch (or joins the one already open) and
+   hands the photographs to it. A default location may be selected now or left
+   until review.
 5. The API validates every decoded value and retains it as recognition evidence.
    A barcode never skips the remaining photograph pipeline.
 6. The browser normalises and uploads the photographs directly to the
@@ -882,11 +899,27 @@ on the unique constraint and normal validation error.
 
 ## 13. Web implementation
 
-Create `apps/web/src/features/stock-capture/`:
+Two features, and the boundary between them is the opt-in.
+
+`apps/web/src/features/scan/` owns everything that happens before anything is
+sent. It is reachable from every screen and available to every role:
+
+```text
+ScanSheet.tsx                    the single camera/code/photo surface
+scan-reducer.ts                  explicit outcomes for one scan
+PhotoTray.tsx                    1-5 thumbnails and the two file inputs
+IdentifyPanel.tsx                the opt-in, and the only route to an upload
+ScanResult.tsx                   an identified item and the actions it allows
+ReceiveScannedStock.tsx          the direct receive an identified item permits
+photo-tray.ts                    CapturedPhoto, ordinals and preview lifetime
+barcode/provider.ts              native/WASM capability boundary
+```
+
+`apps/web/src/features/stock-capture/` owns everything after it:
 
 ```text
 StockCapturePage.tsx             batch/session shell
-CapturePhotos.tsx                camera/file input and 1-5 thumbnail editor
+SendingPhotos.tsx                opted-in photographs in flight, and their retry
 CaptureGuidance.tsx              blur/glare and multi-object guidance
 RecognitionProgress.tsx          durable stage/status polling
 CandidateReview.tsx              primary continue action, alternatives and review-later controls
@@ -894,21 +927,25 @@ AnalysisDetails.tsx              per-photo/stage evidence disclosure
 ReceiptConfirmation.tsx          quantity, unit and location confirmation
 BatchSummary.tsx                 batch progress and unresolved sessions
 capture-reducer.ts               explicit UI state machine
-barcode/provider.ts              native/WASM capability boundary
-barcode/worker-entry.ts          self-hosted still-image barcode worker
+handoff.ts                       one-shot slot carrying opted-in photographs here
 upload/normalise.ts              EXIF removal, resize, digest and PUT
 ```
 
-The capture reducer has explicit recoverable states rather than Boolean loading
+Both reducers have explicit recoverable states rather than Boolean loading
 flags. Persist only session/batch UUIDs and unsent manual form drafts in browser
 storage; never persist image bytes, decoded frames, raw OCR, model prompts, or
-presigned URLs. Camera and image objects are revoked on retake, close, and
-navigation.
+presigned URLs. In particular the handoff is a module-level slot rather than
+router state: `File` handles survive a structured clone, so history state would
+accept them and then keep image bytes alive across reloads and back-navigation.
+Camera and image objects are revoked on retake, close, and navigation.
 
-The existing `ScanDialog` continues to serve find-by-code. Move shared barcode
-normalisation into the new provider over time so the two flows do not diverge.
-Tests inject fake barcode and recognition providers; CI never depends on a camera
-or model timing.
+The direction of dependency runs `stock-capture` → `scan`, never the reverse:
+photographs and decoded codes originate at the scan surface, which knows nothing
+about batches. One barcode provider serves the live camera and the still-image
+decode, so the two cannot diverge. Tests inject fake barcode and recognition
+providers; CI never depends on a camera or model timing, and the tests that
+matter most assert that attaching a photograph sends nothing and that the
+offer is absent for a role the server would refuse.
 
 ## 14. API and worker implementation
 
