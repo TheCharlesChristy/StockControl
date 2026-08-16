@@ -165,15 +165,19 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
   if (path === "/stock-capture") {
     return content(
       "Add stock",
-      "Photograph an item, check what StockControl thinks it is, then confirm the quantity and where it went.",
+      "One delivery at a time: photograph whatever you cannot scan, check what StockControl made of it, then confirm the quantity and where it went.",
       [
         guidedStep(
           "Set where the delivery is going",
           "Choose the store once for the whole batch. Each item starts from that store, and you can still change it for any single item.",
         ),
         guidedStep(
-          "Photograph the item",
-          "Take one to five photographs, or choose ones you have already taken. Extra angles and a close-up of a label or barcode help. A readable barcode usually identifies the item on its own, without waiting.",
+          "Photograph an item",
+          "This opens the same scan sheet as the round button on every other screen. Take up to five photographs, or choose ones you already have. They are read on your device first, so a readable barcode identifies the item without anything being sent.",
+        ),
+        guidedStep(
+          "Choose whether to send them",
+          "Nothing leaves your device until you select Send this photo to be identified. Only Office and Admin users are offered that, and only where your administrator has turned assisted capture on.",
         ),
         guidedStep(
           "Check the suggestion",

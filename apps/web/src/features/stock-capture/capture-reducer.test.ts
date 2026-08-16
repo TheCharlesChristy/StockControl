@@ -9,11 +9,11 @@ import type {
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
 
+import type { CapturedPhoto } from "../scan/photo-tray";
 import {
   captureReducer,
   initialCaptureStage,
   topCandidateSelection,
-  type CapturedPhoto,
   type CaptureStage,
 } from "./capture-reducer";
 
@@ -123,48 +123,35 @@ describe("captureReducer", () => {
     expect(next).toEqual({ kind: "BatchOverview", batch: batch() });
   });
 
-  it("starts photo capture with an empty photo list", () => {
+  /*
+   * Photographs are chosen and opted in to on the scan sheet, so they arrive
+   * here already taken: the batch never sits on an empty photo picker.
+   */
+  it("starts sending the photographs it was handed", () => {
     const next = captureReducer(
       { kind: "BatchOverview", batch: batch() },
-      { type: "StartNewItem", batch: batch() },
+      { type: "PhotosOffered", batch: batch(), photos: [photo(1), photo(2)] },
     );
     expect(next).toEqual({
-      kind: "CapturingPhotos",
+      kind: "SendingPhotos",
       batch: batch(),
-      photos: [],
-      submitting: false,
+      photos: [photo(1), photo(2)],
+      submitting: true,
       error: null,
     });
   });
 
-  describe("while capturing photos", () => {
-    const capturing: CaptureStage = {
-      kind: "CapturingPhotos",
+  describe("while sending photographs", () => {
+    const sending: CaptureStage = {
+      kind: "SendingPhotos",
       batch: batch(),
-      photos: [],
+      photos: [photo(1)],
       submitting: false,
       error: null,
     };
 
-    it("appends a photo", () => {
-      const next = captureReducer(capturing, { type: "PhotoAdded", photo: photo(1) });
-      expect(next).toMatchObject({ kind: "CapturingPhotos", photos: [photo(1)] });
-    });
-
-    it("removes a photo by ordinal", () => {
-      const withTwo: CaptureStage = { ...capturing, photos: [photo(1), photo(2)] };
-      const next = captureReducer(withTwo, { type: "PhotoRemoved", ordinal: 1 });
-      expect(next).toMatchObject({ kind: "CapturingPhotos", photos: [photo(2)] });
-    });
-
-    it("clears a prior error when a photo is added", () => {
-      const withError: CaptureStage = { ...capturing, error: "Something went wrong." };
-      const next = captureReducer(withError, { type: "PhotoAdded", photo: photo(1) });
-      expect(next).toMatchObject({ error: null });
-    });
-
-    it("tracks submitting and a submit failure", () => {
-      const submitting = captureReducer(capturing, { type: "SessionSubmitting" });
+    it("tracks a retry and a failure to open the session", () => {
+      const submitting = captureReducer(sending, { type: "SessionSubmitting" });
       expect(submitting).toMatchObject({ submitting: true, error: null });
 
       const failed = captureReducer(submitting, {
@@ -172,14 +159,24 @@ describe("captureReducer", () => {
         message: "The session could not be started.",
       });
       expect(failed).toMatchObject({
-        kind: "CapturingPhotos",
+        kind: "SendingPhotos",
         submitting: false,
         error: "The session could not be started.",
       });
     });
 
+    /* The photographs are the whole point of a retry: losing them would leave
+     * "Send them again" with nothing to send. */
+    it("keeps the photographs through a failure", () => {
+      const failed = captureReducer(sending, {
+        type: "SessionSubmitFailed",
+        message: "The session could not be started.",
+      });
+      expect(failed).toMatchObject({ photos: [photo(1)] });
+    });
+
     it("moves to Uploading once the session starts", () => {
-      const next = captureReducer(capturing, {
+      const next = captureReducer(sending, {
         type: "SessionStarted",
         session: sessionSummary({ status: "AwaitingUpload" }),
         totalCount: 3,
@@ -193,10 +190,12 @@ describe("captureReducer", () => {
       });
     });
 
-    it("ignores photo/session actions in every other stage", () => {
+    it("ignores session actions in every other stage", () => {
       const elsewhere: CaptureStage = { kind: "BatchOverview", batch: batch() };
-      expect(captureReducer(elsewhere, { type: "PhotoAdded", photo: photo(1) })).toBe(elsewhere);
       expect(captureReducer(elsewhere, { type: "SessionSubmitting" })).toBe(elsewhere);
+      expect(captureReducer(elsewhere, { type: "SessionSubmitFailed", message: "No." })).toBe(
+        elsewhere,
+      );
     });
   });
 
@@ -227,14 +226,14 @@ describe("captureReducer", () => {
       });
     });
 
-    it("returns to CapturingPhotos with the photos restored when an upload fails", () => {
+    it("holds on to the photographs so a failed upload can be sent again", () => {
       const next = captureReducer(uploading, {
         type: "UploadFailed",
         photos: [photo(1)],
         message: "That photograph could not be uploaded. Check your connection and try again.",
       });
       expect(next).toEqual({
-        kind: "CapturingPhotos",
+        kind: "SendingPhotos",
         batch: batch(),
         photos: [photo(1)],
         submitting: false,
