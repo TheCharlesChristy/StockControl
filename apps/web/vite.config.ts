@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
         /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
         thresholds: {
           branches: 62,
-          functions: 58,
+          functions: 59,
           lines: 70,
           statements: 69,
         },

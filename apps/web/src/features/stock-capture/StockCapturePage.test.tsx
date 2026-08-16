@@ -258,7 +258,7 @@ async function photographAndSend(user: ReturnType<typeof userEvent.setup>): Prom
   await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
 
   /* The sheet is a dialog, so it renders in a portal rather than inside the
-   * page's own container. */
+   * page's own container. Its library input is the way in without a camera. */
   const fileInput = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
     expect(found).not.toBeNull();
@@ -269,7 +269,7 @@ async function photographAndSend(user: ReturnType<typeof userEvent.setup>): Prom
     new File(["fake"], "widget.jpg", { type: "image/jpeg" }),
   );
 
-  await user.click(await screen.findByRole("button", { name: /to be identified/iu }));
+  await user.click(await screen.findByRole("button", { name: /add this as a new item/iu }));
 }
 
 describe("StockCapturePage", () => {

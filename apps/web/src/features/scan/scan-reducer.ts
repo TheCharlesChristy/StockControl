@@ -1,76 +1,82 @@
-import type { ItemDetailView } from "@stockcontrol/contracts";
+import type { LocalBarcodeObservation } from "@stockcontrol/contracts";
 
 import type { CapturedPhoto } from "./photo-tray";
 
 /*
- * The scan sheet is one surface with three ways in — the live camera, a typed
- * or wanded code, and a photograph — and they all end in the same place: an
- * item, or an honest statement that nothing matched.
+ * One scan, as a sequence rather than a form.
  *
- * Explicit outcomes rather than loading flags, for the reason the capture
- * reducer gives: "what is on screen" and "what the server said" cannot drift
- * apart when only one of them exists.
+ * The sheet is a camera. You point it, it reads what it sees, and the only
+ * thing it ever says is "here is the item" — by leaving for the item's page —
+ * or "I could not tell what that is". Everything else the surface can do
+ * (typing a code, choosing an existing photograph) arrives at one of those two
+ * answers as well, so there is one state machine and not three.
  *
- * Nothing in this state ever leaves the device. Photographs are decoded here;
- * sending them anywhere is a separate, deliberate act handled by the sheet.
+ * A match is not a stage here. There is nothing to decide once an item is
+ * known, so the sheet navigates and closes rather than holding a screen open
+ * to be dismissed.
+ *
+ * Nothing in this state leaves the device. Photographs are taken and decoded
+ * here; sending them is a separate, deliberate act the sheet handles.
  */
 
-/** How the code that produced an outcome reached us. Worth keeping because it
- *  decides what the screen says next: a typed code that matched nothing is a
- *  typo, the same from a photograph is an unlabelled item. */
+/** How the thing being looked up reached us. It decides what the failure says:
+ *  a typed code that matched nothing is a typo, the same from a photograph is
+ *  an item nobody has catalogued. */
 export type ScanSource = "camera" | "typed" | "photo";
 
-export type ScanOutcome =
-  | { readonly kind: "Nothing" }
+export type ScanStage =
+  /** The camera is live and the shutter is armed. */
+  | { readonly kind: "Framing" }
+  /** A shot has been taken and is being read on this device. */
+  | { readonly kind: "Reading" }
+  /** A code came out of it, and the catalogue is being asked about it. */
   | { readonly kind: "Looking"; readonly code: string }
-  | { readonly kind: "Found"; readonly item: ItemDetailView; readonly source: ScanSource }
+  /** The end of the road for automatic identification. `code` is null when
+   *  nothing readable was in the photograph at all. */
   | {
-      readonly kind: "NoMatch";
-      readonly code: string;
+      readonly kind: "Unidentified";
+      readonly code: string | null;
       readonly source: ScanSource;
-      readonly message: string;
-    }
-  /** Photographs were attached and this device found no code in any of them. */
-  | { readonly kind: "NoCode" }
-  | { readonly kind: "Received"; readonly item: ItemDetailView };
+    };
 
 export interface ScanState {
-  readonly outcome: ScanOutcome;
+  readonly stage: ScanStage;
+  /** Shots taken so far, kept for the recognition pipeline if the person asks
+   *  for one. Never more than `CAPTURE_MAX_PHOTOS`. */
   readonly photos: readonly CapturedPhoto[];
-  /** A local decode is running. The send and lookup actions wait for it so a
-   *  code in the last photograph is never missed by a fraction of a second. */
-  readonly decoding: boolean;
   /** Why some chosen files were left out. Not an error — the rest were kept. */
   readonly notice: string | null;
 }
 
 export const initialScanState: ScanState = {
-  outcome: { kind: "Nothing" },
+  stage: { kind: "Framing" },
   photos: [],
-  decoding: false,
   notice: null,
 };
 
 export type ScanAction =
   | { readonly type: "FilesRejected"; readonly notice: string }
-  | { readonly type: "DecodeStarted" }
-  | { readonly type: "PhotosAdded"; readonly photos: readonly CapturedPhoto[] }
-  | { readonly type: "DecodeFinished" }
+  | { readonly type: "ShotsTaken"; readonly photos: readonly CapturedPhoto[] }
+  /**
+   * What the device made of those shots, arriving after them. The picture
+   * freezes the instant the shutter is pressed; waiting for the decoder before
+   * showing it would leave a live camera running under a photograph that had
+   * already been taken.
+   */
+  | {
+      readonly type: "CodesRead";
+      readonly codes: readonly {
+        readonly ordinal: number;
+        readonly localCodes: readonly LocalBarcodeObservation[];
+      }[];
+    }
   | { readonly type: "NoCodeFound" }
-  | { readonly type: "PhotoRemoved"; readonly ordinal: number }
   | { readonly type: "LookupStarted"; readonly code: string }
-  | {
-      readonly type: "ItemFound";
-      readonly item: ItemDetailView;
-      readonly source: ScanSource;
-    }
-  | {
-      readonly type: "LookupFailed";
-      readonly code: string;
-      readonly source: ScanSource;
-      readonly message: string;
-    }
-  | { readonly type: "StockReceived"; readonly item: ItemDetailView }
+  | { readonly type: "LookupFailed"; readonly code: string; readonly source: ScanSource }
+  | { readonly type: "PhotoDiscarded"; readonly ordinal: number }
+  /** Back to the camera. `keepPhotos` separates "another angle of the same
+   *  thing" from "that shot was no good". */
+  | { readonly type: "Reframed"; readonly keepPhotos: boolean }
   | { readonly type: "StartOver" };
 
 export function scanReducer(state: ScanState, action: ScanAction): ScanState {
@@ -78,53 +84,59 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
     case "FilesRejected":
       return { ...state, notice: action.notice };
 
-    case "DecodeStarted":
-      return { ...state, decoding: true, notice: null };
+    case "ShotsTaken":
+      return {
+        stage: { kind: "Reading" },
+        photos: [...state.photos, ...action.photos],
+        notice: null,
+      };
 
-    case "PhotosAdded":
-      return { ...state, photos: [...state.photos, ...action.photos] };
-
-    case "DecodeFinished":
-      return { ...state, decoding: false };
-
-    case "NoCodeFound":
-      /* Only ever a statement about the photographs. A code already resolved
-       * from the camera or the keyboard outranks a silent photograph. */
-      return state.outcome.kind === "Nothing" ? { ...state, outcome: { kind: "NoCode" } } : state;
-
-    case "PhotoRemoved": {
-      const photos = state.photos.filter((photo) => photo.ordinal !== action.ordinal);
+    case "CodesRead": {
+      const byOrdinal = new Map(action.codes.map((entry) => [entry.ordinal, entry.localCodes]));
 
       return {
         ...state,
-        photos,
-        /* "No code in your photographs" is a lie once there are none left. */
-        outcome:
-          state.outcome.kind === "NoCode" && photos.length === 0
-            ? { kind: "Nothing" }
-            : state.outcome,
+        photos: state.photos.map((photo) => {
+          const localCodes = byOrdinal.get(photo.ordinal);
+          return localCodes === undefined ? photo : { ...photo, localCodes };
+        }),
       };
     }
 
-    case "LookupStarted":
-      return { ...state, outcome: { kind: "Looking", code: action.code } };
+    case "NoCodeFound":
+      /*
+       * Only ever a statement about a shot being read. The live camera can
+       * resolve a label while a photograph is still decoding, and that answer
+       * outranks this one — by then the sheet has already navigated away.
+       */
+      return state.stage.kind === "Reading"
+        ? { ...state, stage: { kind: "Unidentified", code: null, source: "photo" } }
+        : state;
 
-    case "ItemFound":
-      return { ...state, outcome: { kind: "Found", item: action.item, source: action.source } };
+    case "LookupStarted":
+      return { ...state, stage: { kind: "Looking", code: action.code } };
 
     case "LookupFailed":
       return {
         ...state,
-        outcome: {
-          kind: "NoMatch",
-          code: action.code,
-          source: action.source,
-          message: action.message,
-        },
+        stage: { kind: "Unidentified", code: action.code, source: action.source },
       };
 
-    case "StockReceived":
-      return { ...state, outcome: { kind: "Received", item: action.item } };
+    case "PhotoDiscarded": {
+      const photos = state.photos.filter((photo) => photo.ordinal !== action.ordinal);
+
+      /* Nothing left to offer the pipeline is nothing left to decide about. */
+      return photos.length === 0
+        ? { ...state, photos, stage: { kind: "Framing" } }
+        : { ...state, photos };
+    }
+
+    case "Reframed":
+      return {
+        stage: { kind: "Framing" },
+        photos: action.keepPhotos ? state.photos : [],
+        notice: null,
+      };
 
     case "StartOver":
       /* Previews belong to whoever created them; the sheet revokes them before
@@ -137,13 +149,8 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
 }
 
 /**
- * Whether the live camera should still act on what it reads. Once an item is
- * on screen — found, or received into stock — a second decode of the same
- * label would throw away the screen the person is reading. A code that matched
- * nothing does not stop the camera: pointing it at the right label is the
- * obvious next thing to do.
+ * Whether the live camera should act on what it reads. Only while framing: a
+ * shot already taken has frozen the picture the person is looking at, and a
+ * decode landing behind that would navigate out from under them.
  */
-export const isListening = (state: ScanState): boolean =>
-  state.outcome.kind === "Nothing" ||
-  state.outcome.kind === "NoCode" ||
-  state.outcome.kind === "NoMatch";
+export const isListening = (state: ScanState): boolean => state.stage.kind === "Framing";

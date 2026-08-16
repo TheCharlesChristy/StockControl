@@ -8,43 +8,45 @@ sheet never offers to identify a photograph.
 
 Nothing you do here changes stock until you select **Confirm receipt**.
 
-## Everything starts at the scan button
+## The scan button opens a camera
 
-The round button in the bottom-right corner of every screen opens the scan sheet. It is the only
-place in StockControl where you point a device at a thing, and it takes three kinds of input:
+The round button in the bottom-right corner of every screen opens the camera. Point it at the item.
 
-- **The camera.** Hold a QR code or barcode inside the frame.
-- **A typed code.** Type it, or let a handheld scanner type it — they behave like keyboards.
-- **A photo.** Take one, or choose one you already have.
+- **Hold a barcode or QR code in the frame** and StockControl reads it as soon as it catches it.
+- **Press the shutter** to take a photo, and it reads that instead. Use this when the code will not
+  catch, or when there is no code at all.
+- **The two icons at the edges** are for a photo you already have (bottom left) and for typing a
+  code (top right). A handheld scanner types into that box like a keyboard, and it opens on its own
+  on a machine with no camera.
 
-Whatever you use, StockControl reads it **on your device**. A photo is checked for a barcode here,
-on the phone or laptop in your hand. Nothing is sent anywhere to do that.
+Whatever you use, StockControl reads it **on your device**. Nothing is sent anywhere to do that.
 
-## When the item is recognised
+## When it recognises the item
 
-The sheet shows the item, its reference and how much is on hand, with two things you can do:
+You go straight to the item's page. There is no screen in between to read or dismiss — that page is
+where the stock summary, the location breakdown and **Receive stock** already live.
 
-- **Add stock** — receive stock against it there and then. Choose the store, type the quantity,
-  done. This is the quickest route for anything with a label you can read, and it does not use
-  assisted capture at all.
-- **Open item** — go to the item's record.
+## When it does not
 
-An archived item cannot take stock. Open it and bring it back into use first.
+You get one question instead:
 
-## When it is not recognised
+> **Not recognised.** Is it something new? StockControl can read your photo to work out what it is.
 
-If no code was found, or the code matches nothing in the catalogue, Office and Admin users are
-offered assisted capture:
+Office and Admin users can answer it with **Add this as a new item**. That is the point at which the
+photo is sent, and it is the only thing that sends it — taking a photo never does. The panel says how
+many photos will go before you choose.
 
-> **Let StockControl work out what it is** — choosing this sends the photo to StockControl to be
-> identified.
+Before answering you can:
 
-**This is a choice, and it is off until you make it.** Attaching a photo never sends it. The panel
-tells you exactly how many photos will go and what happens next, and the button says what pressing
-it does. Add up to five photos before you decide — extra angles, and a close-up of a label, improve
-the result. There is no required background or frame.
+- **Another angle** — take up to five photos of the same item. Extra angles, and a close-up of a
+  label, improve the result. There is no required background or frame.
+- **Start again** — throw the shots away and go back to the camera.
 
-Choose it, and the photos are sent and you are taken to the delivery you are booking in.
+Answer yes and you are taken to the delivery you are booking in, where the photos are sent and read.
+StockControl may still come back with an item already in the catalogue; you are not committed to
+creating a new one.
+
+Anyone else sees **Try again**, and can ask an office user to add the item.
 
 ## The delivery
 
@@ -54,8 +56,8 @@ is still being identified, and what is waiting for you to check. A batch is one 
 Set **Where this delivery is going** once. Every item in the batch starts from that store, and you
 can still change it for any single item. Leave it blank to choose per item.
 
-**Photograph an item** on this page opens the same scan sheet, wired to this delivery: anything you
-send from there joins this batch instead of starting another one.
+**Photograph an item** on this page opens the same camera, wired to this delivery: anything you send
+from there joins this batch instead of starting another one.
 
 ## Check the suggestion
 
