@@ -84,6 +84,12 @@ export function AppShell(): ReactElement | null {
   );
   const isLocationWorkspace = location.pathname === "/locations";
   /*
+   * The capture page opens the same scan sheet from inside its own batch, so a
+   * floating button that opened a second, batch-less one would be the same
+   * control doing quietly different things on the one screen.
+   */
+  const ownsItsOwnScanner = location.pathname === "/stock-capture";
+  /*
    * Longest matching prefix, so a detail route such as /inventory/:id still
    * names its section rather than falling back to the product name.
    */
@@ -397,7 +403,7 @@ export function AppShell(): ReactElement | null {
         </Box>
       </Box>
 
-      {!isLocationWorkspace && <ScanFab />}
+      {!isLocationWorkspace && !ownsItsOwnScanner && <ScanFab />}
       {issueReportingEnabled && reportIssueOpen && (
         <ReportIssueDialog page={location.pathname} onClose={() => setReportIssueOpen(false)} />
       )}

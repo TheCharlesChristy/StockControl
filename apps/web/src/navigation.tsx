@@ -60,7 +60,7 @@ export const navigationItems: readonly NavigationItem[] = [
   {
     path: "/stock-capture",
     label: "Add stock",
-    description: "Photograph an item and let StockControl suggest what it is.",
+    description: "Book in a delivery and check what StockControl made of each photograph.",
     roles: ["Office", "Admin"],
     icon: AddAPhotoRounded,
     requiresFeature: "stockCapture",
