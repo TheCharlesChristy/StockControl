@@ -30,8 +30,8 @@ export function InventoryPage(): ReactElement {
         description="Search by item code, name, barcode or part number. Expand a row to see the per-location breakdown. Available is what is free to take: it counts stores only, never stock already dropped at a job site."
         actions={
           <Stack direction="row" spacing={1.5} data-help-target="inventory-actions">
-            {/* The delivery workspace, not the camera: photographing an item
-             *  starts at the scan button, which is on this screen too. */}
+            {/* The queue of photographed items, not the camera: photographing
+             *  one starts at the scan button, which is on this screen too. */}
             {features.stockCapture && canManageStock && (
               <Button
                 component={RouterLink}
@@ -39,7 +39,7 @@ export function InventoryPage(): ReactElement {
                 variant="outlined"
                 startIcon={<AddAPhotoRounded />}
               >
-                Book in a delivery
+                Review queue
               </Button>
             )}
             <Button

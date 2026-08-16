@@ -5,7 +5,6 @@ import {
   Chip,
   CircularProgress,
   Dialog,
-  Paper,
   Stack,
   TextField,
   Typography,
@@ -31,6 +30,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { useCapability } from "../../auth/useCapability";
 import { offerPhotosToCapture } from "../stock-capture/handoff";
 import { createBarcodeProvider, type BarcodeProvider } from "./barcode/provider";
+import { CodeEntry } from "./CodeEntry";
 import { createFrameGrabber, FrameCaptureError, type FrameGrabber } from "./frame-grabber";
 import {
   firstLocalCode,
@@ -412,151 +412,163 @@ export function ScanSheet({
       ? (state.photos[state.photos.length - 1]?.previewUrl ?? null)
       : null;
 
+  /** The code box, raised over the picture when somebody asks for it. */
+  const typedCodePanel = (
+    <Stack component="form" onSubmit={handleManualSubmit} direction="row" spacing={1}>
+      <TextField
+        label="Item code or barcode"
+        value={manualCode}
+        onChange={(event) => setManualCode(event.target.value)}
+        placeholder="ITM-0001 or a barcode"
+        autoComplete="off"
+        autoFocus
+        fullWidth
+        size="small"
+      />
+      <Button
+        type="submit"
+        variant="contained"
+        disabled={manualCode.trim().length === 0 || reading}
+      >
+        Find
+      </Button>
+    </Stack>
+  );
+
+  const question =
+    stage.kind === "Unidentified" ? (
+      <UnidentifiedPanel
+        code={stage.code}
+        photos={state.photos}
+        onDiscardPhoto={discardPhoto}
+        canAddItem={canAddItem}
+        addPhoto={
+          cameraState === "unavailable"
+            ? { kind: "file", onChange: handleFiles }
+            : { kind: "camera", onClick: () => reframe(true) }
+        }
+        onAddItem={addAsNewItem}
+        onRetake={() => reframe(false)}
+      />
+    ) : null;
+
+  /*
+   * Two presentations of one flow. A device with a camera gets the camera; a
+   * device without gets an ordinary dialog built round the code box, because
+   * the alternative — the viewfinder with its picture switched off — is a
+   * black rectangle with a dead shutter on it.
+   */
+  const noCamera = cameraState === "unavailable";
+
   return (
     <Dialog
       open={open}
       onClose={finish}
-      fullScreen={fullScreen}
+      fullScreen={fullScreen && !noCamera}
       fullWidth
       maxWidth="xs"
       aria-label="Scan an item"
       slotProps={{
         paper: {
-          sx: {
-            bgcolor: "#000000",
-            overflow: "hidden",
-            ...(fullScreen ? {} : { height: "min(78vh, 640px)" }),
-          },
+          sx: noCamera
+            ? {}
+            : {
+                bgcolor: "#000000",
+                overflow: "hidden",
+                ...(fullScreen ? {} : { height: "min(78vh, 640px)" }),
+              },
         },
       }}
     >
-      <Viewfinder
-        videoRef={setVideoElement}
-        frozenPreviewUrl={frozenPreviewUrl}
-        cameraUnavailable={cameraState === "unavailable"}
-        busy={shutterBusy}
-        canShoot={cameraState === "scanning" && state.photos.length < CAPTURE_MAX_PHOTOS}
-        hint={
-          cameraState === "starting"
-            ? "Starting the camera…"
-            : "Hold a barcode or QR code in the frame, or take a photo of the item"
-        }
-        onClose={finish}
-        onShutter={takeShot}
-        onToggleKeyboard={() => setTyping((current) => !current)}
-        onFilesChosen={handleFiles}
-      >
-        {waitingToReview > 0 && stage.kind === "Framing" && (
-          <Chip
-            component={RouterLink}
-            to="/stock-capture"
-            clickable
-            onClick={finish}
-            icon={<PendingActionsRounded />}
-            label={
-              waitingToReview === 1
-                ? "1 item ready to review"
-                : `${String(waitingToReview)} items ready to review`
-            }
-            sx={{ position: "absolute", top: 68, left: "50%", transform: "translateX(-50%)" }}
-          />
-        )}
+      {noCamera ? (
+        <CodeEntry
+          code={manualCode}
+          busy={reading}
+          onCodeChange={setManualCode}
+          onSubmit={handleManualSubmit}
+          onFilesChosen={handleFiles}
+          onClose={finish}
+        >
+          {state.notice !== null && <Alert severity="warning">{state.notice}</Alert>}
+          {question}
+        </CodeEntry>
+      ) : (
+        <Viewfinder
+          videoRef={setVideoElement}
+          frozenPreviewUrl={frozenPreviewUrl}
+          starting={cameraState === "starting"}
+          busy={shutterBusy}
+          canShoot={cameraState === "scanning" && state.photos.length < CAPTURE_MAX_PHOTOS}
+          onClose={finish}
+          onShutter={takeShot}
+          onTypeCode={() => setTyping((current) => !current)}
+          onFilesChosen={handleFiles}
+          {...(question === null && !typing ? {} : { panel: question ?? typedCodePanel })}
+        >
+          {waitingToReview > 0 && stage.kind === "Framing" && (
+            <Chip
+              component={RouterLink}
+              to="/stock-capture"
+              clickable
+              onClick={finish}
+              icon={<PendingActionsRounded />}
+              label={
+                waitingToReview === 1
+                  ? "1 item ready to review"
+                  : `${String(waitingToReview)} items ready to review`
+              }
+              sx={{ position: "absolute", top: 68, left: "50%", transform: "translateX(-50%)" }}
+            />
+          )}
 
-        {state.photos.length > 0 && stage.kind === "Framing" && (
-          <Chip
-            size="small"
-            label={
-              state.photos.length === 1
-                ? "1 photo held"
-                : `${String(state.photos.length)} photos held`
-            }
-            sx={{
-              position: "absolute",
-              bottom: 100,
-              left: "50%",
-              transform: "translateX(-50%)",
-              bgcolor: "rgba(0,0,0,0.55)",
-              color: "#FFFFFF",
-            }}
-          />
-        )}
+          {state.photos.length > 0 && stage.kind === "Framing" && (
+            <Chip
+              size="small"
+              label={
+                state.photos.length === 1
+                  ? "1 photo held"
+                  : `${String(state.photos.length)} photos held`
+              }
+              sx={{
+                position: "absolute",
+                bottom: 100,
+                left: "50%",
+                transform: "translateX(-50%)",
+                bgcolor: "rgba(0,0,0,0.55)",
+                color: "#FFFFFF",
+              }}
+            />
+          )}
 
-        {reading && (
-          <Stack
-            spacing={1.5}
-            alignItems="center"
-            sx={{
-              position: "absolute",
-              inset: 0,
-              placeContent: "center",
-              bgcolor: "rgba(0,0,0,0.45)",
-            }}
-          >
-            <CircularProgress sx={{ color: "#FFFFFF" }} />
-            <Typography role="status" aria-live="polite" sx={{ color: "#FFFFFF" }}>
-              {stage.kind === "Looking" ? `Looking up ${stage.code}…` : "Reading the photo…"}
-            </Typography>
-          </Stack>
-        )}
-
-        {stage.kind === "Unidentified" && (
-          <UnidentifiedPanel
-            code={stage.code}
-            photos={state.photos}
-            onDiscardPhoto={discardPhoto}
-            canAddItem={canAddItem}
-            onAddItem={addAsNewItem}
-            onAnotherAngle={() => reframe(true)}
-            onRetake={() => reframe(false)}
-          />
-        )}
-
-        {typing && stage.kind !== "Unidentified" && (
-          <Paper
-            elevation={0}
-            component="form"
-            onSubmit={handleManualSubmit}
-            sx={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              p: 2,
-              borderRadius: "16px 16px 0 0",
-            }}
-          >
-            <Stack direction="row" spacing={1} alignItems="flex-start">
-              <TextField
-                label="Item code or barcode"
-                value={manualCode}
-                onChange={(event) => setManualCode(event.target.value)}
-                placeholder="ITM-0001 or a barcode"
-                autoComplete="off"
-                autoFocus
-                fullWidth
-                size="small"
-              />
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={manualCode.trim().length === 0 || reading}
-              >
-                Find
-              </Button>
+          {reading && (
+            <Stack
+              spacing={1.5}
+              alignItems="center"
+              sx={{
+                position: "absolute",
+                inset: 0,
+                placeContent: "center",
+                bgcolor: "rgba(0,0,0,0.45)",
+              }}
+            >
+              <CircularProgress sx={{ color: "#FFFFFF" }} />
+              <Typography role="status" aria-live="polite" sx={{ color: "#FFFFFF" }}>
+                {stage.kind === "Looking" ? `Looking up ${stage.code}…` : "Reading the photo…"}
+              </Typography>
             </Stack>
-          </Paper>
-        )}
+          )}
 
-        {(problem !== null || state.notice !== null) && stage.kind === "Framing" && (
-          <Alert
-            severity="warning"
-            sx={{ position: "absolute", left: 12, right: 12, bottom: 100 }}
-            onClose={() => setProblem(null)}
-          >
-            {problem ?? state.notice}
-          </Alert>
-        )}
-      </Viewfinder>
+          {(problem !== null || state.notice !== null) && stage.kind === "Framing" && (
+            <Alert
+              severity="warning"
+              sx={{ position: "absolute", left: 12, right: 12, bottom: 100 }}
+              onClose={() => setProblem(null)}
+            >
+              {problem ?? state.notice}
+            </Alert>
+          )}
+        </Viewfinder>
+      )}
     </Dialog>
   );
 }

@@ -55,13 +55,13 @@ export interface ReceiptDraft {
 export type CaptureStage =
   | { readonly kind: "StartingBatch" }
   | { readonly kind: "BatchFailed"; readonly message: string }
-  | { readonly kind: "BatchOverview"; readonly batch: StockCaptureBatchView }
   /*
-   * A closed batch is not a batch overview. Leaving it on that screen left
-   * "Add another item" pointing at a batch the server would refuse, which is
-   * a dead end reachable by pressing the only other button on the page.
+   * The queue. Finishing a delivery does not get a stage of its own: the page
+   * closes that batch and opens the next one, so what follows is this screen
+   * with an empty queue and a line saying what was added — not a dead end
+   * whose only way forward is a button called "start another".
    */
-  | { readonly kind: "BatchCompleted"; readonly batch: StockCaptureBatchView }
+  | { readonly kind: "BatchOverview"; readonly batch: StockCaptureBatchView }
   /**
    * Photographs the person has opted in to sending, on their way to the
    * server. It is a stage of its own rather than a flag because sending can
@@ -134,7 +134,6 @@ export interface AddedEntry {
 export type CaptureAction =
   | { readonly type: "BatchStartFailed"; readonly message: string }
   | { readonly type: "BatchReady"; readonly batch: StockCaptureBatchView }
-  | { readonly type: "BatchClosed"; readonly batch: StockCaptureBatchView }
   /** Photographs handed over from the scan sheet, already opted in to. */
   | {
       readonly type: "PhotosOffered";
@@ -237,9 +236,6 @@ export function captureReducer(stage: CaptureStage, action: CaptureAction): Capt
 
     case "BatchReady":
       return { kind: "BatchOverview", batch: action.batch };
-
-    case "BatchClosed":
-      return { kind: "BatchCompleted", batch: action.batch };
 
     case "PhotosOffered":
       return {

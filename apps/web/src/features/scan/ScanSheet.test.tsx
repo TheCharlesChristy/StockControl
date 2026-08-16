@@ -145,7 +145,7 @@ describe("the scan sheet opens a camera", () => {
     renderSheet();
 
     expect(await screen.findByLabelText(/item code or barcode/iu)).toBeInTheDocument();
-    expect(screen.getByText(/no camera here/iu)).toBeInTheDocument();
+    expect(screen.getByText(/no camera on this device/iu)).toBeInTheDocument();
   });
 });
 
@@ -220,6 +220,30 @@ describe("offering to add it as a new item", () => {
 
     expect(onIdentifyPhotos).toHaveBeenCalledTimes(1);
     expect(onIdentifyPhotos.mock.calls[0]?.[0]).toHaveLength(1);
+  });
+
+  /*
+   * The no-camera screen asks the same question, but must not answer it with
+   * a camera: "Another angle" there has to open the file picker, or the only
+   * way forward on a desktop is a button that does nothing.
+   */
+  it("offers the file picker, not a camera, on a device without one", async () => {
+    const user = userEvent.setup();
+    zxing.decodeFromConstraints.mockRejectedValue(new Error("no camera"));
+    renderSheet({ onIdentifyPhotos: vi.fn() });
+
+    /* Wait for the camera to have given up: until it has, the input on screen
+     * belongs to the viewfinder that is about to be replaced. */
+    await screen.findByLabelText(/item code or barcode/iu);
+    const input = document.querySelector('input[type="file"]');
+    expect(input).not.toBeNull();
+    await user.upload(
+      input as HTMLInputElement,
+      new File(["photo"], "item.jpg", { type: "image/jpeg" }),
+    );
+
+    const another = await screen.findByRole("button", { name: /another angle/iu });
+    expect(another.querySelector('input[type="file"]')).not.toBeNull();
   });
 
   it("says what accepting will send", async () => {
@@ -316,7 +340,7 @@ describe("typing a code", () => {
     renderSheet();
 
     await user.type(await screen.findByLabelText(/item code or barcode/iu), "ITM-0001");
-    await user.click(screen.getByRole("button", { name: "Find" }));
+    await user.click(screen.getByRole("button", { name: /find item/iu }));
 
     expect(await screen.findByText("The item page")).toBeInTheDocument();
   });
