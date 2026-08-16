@@ -1,7 +1,15 @@
 import CloseRounded from "@mui/icons-material/CloseRounded";
 import KeyboardAltRounded from "@mui/icons-material/KeyboardAltRounded";
 import PhotoLibraryRounded from "@mui/icons-material/PhotoLibraryRounded";
-import { Box, CircularProgress, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import {
+  Box,
+  CircularProgress,
+  IconButton,
+  Paper,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import type { ChangeEvent, ReactElement, ReactNode, Ref } from "react";
 
 const CONTROL_SX = {
@@ -14,16 +22,17 @@ interface ViewfinderProps {
   readonly videoRef: Ref<HTMLVideoElement>;
   /** The shot on screen, frozen over the live stream while it is read. */
   readonly frozenPreviewUrl: string | null;
-  readonly cameraUnavailable: boolean;
+  readonly starting: boolean;
   readonly busy: boolean;
-  readonly hint: string;
   readonly canShoot: boolean;
   readonly onClose: () => void;
   readonly onShutter: () => void;
-  readonly onToggleKeyboard: () => void;
+  readonly onTypeCode: () => void;
   readonly onFilesChosen: (event: ChangeEvent<HTMLInputElement>) => void;
-  /** The result panel, laid over the bottom of the picture. */
+  /** Chips and progress laid over the picture. */
   readonly children?: ReactNode;
+  /** A question or a form, raised over the bottom of the picture. */
+  readonly panel?: ReactNode;
 }
 
 /**
@@ -35,20 +44,26 @@ interface ViewfinderProps {
  * front of a shelf wants is to point their phone at the label. So the picture
  * fills the screen, there is a shutter under your thumb, and everything else
  * is an icon at the edge.
+ *
+ * Rendered only where there is a camera to show. A device without one gets an
+ * ordinary dialog rather than this with the picture switched off, which is a
+ * black rectangle with a dead shutter on it.
  */
 export function Viewfinder({
   videoRef,
   frozenPreviewUrl,
-  cameraUnavailable,
+  starting,
   busy,
-  hint,
   canShoot,
   onClose,
   onShutter,
-  onToggleKeyboard,
+  onTypeCode,
   onFilesChosen,
   children,
+  panel,
 }: ViewfinderProps): ReactElement {
+  const framing = frozenPreviewUrl === null;
+
   return (
     <Box
       sx={{
@@ -77,7 +92,6 @@ export function Viewfinder({
            * is squinting at when a decode will not catch.
            */
           objectFit: "cover",
-          display: cameraUnavailable ? "none" : "block",
         }}
       />
 
@@ -92,18 +106,6 @@ export function Viewfinder({
         />
       )}
 
-      {cameraUnavailable && frozenPreviewUrl === null && (
-        <Stack
-          spacing={1}
-          sx={{ position: "absolute", inset: 0, p: 4, placeContent: "center", textAlign: "center" }}
-        >
-          <Typography sx={{ color: "#FFFFFF", fontWeight: 700 }}>No camera here</Typography>
-          <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.7)" }}>
-            Type or scan the code below instead — a handheld scanner types into that box.
-          </Typography>
-        </Stack>
-      )}
-
       <Stack
         direction="row"
         justifyContent="space-between"
@@ -113,13 +115,13 @@ export function Viewfinder({
           <CloseRounded />
         </IconButton>
         <Tooltip title="Type a code instead">
-          <IconButton aria-label="Type a code instead" onClick={onToggleKeyboard} sx={CONTROL_SX}>
+          <IconButton aria-label="Type a code instead" onClick={onTypeCode} sx={CONTROL_SX}>
             <KeyboardAltRounded />
           </IconButton>
         </Tooltip>
       </Stack>
 
-      {!cameraUnavailable && frozenPreviewUrl === null && (
+      {framing && (
         <>
           {/* Something to aim with. A full-bleed picture gives no clue where
            *  to hold the label for the decoder to catch it. */}
@@ -137,22 +139,24 @@ export function Viewfinder({
             variant="body2"
             sx={{
               position: "absolute",
-              left: 0,
-              right: 0,
+              left: 16,
+              right: 16,
               bottom: 116,
               textAlign: "center",
               color: "#FFFFFF",
               textShadow: "0 1px 4px rgba(0,0,0,0.8)",
             }}
           >
-            {hint}
+            {starting
+              ? "Starting the camera…"
+              : "Hold a barcode or QR code in the frame, or take a photo of the item"}
           </Typography>
         </>
       )}
 
       {children}
 
-      {frozenPreviewUrl === null && (
+      {framing && (
         <Stack
           direction="row"
           alignItems="center"
@@ -174,7 +178,7 @@ export function Viewfinder({
            *  centred under a thumb, the way every camera app puts it. */}
           <IconButton
             aria-label="Take a photo"
-            disabled={!canShoot || busy || cameraUnavailable}
+            disabled={!canShoot || busy}
             onClick={onShutter}
             sx={{
               width: 72,
@@ -195,6 +199,24 @@ export function Viewfinder({
           {/* Balances the row so the shutter sits centred. */}
           <Box sx={{ width: 40 }} />
         </Stack>
+      )}
+
+      {panel !== undefined && (
+        <Paper
+          elevation={0}
+          sx={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            p: 2.5,
+            borderRadius: "16px 16px 0 0",
+            maxHeight: "100%",
+            overflowY: "auto",
+          }}
+        >
+          {panel}
+        </Paper>
       )}
     </Box>
   );

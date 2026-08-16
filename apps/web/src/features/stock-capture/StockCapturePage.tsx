@@ -1,15 +1,5 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
-import {
-  Alert,
-  Box,
-  Button,
-  LinearProgress,
-  Stack,
-  Step,
-  StepLabel,
-  Stepper,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, LinearProgress, Stack, Typography } from "@mui/material";
 import type {
   CaptureUploadGrant,
   CommitCaptureEntryRequest,
@@ -17,7 +7,7 @@ import type {
   RecognitionSessionSummaryView,
   StockCaptureBatchView,
 } from "@stockcontrol/contracts";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -27,14 +17,9 @@ import { LoadingRows, PageHeader } from "../../components/DataStates";
 import type { BarcodeProvider } from "../scan/barcode/provider";
 import { revokePreviews, type CapturedPhoto } from "../scan/photo-tray";
 import { ScanSheet } from "../scan/ScanSheet";
-import { BatchSummary } from "./BatchSummary";
 import { CandidateReview } from "./CandidateReview";
-import {
-  captureReducer,
-  initialCaptureStage,
-  type AddedEntry,
-  type CaptureStage,
-} from "./capture-reducer";
+import { ReviewQueue } from "./ReviewQueue";
+import { captureReducer, initialCaptureStage, type AddedEntry } from "./capture-reducer";
 import { clearCaptureProgress, loadCaptureProgress, saveCaptureProgress } from "./capture-storage";
 import { takeOfferedPhotos } from "./handoff";
 import { createIdempotencyKeeper } from "./idempotency";
@@ -70,24 +55,13 @@ const messageFor = (caught: unknown, fallback: string): string =>
 
 const newClientId = (): string => crypto.randomUUID();
 
-const STEPS = ["Photos", "Suggestions", "Confirm"] as const;
-
-/** Which of the three steps a stage belongs to, or null where the stepper
- *  would be noise — the batch screen is not part of one item's journey. */
-const stepFor = (stage: CaptureStage): number | null => {
-  switch (stage.kind) {
-    case "SendingPhotos":
-    case "Uploading":
-      return 0;
-    case "AwaitingRecognition":
-    case "ReviewingCandidates":
-      return 1;
-    case "EnteringReceipt":
-      return 2;
-    default:
-      return null;
-  }
-};
+/*
+ * There is no stepper. It counted Photos, Suggestions and Confirm, and the
+ * first of those now happens in the scan sheet before this page is reached —
+ * a progress indicator whose first step is always already done, on a screen
+ * that can also be showing a queue of four unrelated items, was measuring
+ * nothing the reader could act on.
+ */
 
 /**
  * The decode/encode/PUT leg, injectable for the same reason `BarcodeProvider`
@@ -474,48 +448,88 @@ export function StockCapturePage({
     };
   }, []);
 
-  const finishBatch = useCallback((): void => {
+  /** Opens an empty queue, forgetting anything the last one held. */
+  const openFreshQueue = useCallback(
+    (notice: string | null): Promise<void> => {
+      clearCaptureProgress();
+      setAddedEntries([]);
+      setBatchActionError(null);
+      entryKeys.reset();
+      sessionKeys.reset();
+
+      return api
+        .startCaptureBatch({ clientBatchId: newClientId(), defaultLocationId: null })
+        .then((batch) => {
+          saveCaptureProgress({ batchId: batch.id, sessionId: null });
+          setDefaultLocationId(batch.defaultLocationId ?? "");
+          startedRef.current = true;
+          setBatchNotice(notice);
+          dispatch({ type: "BatchReady", batch });
+        })
+        .catch((caught: unknown) => {
+          startedRef.current = true;
+          dispatch({
+            type: "BatchStartFailed",
+            message: messageFor(caught, "The queue could not be opened."),
+          });
+        });
+    },
+    [api, entryKeys, sessionKeys],
+  );
+
+  /*
+   * Finishing closes the delivery and opens the next one in the same breath.
+   * It used to leave a dead-end screen whose only way forward was a button
+   * called "Start another batch" — a step that existed because the code needed
+   * it, not because anybody had a decision to make.
+   */
+  const finishDelivery = useCallback((): void => {
     if (stage.kind !== "BatchOverview") return;
+    const added = stage.batch.committedEntryCount;
     setFinishing(true);
     setBatchActionError(null);
     api
       .completeCaptureBatch(stage.batch.id)
-      .then((batch) => {
-        clearCaptureProgress();
-        dispatch({ type: "BatchClosed", batch });
-      })
+      .then(() =>
+        openFreshQueue(
+          added === 0
+            ? "That delivery is finished. Nothing was added to stock."
+            : `That delivery is finished. ${String(added)} ${
+                added === 1 ? "item was" : "items were"
+              } added to stock.`,
+        ),
+      )
       .catch((caught: unknown) => {
-        setBatchActionError(messageFor(caught, "The batch could not be finished."));
+        setBatchActionError(messageFor(caught, "The delivery could not be finished."));
       })
       .finally(() => {
         setFinishing(false);
       });
-  }, [api, stage]);
+  }, [api, openFreshQueue, stage]);
 
-  const startAnotherBatch = useCallback((): void => {
-    clearCaptureProgress();
-    setAddedEntries([]);
-    setBatchNotice(null);
-    setBatchActionError(null);
-    startedRef.current = false;
-    entryKeys.reset();
-    sessionKeys.reset();
-    api
-      .startCaptureBatch({ clientBatchId: newClientId(), defaultLocationId: null })
-      .then((batch) => {
-        saveCaptureProgress({ batchId: batch.id, sessionId: null });
-        setDefaultLocationId(batch.defaultLocationId ?? "");
-        startedRef.current = true;
-        dispatch({ type: "BatchReady", batch });
-      })
-      .catch((caught: unknown) => {
-        startedRef.current = true;
-        dispatch({
-          type: "BatchStartFailed",
-          message: messageFor(caught, "A capture batch could not be started."),
+  /** Takes a session out of the queue without opening it, which is the whole
+   *  point of a queue you can manage. */
+  const removeSession = useCallback(
+    (summary: RecognitionSessionSummaryView): void => {
+      if (stage.kind !== "BatchOverview") return;
+      const { batch } = stage;
+      setBatchActionError(null);
+      api
+        .cancelCaptureSession(summary.id)
+        .catch((caught: unknown) => {
+          setBatchActionError(
+            messageFor(caught, "That item was not removed. The server may still be working on it."),
+          );
+        })
+        .finally(() => {
+          api
+            .getCaptureBatch(batch.id)
+            .then((fresh) => dispatch({ type: "BatchReady", batch: fresh }))
+            .catch(() => undefined);
         });
-      });
-  }, [api, entryKeys, sessionKeys]);
+    },
+    [api, stage],
+  );
 
   const resumeSession = useCallback(
     (summary: RecognitionSessionSummaryView): void => {
@@ -695,8 +709,6 @@ export function StockCapturePage({
       });
   }, [api, entryKeys, sessionKeys, stage]);
 
-  const activeStep = useMemo(() => stepFor(stage), [stage]);
-
   return (
     <Box>
       <Button
@@ -710,27 +722,17 @@ export function StockCapturePage({
 
       <PageHeader
         eyebrow="Assisted stock capture"
-        title="Add stock"
-        description="Everything in this delivery: what is still being identified, what is waiting for you to check, and what has already gone into stock. Nothing changes in stock until you confirm it."
+        title="Review queue"
+        description="Items you photographed that StockControl could not recognise on their own. Nothing changes in stock until you confirm it."
       />
 
-      {activeStep !== null && (
-        <Stepper activeStep={activeStep} sx={{ mb: 3, maxWidth: 560 }}>
-          {STEPS.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      )}
-
-      {stage.kind === "StartingBatch" && <LoadingRows rows={6} label="Starting capture" />}
+      {stage.kind === "StartingBatch" && <LoadingRows rows={6} label="Opening the queue" />}
 
       {stage.kind === "BatchFailed" && (
         <Alert
           severity="error"
           action={
-            <Button color="inherit" size="small" onClick={startAnotherBatch}>
+            <Button color="inherit" size="small" onClick={() => void openFreshQueue(null)}>
               Try again
             </Button>
           }
@@ -740,7 +742,7 @@ export function StockCapturePage({
       )}
 
       {stage.kind === "BatchOverview" && (
-        <BatchSummary
+        <ReviewQueue
           batch={stage.batch}
           added={addedEntries}
           locations={locationList}
@@ -750,30 +752,11 @@ export function StockCapturePage({
           finishing={finishing}
           onDefaultLocationChange={setDefaultLocationId}
           onDismissNotice={() => setBatchNotice(null)}
-          onStartNewItem={() => setScanning(true)}
-          onResumeSession={resumeSession}
-          onFinishBatch={finishBatch}
+          onScan={() => setScanning(true)}
+          onOpenSession={resumeSession}
+          onRemoveSession={removeSession}
+          onFinishDelivery={finishDelivery}
         />
-      )}
-
-      {stage.kind === "BatchCompleted" && (
-        <Stack spacing={2.5}>
-          <Alert severity="success">
-            {stage.batch.committedEntryCount === 0
-              ? "That batch is finished. Nothing was added to stock."
-              : `That batch is finished. ${String(stage.batch.committedEntryCount)} ${
-                  stage.batch.committedEntryCount === 1 ? "item was" : "items were"
-                } added to stock.`}
-          </Alert>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <Button variant="contained" onClick={startAnotherBatch}>
-              Start another batch
-            </Button>
-            <Button component={RouterLink} to="/inventory" variant="outlined">
-              Back to inventory
-            </Button>
-          </Stack>
-        </Stack>
       )}
 
       {stage.kind === "SendingPhotos" && (
@@ -794,7 +777,7 @@ export function StockCapturePage({
             sx={{ width: "100%", maxWidth: 360 }}
           />
           <Typography role="status" aria-live="polite">
-            Sending photographs — {stage.uploadedCount} of {stage.totalCount}
+            Sending photos — {stage.uploadedCount} of {stage.totalCount}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Keep this page open until they have all been sent.

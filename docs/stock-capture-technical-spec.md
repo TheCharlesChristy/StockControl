@@ -156,7 +156,10 @@ an explicit choice rather than by arriving on a screen.
 1. Anybody, on any screen, presses the floating scan button and gets a camera.
    The live decoder runs on the stream; a shutter captures a frame from the
    same stream; a photograph already on the device and a typed or wanded code
-   are the two secondary ways in. Guidance says only that the item should be
+   are the two secondary ways in. A device with no camera gets an ordinary
+   dialog built round the code box instead — the field focused, a handheld
+   scanner typing into it, and the photo picker beneath — never the viewfinder
+   with its picture switched off. Guidance says only that the item should be
    visible and that extra angles or a label close-up improve the result. There
    is no required backdrop or frame.
 2. The browser attempts barcode recognition on the device — on the live frames,
@@ -174,7 +177,10 @@ an explicit choice rather than by arriving on a screen.
    before answering.
 4. Taking that choice opens a capture batch (or joins the one already open) and
    hands the photographs to it. A default location may be selected now or left
-   until review.
+   until review. The batch is presented as a review queue rather than as a
+   place to add stock from: adding starts at the scan button, and what only
+   this page can do is show what is still being read, what is waiting to be
+   checked and what got stuck, and act on any of it without opening each one.
 5. The API validates every decoded value and retains it as recognition evidence.
    A barcode never skips the remaining photograph pipeline.
 6. The browser normalises and uploads the photographs directly to the
@@ -908,8 +914,9 @@ Two features, and the boundary between them is the opt-in.
 sent. It is reachable from every screen and available to every role:
 
 ```text
-ScanSheet.tsx                    the camera, and the sequence one scan runs
+ScanSheet.tsx                    the sequence one scan runs, and which surface shows it
 Viewfinder.tsx                   full-bleed picture, reticle, shutter, edge controls
+CodeEntry.tsx                    the same flow on a device with no camera
 scan-reducer.ts                  explicit stages for one scan
 UnidentifiedPanel.tsx            the dead end as a question, and the opt-in
 PhotoTray.tsx                    the shots being held, and discarding one
@@ -918,6 +925,10 @@ frame-grabber.ts                 a frame out of the live stream, as a File
 barcode/provider.ts              native/WASM capability boundary
 ```
 
+`ScanSheet` chooses between `Viewfinder` and `CodeEntry`; both raise the same
+`UnidentifiedPanel`, which takes how another photo is added as a closed union so
+that a device without a camera is never offered one.
+
 A match is not a screen. The sheet navigates to the item's page and closes,
 because there is nothing left to decide once the item is known — every stock
 operation already lives on that page.
@@ -925,14 +936,13 @@ operation already lives on that page.
 `apps/web/src/features/stock-capture/` owns everything after it:
 
 ```text
-StockCapturePage.tsx             batch/session shell
+StockCapturePage.tsx             queue/session shell
+ReviewQueue.tsx                  the queue, grouped by what it wants from the reader
 SendingPhotos.tsx                opted-in photographs in flight, and their retry
-CaptureGuidance.tsx              blur/glare and multi-object guidance
 RecognitionProgress.tsx          durable stage/status polling
 CandidateReview.tsx              primary continue action, alternatives and review-later controls
 AnalysisDetails.tsx              per-photo/stage evidence disclosure
 ReceiptConfirmation.tsx          quantity, unit and location confirmation
-BatchSummary.tsx                 batch progress and unresolved sessions
 capture-reducer.ts               explicit UI state machine
 handoff.ts                       one-shot slot carrying opted-in photographs here
 upload/normalise.ts              EXIF removal, resize, digest and PUT

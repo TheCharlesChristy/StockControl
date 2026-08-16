@@ -60,7 +60,7 @@ export function CaptureSuccess({
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
         <Button variant="contained" onClick={onBackToBatch}>
-          Add another item
+          Back to the queue
         </Button>
         <Button component={RouterLink} to={`/inventory/${result.item.id}`} variant="outlined">
           View this item

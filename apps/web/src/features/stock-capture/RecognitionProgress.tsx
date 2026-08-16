@@ -112,16 +112,16 @@ export function RecognitionProgress({
         </Alert>
       ) : (
         <Typography variant="body2" color="text.secondary">
-          You can wait here or start capturing the next item — this one keeps working.
+          You can wait here or go back to the queue — this keeps working either way.
         </Typography>
       )}
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-        <Button variant="contained" onClick={onQueueAnother}>
-          Photograph another item
+        <Button variant="contained" onClick={onBackToQueue}>
+          Back to the queue
         </Button>
-        <Button variant="outlined" onClick={onBackToQueue}>
-          Back to queue
+        <Button variant="outlined" onClick={onQueueAnother}>
+          Photograph another item
         </Button>
         <Button onClick={onCancel}>Cancel this item</Button>
       </Stack>
