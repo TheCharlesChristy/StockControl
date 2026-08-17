@@ -30,7 +30,7 @@
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@vitest/coverage-v8": "catalog:",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
