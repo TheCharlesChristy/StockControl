@@ -1,131 +1,80 @@
-import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
-import DeleteRounded from "@mui/icons-material/DeleteRounded";
-import PhotoLibraryRounded from "@mui/icons-material/PhotoLibraryRounded";
+import CloseRounded from "@mui/icons-material/CloseRounded";
 import QrCode2Rounded from "@mui/icons-material/QrCode2Rounded";
-import {
-  Box,
-  Button,
-  Card,
-  CardMedia,
-  IconButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import { CAPTURE_MAX_PHOTOS } from "@stockcontrol/contracts";
-import type { ChangeEvent, ReactElement } from "react";
+import { Box, IconButton, Tooltip } from "@mui/material";
+import type { ReactElement } from "react";
 
 import type { CapturedPhoto } from "./photo-tray";
 
 interface PhotoTrayProps {
   readonly photos: readonly CapturedPhoto[];
-  readonly decoding: boolean;
-  readonly disabled: boolean;
-  readonly onFilesChosen: (event: ChangeEvent<HTMLInputElement>) => void;
-  readonly onRemove: (ordinal: number) => void;
+  readonly onDiscard: (ordinal: number) => void;
 }
 
 /**
- * The photographs on the scan sheet, and the two ways to add one.
- *
- * Two inputs, because `capture` is not a hint: a phone given it opens the
- * camera and offers no way to reach a photograph already taken. Both are
- * offered, and the tray looks the same whichever the person used.
+ * The shots being held, shown at the point where the person decides what to do
+ * with them. Small, because they have just seen each one full-screen; the job
+ * here is only to say how many are about to be sent, and to let one go.
  */
-export function PhotoTray({
-  photos,
-  decoding,
-  disabled,
-  onFilesChosen,
-  onRemove,
-}: PhotoTrayProps): ReactElement {
+export function PhotoTray({ photos, onDiscard }: PhotoTrayProps): ReactElement {
   return (
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25 }}>
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
       {photos.map((photo) => (
-        <Card key={photo.ordinal} variant="outlined" sx={{ width: 104, overflow: "hidden" }}>
-          <Box sx={{ position: "relative" }}>
-            <CardMedia
-              component="img"
-              src={photo.previewUrl}
-              alt={`Photograph ${String(photo.ordinal)}`}
-              sx={{ height: 84, objectFit: "cover" }}
-            />
-            {photo.localCodes.length > 0 && (
-              /* The one piece of feedback that says the fast path worked
-               * without anything being sent anywhere. */
-              <Tooltip title="A code was read from this photograph on this device">
-                <Box
-                  sx={{
-                    position: "absolute",
-                    top: 4,
-                    right: 4,
-                    display: "grid",
-                    placeItems: "center",
-                    width: 24,
-                    height: 24,
-                    borderRadius: "50%",
-                    bgcolor: "success.main",
-                    color: "success.contrastText",
-                  }}
-                >
-                  <QrCode2Rounded sx={{ fontSize: 16 }} />
-                </Box>
-              </Tooltip>
-            )}
-          </Box>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ px: 0.5 }}
+        <Box key={photo.ordinal} sx={{ position: "relative", width: 64, height: 64 }}>
+          <Box
+            component="img"
+            src={photo.previewUrl}
+            alt={`Photo ${String(photo.ordinal)}`}
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              borderRadius: 1.5,
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          />
+          {photo.localCodes.length > 0 && (
+            /* The one piece of feedback that says the fast path worked without
+             * anything being sent anywhere. */
+            <Tooltip title="A code was read from this photo on this device">
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: 2,
+                  left: 2,
+                  display: "grid",
+                  placeItems: "center",
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  bgcolor: "success.main",
+                  color: "success.contrastText",
+                }}
+              >
+                <QrCode2Rounded sx={{ fontSize: 13 }} />
+              </Box>
+            </Tooltip>
+          )}
+          <IconButton
+            size="small"
+            aria-label={`Discard photo ${String(photo.ordinal)}`}
+            onClick={() => onDiscard(photo.ordinal)}
+            sx={{
+              position: "absolute",
+              top: -8,
+              right: -8,
+              width: 24,
+              height: 24,
+              bgcolor: "background.paper",
+              border: "1px solid",
+              borderColor: "divider",
+              "&:hover": { bgcolor: "background.paper" },
+            }}
           >
-            <Typography variant="caption" color="text.secondary">
-              #{photo.ordinal}
-            </Typography>
-            <IconButton
-              size="small"
-              aria-label={`Remove photograph ${String(photo.ordinal)}`}
-              disabled={disabled}
-              onClick={() => onRemove(photo.ordinal)}
-            >
-              <DeleteRounded fontSize="small" />
-            </IconButton>
-          </Stack>
-        </Card>
+            <CloseRounded sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Box>
       ))}
-
-      {photos.length < CAPTURE_MAX_PHOTOS && (
-        <Stack spacing={0.75} sx={{ width: 104 }}>
-          <Button
-            component="label"
-            variant="outlined"
-            size="small"
-            startIcon={<AddAPhotoRounded />}
-            disabled={decoding || disabled}
-            sx={{ height: 62, flexDirection: "column", px: 0.5, lineHeight: 1.2 }}
-          >
-            {decoding ? "Reading…" : "Take a photo"}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              capture="environment"
-              hidden
-              onChange={onFilesChosen}
-            />
-          </Button>
-          <Button
-            component="label"
-            size="small"
-            startIcon={<PhotoLibraryRounded />}
-            disabled={decoding || disabled}
-            sx={{ px: 0.5 }}
-          >
-            Choose
-            <input type="file" accept="image/*" multiple hidden onChange={onFilesChosen} />
-          </Button>
-        </Stack>
-      )}
     </Box>
   );
 }

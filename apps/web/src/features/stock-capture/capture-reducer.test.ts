@@ -633,21 +633,6 @@ describe("topCandidateSelection", () => {
 });
 
 describe("failure and completion states", () => {
-  /*
-   * Closing a batch used to return to the batch overview holding a batch the
-   * server had just marked Completed, leaving "Add another item" pointing at
-   * something that could only fail.
-   */
-  it("moves to BatchCompleted when the batch is closed", () => {
-    const closed = batch({ status: "Completed", committedEntryCount: 2 });
-    const next = captureReducer(
-      { kind: "BatchOverview", batch: batch() },
-      { type: "BatchClosed", batch: closed },
-    );
-
-    expect(next).toEqual({ kind: "BatchCompleted", batch: closed });
-  });
-
   it("counts consecutive failed status checks", () => {
     const awaiting: CaptureStage = {
       kind: "AwaitingRecognition",

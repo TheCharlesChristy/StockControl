@@ -258,7 +258,7 @@ async function photographAndSend(user: ReturnType<typeof userEvent.setup>): Prom
   await user.click(screen.getByRole("button", { name: /photograph an item/iu }));
 
   /* The sheet is a dialog, so it renders in a portal rather than inside the
-   * page's own container. */
+   * page's own container. Its library input is the way in without a camera. */
   const fileInput = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
     expect(found).not.toBeNull();
@@ -269,7 +269,7 @@ async function photographAndSend(user: ReturnType<typeof userEvent.setup>): Prom
     new File(["fake"], "widget.jpg", { type: "image/jpeg" }),
   );
 
-  await user.click(await screen.findByRole("button", { name: /to be identified/iu }));
+  await user.click(await screen.findByRole("button", { name: /add this as a new item/iu }));
 }
 
 describe("StockCapturePage", () => {
@@ -287,7 +287,7 @@ describe("StockCapturePage", () => {
     renderPage(createStockCaptureApi((method, path) => requests.push(`${method} ${path}`)));
 
     await waitFor(() => {
-      expect(screen.getByText(/nothing has been added to stock yet/iu)).toBeInTheDocument();
+      expect(screen.getByText(/nothing is waiting/iu)).toBeInTheDocument();
     });
     expect(requests).toContain("POST /stock-capture/batches");
   });
@@ -298,7 +298,7 @@ describe("StockCapturePage", () => {
     renderPage(createStockCaptureApi((method, path) => requests.push(`${method} ${path}`)));
 
     await waitFor(() => {
-      expect(screen.getByText(/nothing has been added to stock yet/iu)).toBeInTheDocument();
+      expect(screen.getByText(/nothing is waiting/iu)).toBeInTheDocument();
     });
     expect(requests).not.toContain("POST /stock-capture/batches");
     expect(requests).toContain(`GET /stock-capture/batches/${openBatch.id}`);
@@ -382,24 +382,27 @@ describe("StockCapturePage", () => {
   });
 
   /*
-   * Finishing a batch used to leave the batch overview on screen with its
-   * "Add another item" button still pointing at a batch the server had just
-   * closed, so the only thing left to press failed.
+   * Finishing used to leave a dead-end screen whose only way forward was a
+   * button called "Start another batch" — a step that existed because the code
+   * needed it, not because anybody had a decision to make. The next delivery
+   * is now open by the time the confirmation is read.
    */
-  it("does not offer to add to a batch it has just closed", async () => {
+  it("opens the next delivery as soon as one is finished", async () => {
     const user = userEvent.setup();
-    renderPage(createStockCaptureApi());
+    const requests: string[] = [];
+    renderPage(createStockCaptureApi((method, path) => requests.push(`${method} ${path}`)));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /finish this batch/iu })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /finish this delivery/iu })).toBeEnabled();
     });
-    await user.click(screen.getByRole("button", { name: /finish this batch/iu }));
+    await user.click(screen.getByRole("button", { name: /finish this delivery/iu }));
 
     await waitFor(() => {
-      expect(screen.getByText(/that batch is finished/iu)).toBeInTheDocument();
+      expect(screen.getByText(/that delivery is finished/iu)).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /add another item/iu })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start another batch/iu })).toBeInTheDocument();
+    expect(screen.getByText(/nothing is waiting/iu)).toBeInTheDocument();
+    expect(requests).toContain(`POST /stock-capture/batches/${openBatch.id}/complete`);
+    expect(requests.filter((entry) => entry === "POST /stock-capture/batches")).toHaveLength(2);
   });
 
   /*

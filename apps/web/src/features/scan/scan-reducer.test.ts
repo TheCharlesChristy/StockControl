@@ -1,129 +1,139 @@
-import type { ItemDetailView } from "@stockcontrol/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { CapturedPhoto } from "./photo-tray";
 import { initialScanState, isListening, scanReducer, type ScanState } from "./scan-reducer";
 
-const item = { id: "item-1", reference: "ITM-0001", name: "Widget" } as ItemDetailView;
-
-const photo = (ordinal: number, code: string | null = null): CapturedPhoto => ({
+const photo = (ordinal: number): CapturedPhoto => ({
   ordinal,
   file: new File(["x"], `photo-${String(ordinal)}.jpg`, { type: "image/jpeg" }),
   previewUrl: `blob:photo-${String(ordinal)}`,
   sourceType: "image/jpeg",
-  localCodes:
-    code === null
-      ? []
-      : [{ value: code, symbology: "EAN-13", imageOrdinal: ordinal, readerVersion: "test" }],
+  localCodes: [],
 });
 
-const withPhotos = (...photos: readonly CapturedPhoto[]): ScanState =>
-  scanReducer(initialScanState, { type: "PhotosAdded", photos });
+const code = (ordinal: number, value: string): CapturedPhoto["localCodes"][number] => ({
+  value,
+  symbology: "EAN-13",
+  imageOrdinal: ordinal,
+  readerVersion: "test",
+});
 
-describe("the scan sheet's state", () => {
-  it("keeps photographs while a lookup runs, so removing one is still possible", () => {
-    const added = withPhotos(photo(1), photo(2));
-    const looking = scanReducer(added, { type: "LookupStarted", code: "5012345678900" });
+const afterShots = (...photos: readonly CapturedPhoto[]): ScanState =>
+  scanReducer(initialScanState, { type: "ShotsTaken", photos });
 
-    expect(looking.photos).toHaveLength(2);
-    expect(looking.outcome).toEqual({ kind: "Looking", code: "5012345678900" });
+describe("taking a shot", () => {
+  /*
+   * The picture must freeze the instant the shutter is pressed. Waiting for
+   * the decoder would leave a live camera running under a photo already taken.
+   */
+  it("holds the shot and starts reading it before any code is known", () => {
+    const state = afterShots(photo(1));
+
+    expect(state.stage).toEqual({ kind: "Reading" });
+    expect(state.photos).toHaveLength(1);
+    expect(state.photos[0]?.localCodes).toEqual([]);
   });
 
-  it("reports that no code was found in the photographs", () => {
-    const state = scanReducer(withPhotos(photo(1)), { type: "NoCodeFound" });
+  it("attaches what the device read to the shot it came from", () => {
+    const state = scanReducer(afterShots(photo(1), photo(2)), {
+      type: "CodesRead",
+      codes: [{ ordinal: 2, localCodes: [code(2, "5012345678900")] }],
+    });
 
-    expect(state.outcome).toEqual({ kind: "NoCode" });
+    expect(state.photos[0]?.localCodes).toEqual([]);
+    expect(state.photos[1]?.localCodes).toEqual([code(2, "5012345678900")]);
+  });
+
+  it("says so when the device found no code in the shot", () => {
+    const state = scanReducer(afterShots(photo(1)), { type: "NoCodeFound" });
+
+    expect(state.stage).toEqual({ kind: "Unidentified", code: null, source: "photo" });
   });
 
   /*
-   * The camera and the photographs race: a decode that finishes after somebody
-   * has already scanned the label would otherwise replace the item on screen
-   * with "no code found in your photographs".
+   * The live camera can resolve a label while a photo is still decoding. By
+   * then the sheet has left for the item's page, and this must not reopen a
+   * dead end behind it.
    */
-  it("does not let a silent photograph overwrite an item already found", () => {
-    const found = scanReducer(withPhotos(photo(1)), {
-      type: "ItemFound",
-      item,
-      source: "camera",
+  it("does not report a silent photo once something else has moved on", () => {
+    const looking = scanReducer(afterShots(photo(1)), {
+      type: "LookupStarted",
+      code: "5012345678900",
     });
 
-    expect(scanReducer(found, { type: "NoCodeFound" }).outcome).toEqual({
-      kind: "Found",
-      item,
-      source: "camera",
-    });
+    expect(scanReducer(looking, { type: "NoCodeFound" })).toBe(looking);
   });
+});
 
-  it("stops saying no code was found once the last photograph is removed", () => {
-    const state = scanReducer(scanReducer(withPhotos(photo(1)), { type: "NoCodeFound" }), {
-      type: "PhotoRemoved",
-      ordinal: 1,
-    });
-
-    expect(state.photos).toHaveLength(0);
-    expect(state.outcome).toEqual({ kind: "Nothing" });
-  });
-
-  it("keeps the remaining photographs when one is removed", () => {
-    const state = scanReducer(withPhotos(photo(1), photo(2)), {
-      type: "PhotoRemoved",
-      ordinal: 1,
-    });
-
-    expect(state.photos.map((entry) => entry.ordinal)).toEqual([2]);
-  });
-
-  it("clears everything when the person starts over", () => {
-    const busy = scanReducer(withPhotos(photo(1, "5012345678900")), {
-      type: "ItemFound",
-      item,
-      source: "photo",
-    });
-
-    expect(scanReducer(busy, { type: "StartOver" })).toEqual(initialScanState);
-  });
-
-  it("explains a code that matched nothing, and remembers where it came from", () => {
+describe("when nothing could be identified", () => {
+  it("names the code that matched nothing, and where it came from", () => {
     const state = scanReducer(initialScanState, {
       type: "LookupFailed",
       code: "NOPE",
       source: "typed",
-      message: "Nothing in the catalogue matches “NOPE”.",
     });
 
-    expect(state.outcome).toEqual({
-      kind: "NoMatch",
-      code: "NOPE",
-      source: "typed",
-      message: "Nothing in the catalogue matches “NOPE”.",
-    });
+    expect(state.stage).toEqual({ kind: "Unidentified", code: "NOPE", source: "typed" });
+  });
+
+  /* Another angle is the one thing that reliably improves a recognition
+   * result, so going back to the camera must not throw the first shot away. */
+  it("keeps the shots when the person goes back for another angle", () => {
+    const unidentified = scanReducer(afterShots(photo(1)), { type: "NoCodeFound" });
+    const state = scanReducer(unidentified, { type: "Reframed", keepPhotos: true });
+
+    expect(state.stage).toEqual({ kind: "Framing" });
+    expect(state.photos).toHaveLength(1);
+  });
+
+  it("throws them away when the person starts again", () => {
+    const unidentified = scanReducer(afterShots(photo(1)), { type: "NoCodeFound" });
+    const state = scanReducer(unidentified, { type: "Reframed", keepPhotos: false });
+
+    expect(state.stage).toEqual({ kind: "Framing" });
+    expect(state.photos).toHaveLength(0);
+  });
+
+  it("returns to the camera once the last shot is discarded", () => {
+    const unidentified = scanReducer(afterShots(photo(1)), { type: "NoCodeFound" });
+    const state = scanReducer(unidentified, { type: "PhotoDiscarded", ordinal: 1 });
+
+    expect(state.photos).toHaveLength(0);
+    expect(state.stage).toEqual({ kind: "Framing" });
+  });
+
+  it("stays on the question while other shots remain", () => {
+    const unidentified = scanReducer(afterShots(photo(1), photo(2)), { type: "NoCodeFound" });
+    const state = scanReducer(unidentified, { type: "PhotoDiscarded", ordinal: 1 });
+
+    expect(state.photos.map((entry) => entry.ordinal)).toEqual([2]);
+    expect(state.stage.kind).toBe("Unidentified");
+  });
+
+  it("clears everything when the sheet closes", () => {
+    const busy = scanReducer(afterShots(photo(1)), { type: "NoCodeFound" });
+
+    expect(scanReducer(busy, { type: "StartOver" })).toEqual(initialScanState);
   });
 });
 
 describe("whether the camera keeps acting on what it reads", () => {
-  it("keeps listening while nothing has been found", () => {
+  it("listens while framing", () => {
     expect(isListening(initialScanState)).toBe(true);
+    expect(
+      isListening(scanReducer(afterShots(photo(1)), { type: "Reframed", keepPhotos: true })),
+    ).toBe(true);
   });
 
-  it("keeps listening after a code matched nothing, so the right label still works", () => {
-    const state = scanReducer(initialScanState, {
-      type: "LookupFailed",
-      code: "NOPE",
-      source: "typed",
-      message: "Nothing matches.",
-    });
+  /* A shot already taken has frozen the picture the person is looking at, and
+   * a decode landing behind it would navigate out from under them. */
+  it("stops the moment a shot is taken, and stays stopped until it is resolved", () => {
+    const reading = afterShots(photo(1));
 
-    expect(isListening(state)).toBe(true);
-  });
-
-  it("keeps listening when the photographs held no code", () => {
-    expect(isListening(scanReducer(withPhotos(photo(1)), { type: "NoCodeFound" }))).toBe(true);
-  });
-
-  it("stops once an item is on screen", () => {
-    const found = scanReducer(initialScanState, { type: "ItemFound", item, source: "camera" });
-
-    expect(isListening(found)).toBe(false);
-    expect(isListening(scanReducer(found, { type: "StockReceived", item }))).toBe(false);
+    expect(isListening(reading)).toBe(false);
+    expect(isListening(scanReducer(reading, { type: "NoCodeFound" }))).toBe(false);
+    expect(
+      isListening(scanReducer(reading, { type: "LookupStarted", code: "5012345678900" })),
+    ).toBe(false);
   });
 });

@@ -74,14 +74,14 @@ export function SessionUnavailable({
           </Button>
         )}
         <Button variant={committed ? "contained" : "outlined"} onClick={onBackToBatch}>
-          Back to batch
+          Back to the queue
         </Button>
         {!committed && (
           <Button component={RouterLink} to="/inventory">
             Add it in inventory instead
           </Button>
         )}
-        {!committed && <Button onClick={onCancel}>Remove from queue</Button>}
+        {!committed && <Button onClick={onCancel}>Remove from the queue</Button>}
       </Stack>
     </Stack>
   );

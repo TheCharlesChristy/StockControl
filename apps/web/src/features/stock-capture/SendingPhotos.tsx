@@ -54,13 +54,12 @@ export function SendingPhotos({
         <Stack spacing={1} sx={{ maxWidth: 420 }}>
           <LinearProgress />
           <Typography role="status" aria-live="polite" variant="body2">
-            Sending{" "}
-            {photos.length === 1 ? "the photograph" : `${String(photos.length)} photographs`}…
+            Sending {photos.length === 1 ? "the photo" : `${String(photos.length)} photos`}…
           </Typography>
         </Stack>
       ) : (
         <Alert severity="error" role="alert">
-          {error ?? "The photographs could not be sent."}
+          {error ?? "The photos could not be sent."}
         </Alert>
       )}
 
@@ -69,7 +68,7 @@ export function SendingPhotos({
           <Button variant="contained" onClick={onRetry}>
             Send them again
           </Button>
-          <Button onClick={onDiscard}>Discard these photographs</Button>
+          <Button onClick={onDiscard}>Discard these photos</Button>
         </Stack>
       )}
     </Stack>

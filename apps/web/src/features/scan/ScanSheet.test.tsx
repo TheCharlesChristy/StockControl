@@ -4,12 +4,13 @@ import type { SessionFeatures, UserRole } from "@stockcontrol/contracts";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ApiClient } from "../../api/ApiClient";
+import { ApiClient } from "../../api/ApiClient";
 import { ApiProvider } from "../../api/ApiContext";
 import { AuthProvider } from "../../auth/AuthContext";
 import { createFakeApiClient, testItemDetail, type RecordedRequest } from "../../test/fake-api";
 import { createStubAuthClient } from "../../test/auth";
 import type { BarcodeProvider } from "./barcode/provider";
+import type { FrameGrabber } from "./frame-grabber";
 import type { CapturedPhoto } from "./photo-tray";
 import { ScanSheet } from "./ScanSheet";
 
@@ -33,10 +34,27 @@ const decodes = (value: string): BarcodeProvider => ({
   decode: () => Promise.resolve([{ value, symbology: "EAN-13" }]),
 });
 
+/** Stands in for the canvas, which jsdom does not have. */
+const shutterTakes = (): FrameGrabber => ({
+  grab: () => Promise.resolve(new File(["frame"], "scan.jpg", { type: "image/jpeg" })),
+});
+
+/** A catalogue that knows nothing, so a decoded code reaches the dead end. */
+const apiMatchingNothing = (): ApiClient =>
+  new ApiClient(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ detail: "Not found", code: "item.not_found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  );
+
 interface RenderOptions {
   readonly role?: UserRole;
   readonly features?: SessionFeatures;
   readonly barcodeProvider?: BarcodeProvider;
+  readonly frameGrabber?: FrameGrabber;
   readonly onIdentifyPhotos?: (photos: readonly CapturedPhoto[]) => void;
   readonly api?: ApiClient;
 }
@@ -45,6 +63,7 @@ function renderSheet({
   role = "Office",
   features = { stockCapture: true },
   barcodeProvider = decodesNothing,
+  frameGrabber = shutterTakes(),
   onIdentifyPhotos,
   api = createFakeApiClient(),
 }: RenderOptions = {}): void {
@@ -60,6 +79,7 @@ function renderSheet({
                   open
                   onClose={vi.fn()}
                   barcodeProvider={barcodeProvider}
+                  frameGrabber={frameGrabber}
                   {...(onIdentifyPhotos === undefined ? {} : { onIdentifyPhotos })}
                 />
               }
@@ -73,25 +93,26 @@ function renderSheet({
   );
 }
 
-const attachPhoto = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    expect(found).not.toBeNull();
-    return found;
+/** The camera has to report itself working before the shutter arms. */
+const cameraReady = async (): Promise<void> => {
+  zxing.decodeFromConstraints.mockResolvedValue({ stop: vi.fn() });
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /take a photo/iu })).toBeEnabled();
   });
-
-  await user.upload(
-    input as HTMLInputElement,
-    new File(["photo"], "item.jpg", { type: "image/jpeg" }),
-  );
 };
 
-describe("the scan sheet's camera", () => {
+const pressShutter = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+  await cameraReady();
+  await user.click(screen.getByRole("button", { name: /take a photo/iu }));
+};
+
+describe("the scan sheet opens a camera", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
-  it("attaches the camera to the rendered preview and supports laptop webcams", async () => {
+  it("attaches the camera to the preview and supports laptop webcams", async () => {
     zxing.decodeFromConstraints.mockResolvedValue({ stop: vi.fn() });
 
     renderSheet();
@@ -107,27 +128,79 @@ describe("the scan sheet's camera", () => {
     expect(constraints).toEqual({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
       },
     });
   });
+
+  /*
+   * A handheld scanner types like a keyboard, and the machines they are
+   * plugged into are the ones least likely to have a camera. Hiding the code
+   * box behind an icon there would leave that hardware with no way in.
+   */
+  it("offers the code box straight away when there is no camera", async () => {
+    zxing.decodeFromConstraints.mockRejectedValue(new Error("no camera"));
+
+    renderSheet();
+
+    expect(await screen.findByLabelText(/item code or barcode/iu)).toBeInTheDocument();
+    expect(screen.getByText(/no camera on this device/iu)).toBeInTheDocument();
+  });
 });
 
-/*
- * The whole point of the merge: a photograph is read here, on the device, and
- * only an explicit choice sends it anywhere. These tests exist so that
- * "explicit" cannot quietly become "on attaching a photograph".
- */
-describe("sending photographs to be identified", () => {
+describe("what a photo leads to", () => {
   afterEach(() => {
-    /* Restores as well as clears: one of these tests spies on the object-URL
-     * lifetime, which every later test relies on being real. */
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
-  it("sends nothing when a photograph is attached, and offers the choice instead", async () => {
+  /* The whole point of pressing the shutter: a code comes off the photo, the
+   * catalogue knows it, and the person is looking at the item. */
+  it("goes to the item when the photo carries a code the catalogue knows", async () => {
+    const user = userEvent.setup();
+    renderSheet({ barcodeProvider: decodes(testItemDetail.barcode ?? "") });
+
+    await pressShutter(user);
+
+    expect(await screen.findByText("The item page")).toBeInTheDocument();
+  });
+
+  it("says so when the photo held no code at all", async () => {
+    const user = userEvent.setup();
+    renderSheet();
+
+    await pressShutter(user);
+
+    expect(await screen.findByText(/not recognised/iu)).toBeInTheDocument();
+    expect(screen.getByText(/no barcode or QR code was found/iu)).toBeInTheDocument();
+  });
+
+  it("names a code the catalogue does not use", async () => {
+    const user = userEvent.setup();
+    renderSheet({
+      barcodeProvider: decodes("NOT-IN-THE-CATALOGUE"),
+      api: apiMatchingNothing(),
+    });
+
+    await pressShutter(user);
+
+    expect(await screen.findByText(/NOT-IN-THE-CATALOGUE/u)).toBeInTheDocument();
+  });
+});
+
+/*
+ * The offer to add a new item is also the opt-in: photos are read on the
+ * device, and saying yes is the only thing that sends one. These tests exist
+ * so that "yes" cannot quietly become "on taking a photo".
+ */
+describe("offering to add it as a new item", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it("sends nothing until the offer is accepted", async () => {
     const user = userEvent.setup();
     const requests: RecordedRequest[] = [];
     const onIdentifyPhotos = vi.fn();
@@ -137,24 +210,102 @@ describe("sending photographs to be identified", () => {
       api: createFakeApiClient({}, (request) => requests.push(request)),
     });
 
-    await attachPhoto(user);
+    await pressShutter(user);
 
-    const send = await screen.findByRole("button", { name: /to be identified/iu });
+    const add = await screen.findByRole("button", { name: /add this as a new item/iu });
     expect(onIdentifyPhotos).not.toHaveBeenCalled();
     expect(requests.filter((request) => request.method !== "GET")).toHaveLength(0);
 
-    await user.click(send);
+    await user.click(add);
 
     expect(onIdentifyPhotos).toHaveBeenCalledTimes(1);
     expect(onIdentifyPhotos.mock.calls[0]?.[0]).toHaveLength(1);
   });
 
   /*
-   * The capture page shows these same photographs while it uploads them, from
-   * the very object URLs created here. Revoking them on the way out — which the
-   * sheet does for photographs nobody sent — blanked its thumbnails mid-upload.
+   * The no-camera screen asks the same question, but must not answer it with
+   * a camera: "Another angle" there has to open the file picker, or the only
+   * way forward on a desktop is a button that does nothing.
    */
-  it("leaves the previews alone once the photographs belong to the delivery", async () => {
+  it("offers the file picker, not a camera, on a device without one", async () => {
+    const user = userEvent.setup();
+    zxing.decodeFromConstraints.mockRejectedValue(new Error("no camera"));
+    renderSheet({ onIdentifyPhotos: vi.fn() });
+
+    /* Wait for the camera to have given up: until it has, the input on screen
+     * belongs to the viewfinder that is about to be replaced. */
+    await screen.findByLabelText(/item code or barcode/iu);
+    const input = document.querySelector('input[type="file"]');
+    expect(input).not.toBeNull();
+    await user.upload(
+      input as HTMLInputElement,
+      new File(["photo"], "item.jpg", { type: "image/jpeg" }),
+    );
+
+    const another = await screen.findByRole("button", { name: /another angle/iu });
+    expect(another.querySelector('input[type="file"]')).not.toBeNull();
+  });
+
+  it("says what accepting will send", async () => {
+    const user = userEvent.setup();
+    renderSheet({ onIdentifyPhotos: vi.fn() });
+
+    await pressShutter(user);
+
+    expect(await screen.findByText(/nothing has left this device/iu)).toBeInTheDocument();
+  });
+
+  /*
+   * The server refuses assisted capture to anyone without `manageStock`, so
+   * offering it to an Engineer would be a button that only ever fails.
+   */
+  it("never offers it to a role the server would refuse", async () => {
+    const user = userEvent.setup();
+    renderSheet({ role: "Engineer" });
+
+    await pressShutter(user);
+
+    expect(await screen.findByText(/not recognised/iu)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /add this as a new item/iu }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try again/iu })).toBeEnabled();
+  });
+
+  it("never offers it where the installation has the feature switched off", async () => {
+    const user = userEvent.setup();
+    renderSheet({ role: "Admin", features: { stockCapture: false } });
+
+    await pressShutter(user);
+
+    expect(await screen.findByText(/not recognised/iu)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /add this as a new item/iu }),
+    ).not.toBeInTheDocument();
+  });
+
+  /* Extra angles are the one thing that reliably improves a recognition
+   * result, so the moment to offer them is before the photos are sent. */
+  it("takes another angle without losing the first shot", async () => {
+    const user = userEvent.setup();
+    const onIdentifyPhotos = vi.fn();
+    renderSheet({ onIdentifyPhotos });
+
+    await pressShutter(user);
+    await user.click(await screen.findByRole("button", { name: /another angle/iu }));
+    await user.click(screen.getByRole("button", { name: /take a photo/iu }));
+
+    await user.click(await screen.findByRole("button", { name: /add this as a new item/iu }));
+
+    expect(onIdentifyPhotos.mock.calls[0]?.[0]).toHaveLength(2);
+  });
+
+  /*
+   * The capture page shows these same photos while it uploads them, from the
+   * very object URLs created here. Revoking them on the way out — which the
+   * sheet does for photos nobody sent — blanked its thumbnails mid-upload.
+   */
+  it("leaves the previews alone once the photos belong to the delivery", async () => {
     const user = userEvent.setup();
     const created: string[] = [];
     const revoked: string[] = [];
@@ -168,89 +319,28 @@ describe("sending photographs to be identified", () => {
     });
 
     renderSheet({ onIdentifyPhotos: vi.fn() });
-    await attachPhoto(user);
-    await user.click(await screen.findByRole("button", { name: /to be identified/iu }));
+
+    await pressShutter(user);
+    await user.click(await screen.findByRole("button", { name: /add this as a new item/iu }));
 
     expect(created).toHaveLength(1);
     expect(revoked).not.toContain(created[0]);
   });
-
-  it("says what will be sent before it is sent", async () => {
-    const user = userEvent.setup();
-    renderSheet({ onIdentifyPhotos: vi.fn() });
-
-    await attachPhoto(user);
-
-    expect(await screen.findByText(/nothing has left this device/iu)).toBeInTheDocument();
-    expect(screen.getByText(/sends the photo to StockControl to be identified/iu)).toBeVisible();
-  });
-
-  /*
-   * The server refuses assisted capture to anyone without `manageStock`, so
-   * offering it to an Engineer would be a button that only ever fails.
-   */
-  it("never offers it to a role the server would refuse", async () => {
-    const user = userEvent.setup();
-    renderSheet({ role: "Engineer" });
-
-    await attachPhoto(user);
-
-    expect(await screen.findByText(/no code was found in those photos/iu)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /to be identified/iu })).not.toBeInTheDocument();
-  });
-
-  it("never offers it where the installation has the feature switched off", async () => {
-    const user = userEvent.setup();
-    renderSheet({ role: "Admin", features: { stockCapture: false } });
-
-    await attachPhoto(user);
-
-    expect(await screen.findByText(/no code was found in those photos/iu)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /to be identified/iu })).not.toBeInTheDocument();
-  });
-
-  /*
-   * Recognition is the fallback, not the route. A code read on the device
-   * answers the question for nothing, so it must never be talked past.
-   */
-  it("does not offer it when the photograph identified the item on its own", async () => {
-    const user = userEvent.setup();
-    renderSheet({ barcodeProvider: decodes(testItemDetail.barcode ?? "") });
-
-    await attachPhoto(user);
-
-    expect(await screen.findByText(testItemDetail.name)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /to be identified/iu })).not.toBeInTheDocument();
-  });
 });
 
-describe("what a scanned item leads to", () => {
+describe("typing a code", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
-  it("offers stock and the record to somebody who can move stock", async () => {
+  it("goes to the item a typed code names", async () => {
     const user = userEvent.setup();
-    renderSheet({ role: "Office" });
+    zxing.decodeFromConstraints.mockRejectedValue(new Error("no camera"));
+    renderSheet();
 
-    await user.type(screen.getByLabelText(/item code or barcode/iu), "ITM-0001");
-    await user.click(screen.getByRole("button", { name: "Find" }));
-
-    expect(await screen.findByText(testItemDetail.name)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /add stock/iu })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /open item/iu })).toBeEnabled();
-  });
-
-  /*
-   * An Engineer has one thing they can do with a scanned label, so a card
-   * asking them to choose it would be a tap that decides nothing.
-   */
-  it("takes somebody who can only look straight to the item", async () => {
-    const user = userEvent.setup();
-    renderSheet({ role: "Engineer" });
-
-    await user.type(screen.getByLabelText(/item code or barcode/iu), "ITM-0001");
-    await user.click(screen.getByRole("button", { name: "Find" }));
+    await user.type(await screen.findByLabelText(/item code or barcode/iu), "ITM-0001");
+    await user.click(screen.getByRole("button", { name: /find item/iu }));
 
     expect(await screen.findByText("The item page")).toBeInTheDocument();
   });

@@ -1,4 +1,4 @@
-import AddAPhotoRounded from "@mui/icons-material/AddAPhotoRounded";
+import PlaylistAddCheckCircleRounded from "@mui/icons-material/PlaylistAddCheckCircleRounded";
 import DashboardRounded from "@mui/icons-material/DashboardRounded";
 import Inventory2Rounded from "@mui/icons-material/Inventory2Rounded";
 import ManageAccountsRounded from "@mui/icons-material/ManageAccountsRounded";
@@ -31,7 +31,7 @@ export interface NavigationItem {
 /*
  * Deny by default: a caller that forgets to pass the real, server-decided
  * features sees a flagged section as absent, never as present. The opposite
- * default would mean one missed call site quietly shows "Add stock" in a
+ * default would mean one missed call site quietly shows the review queue in a
  * deployment that has not turned the flag on.
  */
 const noFeatures: SessionFeatures = { stockCapture: false };
@@ -59,10 +59,10 @@ export const navigationItems: readonly NavigationItem[] = [
   },
   {
     path: "/stock-capture",
-    label: "Add stock",
-    description: "Book in a delivery and check what StockControl made of each photograph.",
+    label: "Review queue",
+    description: "Check what StockControl made of the items you photographed.",
     roles: ["Office", "Admin"],
-    icon: AddAPhotoRounded,
+    icon: PlaylistAddCheckCircleRounded,
     requiresFeature: "stockCapture",
   },
   {

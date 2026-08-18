@@ -164,28 +164,28 @@ export function pageHelpFor(path: string, role?: UserRole): PageHelpContent {
 
   if (path === "/stock-capture") {
     return content(
-      "Add stock",
-      "One delivery at a time: photograph whatever you cannot scan, check what StockControl made of it, then confirm the quantity and where it went.",
+      "Review queue",
+      "Items you photographed that StockControl could not recognise on their own. Anything carrying a code it knows goes straight to the item and never appears here.",
       [
         guidedStep(
-          "Set where the delivery is going",
-          "Choose the store once for the whole batch. Each item starts from that store, and you can still change it for any single item.",
+          "Waiting for you",
+          "These have finished being read. Select Review to see what StockControl suggests, choose the right one, then enter the quantity and the store.",
         ),
         guidedStep(
-          "Photograph an item",
-          "This opens the same scan sheet as the round button on every other screen. Take up to five photographs, or choose ones you already have. They are read on your device first, so a readable barcode identifies the item without anything being sent.",
+          "Still being read",
+          "These keep working whether or not this page is open, and move up on their own. There is no need to wait here.",
         ),
         guidedStep(
-          "Choose whether to send them",
-          "Nothing leaves your device until you select Send this photo to be identified. Only Office and Admin users are offered that, and only where your administrator has turned assisted capture on.",
+          "Could not be read",
+          "Photograph these again, or select Remove to take them out of the queue. Remove is on every row, so nothing has to be opened first.",
         ),
         guidedStep(
-          "Check the suggestion",
-          "The best match is marked. Strong, Possible and Weak describe how much the evidence supports each one. Show analysis details lists what was checked for every photograph. Choose None are correct to type the item in yourself.",
+          "Photograph another item",
+          "This opens the same camera as the round button on every other screen. Nothing is sent until you answer yes to the question it asks.",
         ),
         guidedStep(
-          "Confirm the receipt",
-          "Enter the quantity and confirm the store. Nothing changes in stock until you select Confirm receipt, and the next screen shows the item's reference and its new balance.",
+          "Finish this delivery",
+          "Set where the delivery is going once and every item starts from that store. Finishing closes it and opens the next one, and is only available when nothing is queued.",
         ),
       ],
     );
