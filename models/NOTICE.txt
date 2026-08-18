@@ -6,14 +6,26 @@ The following entries are pinned in manifest.lock.json:
 
 - PP-OCRv6_small_det and PP-OCRv6_small_rec official ONNX exports: Apache-2.0.
 - nomic-embed-vision-v1.5 official INT8 ONNX export: Apache-2.0.
-- LFM2.5-VL-1.6B Q4_0 GGUF and matching F16 multimodal projector from
-  LiquidAI/LFM2.5-VL-1.6B-GGUF: LFM Open License v1.0. The upstream license is
-  available at https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B/blob/main/LICENSE
-  and permits commercial use only where the legal entity's annual revenue is
-  no more than USD 10 million, subject to the license notice and redistribution
-  conditions.
+- Qwen3.5-0.8B GGUF and matching F16 multimodal projector from
+  unsloth/Qwen3.5-0.8B-GGUF: Apache-2.0, the same licence as the upstream
+  Qwen3.5-0.8B weights it was converted from. There is no revenue threshold,
+  registration step, or field-of-use restriction attached to commercial use.
 
-The LFM files were selected by the user for a staging latency and recognition
-quality comparison. The consented evaluation set and sections 19/20 accuracy,
-latency, RSS, and soak gates have intentionally not been run, so this is a
-reproducible provisional artifact manifest, not a model-promotion record.
+Two things about that entry are deliberate and should not be treated as
+oversights.
+
+It is a community conversion, not a first-party export. Every other entry in
+the manifest is published by the model's own authors, and this one is not; no
+first-party GGUF of the Qwen3.5 small tier was available when it was selected.
+The build still verifies each file's SHA-256 against the pinned revision, so
+the artefact is reproducible, but the quantisation methodology is the
+publisher's rather than the model authors'. The revision is pinned by commit
+precisely because that repository has re-uploaded projector files.
+
+It replaced LFM2.5-VL-1.6B, whose LFM Open License v1.0 permitted commercial
+use only below USD 10 million annual revenue. Removing that condition was the
+primary reason for the change; latency and accuracy remain unmeasured.
+
+The consented evaluation set and sections 19/20 accuracy, latency, RSS, and
+soak gates have intentionally not been run, so this is a reproducible
+provisional artifact manifest, not a model-promotion record.

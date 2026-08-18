@@ -34,8 +34,30 @@ if [ -z "${RECOGNITION_FUSION_API_KEY:-}" ]; then
   exit 1
 fi
 
+# The projector's token output per image is the dominant CPU prefill cost, and
+# it scales with whatever resolution the user happened to photograph at rather
+# than with anything this service controls. Left unset, llama.cpp uses the
+# model's own default. Exposed here so a deployment can cap it without a
+# rebuild, which is the one lever that meaningfully moves per-photo latency.
+set --
+if [ -n "${RECOGNITION_FUSION_IMAGE_MAX_TOKENS:-}" ]; then
+  set -- --image-max-tokens "${RECOGNITION_FUSION_IMAGE_MAX_TOKENS}"
+fi
+
 # exec keeps llama-server as PID 1 so it still receives SIGTERM directly for
 # a clean shutdown, matching the api/worker/recognition-core images.
+#
+# The three reasoning flags are not optional decoration. Qwen3.5 is a hybrid
+# reasoning model whose chat template enables thinking by default; against this
+# service's 256-token output cap a thinking pass consumes the entire budget and
+# returns no JSON at all. That presents as a near-total schema-failure rate and
+# reads like a model that cannot follow a schema, not like a missing flag, so it
+# is an expensive thing to rediscover. --reasoning off sets the sampler state
+# and the template's enable_thinking argument together; --reasoning-budget 0 is
+# the backstop for a template that ignores the argument; --jinja is required for
+# either to reach the template at all, because the legacy path takes no
+# template arguments. Setting enable_thinking through --chat-template-kwargs is
+# deprecated upstream and warns.
 exec llama-server \
   --host 0.0.0.0 \
   --port "${PORT}" \
@@ -44,5 +66,9 @@ exec llama-server \
   --ctx-size "${LLAMA_ARG_CTX_SIZE}" \
   --parallel "${LLAMA_ARG_N_PARALLEL}" \
   --api-key "${RECOGNITION_FUSION_API_KEY}" \
+  --jinja \
+  --reasoning off \
+  --reasoning-budget 0 \
   --no-webui \
-  --no-slots
+  --no-slots \
+  "$@"
