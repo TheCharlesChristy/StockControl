@@ -15,9 +15,9 @@
  *   result type below — there is no field for it to land in.
  */
 
-// recognition-fusion runs with a 4,096-token context and a 256-token output
-// cap (spec 7.9/9.2). These bounds keep the request well inside that budget
-// without this client needing to count tokens itself.
+// recognition-fusion runs with a 4,096-token context per slot (spec 7.9/9.2).
+// These bounds keep the request well inside that budget without this client
+// needing to count tokens itself.
 const MAX_IMAGES = 5;
 const MAX_OBSERVATIONS_PER_IMAGE = 8;
 const MAX_OBSERVATION_LENGTH = 200;
@@ -28,7 +28,17 @@ const MAX_WEB_FIELD_LENGTH = 300;
 const MAX_CATEGORIES = 5;
 const MAX_FIELD_LENGTH = 120;
 const MAX_VARIANT_ATTRIBUTES = 8;
-const MAX_OUTPUT_TOKENS = 256;
+/*
+ * Raised from 256 alongside the specificity instructions above. The flat schema
+ * requires all eight fields on every response, and a filled variantAttributes
+ * array is now the expected shape rather than the exception: eight label/value
+ * pairs at their declared bounds plus a 120-character name lands close enough
+ * to 256 that the model would be truncated mid-object exactly when it does what
+ * it was asked. Truncation costs a whole corrective retry, so the headroom is
+ * cheaper than the round trip. Greedy decoding stops at the closing brace, so a
+ * short answer costs nothing extra.
+ */
+const MAX_OUTPUT_TOKENS = 384;
 
 // ---- Sanitisation ---------------------------------------------------------
 
@@ -128,6 +138,20 @@ export class FusionUnavailableError extends Error {
 
 // ---- Prompt construction ------------------------------------------------
 
+/*
+ * The specificity instructions are load-bearing, not padding. Asked only to
+ * identify "a physical stock item", the model satisfies the schema with the
+ * shortest true answer it can find — "T-shirt", "pipe fitting" — which is
+ * accurate and useless, because a stockroom holds twenty of those and the
+ * person is trying to tell them apart. The schema cannot express "be precise",
+ * so the prompt has to.
+ *
+ * The honesty clause is the counterweight and must not be dropped when this is
+ * edited. Pushing a small model toward detail pushes it toward inventing
+ * detail, and a confident wrong material or size costs more review time than a
+ * blank field: a person checks every one of these before anything is written,
+ * and a plausible invention is the kind they are least likely to catch.
+ */
 const SYSTEM_PROMPT = [
   "You identify a physical stock item from photographs and structured evidence.",
   "Respond with JSON matching the supplied schema only.",
@@ -135,6 +159,12 @@ const SYSTEM_PROMPT = [
   'If you recognise the item as one of the supplied candidates, use "InternalCandidate" with its exact id.',
   'Otherwise, if the photographs show a clear product identity, use "ExternalIdentity".',
   'If you cannot tell, respond "Unknown".',
+  "Name the item precisely enough that someone could pick it out from similar items on the same shelf.",
+  "Give the kind of thing it is together with the details that separate it from a near neighbour: colour, material, pattern, size, capacity, finish or cut.",
+  '"Navy cotton crew-neck T-shirt" is useful; "T-shirt" is not. "15mm copper compression elbow" is useful; "pipe fitting" is not.',
+  'Put each distinguishing property in variantAttributes as its own label and value, such as {"label":"Colour","value":"Navy"}.',
+  "Describe only what the photographs and the supplied evidence actually show.",
+  "Never guess a brand, size or material that is not visible; leaving a detail out is better than inventing one.",
   "Never invent an id that was not supplied. Do not call a tool or ask a question.",
 ].join(" ");
 

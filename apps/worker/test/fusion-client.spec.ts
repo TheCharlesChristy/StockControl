@@ -393,6 +393,42 @@ describe("FusionClient.proposeIdentity", () => {
     expect(parsed.messages[0]?.role).toBe("system");
   });
 
+  /*
+   * These two live together because they are in tension and only correct
+   * together. The specificity instruction exists because the model otherwise
+   * answers "T-shirt" and satisfies the schema; the honesty instruction exists
+   * because pushing a small model toward detail pushes it toward inventing
+   * detail, and a person confirms every field before stock moves. Dropping
+   * either one alone is the regression worth catching.
+   */
+  it("asks for a distinguishing name without licensing invented detail", async () => {
+    let sentBody: string | undefined;
+    const baseUrl = await startServer((request, response) => {
+      void readBody(request).then((body) => {
+        sentBody = body;
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(chatCompletionResponse({ kind: "Unknown" }));
+      });
+    });
+
+    const client = new FusionClient({ baseUrl, apiKey: "test-key", timeoutMilliseconds: 2_000 });
+    await client.proposeIdentity(baseRequest());
+
+    const parsed = JSON.parse(sentBody ?? "{}") as {
+      max_tokens: number;
+      messages: { role: string; content: unknown }[];
+    };
+    const system = String(parsed.messages[0]?.content);
+
+    expect(system).toContain("pick it out from similar items");
+    expect(system).toContain("variantAttributes");
+    expect(system).toMatch(/Never guess a brand, size or material that is not visible/u);
+
+    // A fully populated variantAttributes array plus a bounded name does not
+    // fit the original 256-token cap, and truncation costs a whole retry.
+    expect(parsed.max_tokens).toBeGreaterThanOrEqual(384);
+  });
+
   it("includes bounded categories and web evidence in the evidence payload", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
