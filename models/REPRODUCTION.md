@@ -39,24 +39,45 @@ no model download request.
   `preprocessor_config.json` supplies CLIP resize/centre-crop preprocessing;
   the runtime uses the declared 224x224 crop and mean/std values, then L2
   normalises the first visual token.
-- `lfm2.5-vl-1.6b-q4-0`: the staging evaluation candidate from the official
-  `LiquidAI/LFM2.5-VL-1.6B-GGUF` repository, using its Q4_0 GGUF and matching
-  F16 projector. No local quantisation or conversion is applied. The runtime
-  is built from llama.cpp commit
+- `qwen3.5-0.8b-q8-0`: the Q8_0 GGUF and matching F16 projector from
+  `unsloth/Qwen3.5-0.8B-GGUF`. No local quantisation or conversion is applied.
+  The runtime is built from llama.cpp commit
   `e23e9440eb0c625c30d6c40266e9335071a4debc`. The image's default
   `--ctx-size 8192` is split across `--parallel 2` slots (see
   `services/recognition-fusion/docker-entrypoint.sh`), giving each of the two
-  concurrently analysed photographs the same 4,096-token budget as before.
+  concurrently analysed photographs a 4,096-token budget.
+
+  Unlike every other entry here, this is a community conversion rather than a
+  first-party export. That is a decision, not an accident: no first-party GGUF
+  of the Qwen3.5 small tier existed when the model was selected, and the
+  Apache-2.0 licence was worth the trade against LFM2.5-VL's revenue threshold.
+  What the pin still guarantees is byte-level reproducibility; what it cannot
+  guarantee is that the publisher's quantisation matches what the model authors
+  would have shipped. The revision is pinned by commit rather than tracking the
+  default branch because that repository has re-uploaded projector files after
+  publication, so a branch pin would move underneath the build.
+
+  Qwen3.5 needs no llama.cpp bump. The pinned commit already registers the
+  `qwen35` language architecture, and the vision side loads through the
+  existing `qwen3vl_merger` projector type; neither the pinned commit nor
+  upstream master defines a Qwen3.5-specific projector. If a future conversion
+  declares one, the projector fails to load loudly rather than silently
+  degrading.
+
+  The service runs `--jinja --reasoning off --reasoning-budget 0`. Qwen3.5 is a
+  hybrid reasoning model that thinks by default, and a thinking pass exhausts
+  the 256-token output cap before any JSON is emitted.
 
 The exact revisions, file digests, and licence strings are authoritative in
-`manifest.lock.json`. The LFM Open License v1.0 is not Apache-2.0; its annual
-revenue threshold and redistribution conditions are repeated in `NOTICE.txt`.
+`manifest.lock.json`. Every pinned artefact is now Apache-2.0; the community
+provenance of the fusion entry is recorded in `NOTICE.txt`.
 
 ## Promotion status
 
-The LFM choice is a user-directed staging experiment intended to measure
-whether the smaller model meets the required latency without losing acceptable
-recognition quality. A consented customer evaluation set was not supplied, so
+The Qwen3.5-0.8B choice is user-directed. It resolves the licence question on
+its own, because Apache-2.0 carries no revenue threshold, but it settles
+nothing about speed or accuracy: no latency, RSS, image-token or schema-
+conformance figure has been measured for it on this workload. A consented customer evaluation set was not supplied, so
 section 19/20 accuracy, latency, RSS-soak, customer pilot, and Railway-cost
 gates remain unmeasured. This manifest proves reproducible artefact loading and
 runtime smoke tests; it does not claim model promotion or production readiness.
