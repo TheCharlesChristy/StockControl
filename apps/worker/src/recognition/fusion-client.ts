@@ -221,44 +221,27 @@ const evidenceImageOrdinalsSchema = {
   items: { type: "integer", minimum: 1, maximum: MAX_IMAGES },
 };
 
-/** The conditional branches are the load-bearing defence: every output that
- * satisfies the grammar also satisfies parseVlmResponse. In particular, an
- * InternalCandidate is impossible when the allowlist is empty and a real
- * allowlisted id is mandatory when that branch is selected. */
+/*
+ * Deliberately flat: no `oneOf`. llama.cpp's JSON-schema-to-GBNF converter
+ * returns as soon as it sees `oneOf`/`anyOf` and discards the sibling
+ * `properties`, `required` and `additionalProperties` (ggml-org/llama.cpp
+ * issue #7703, open since 2024). A branched schema therefore did not merely
+ * fail to require the eight fields — it made `manufacturer`, `partNumber`,
+ * `barcode`, `variantAttributes` and `evidenceImageOrdinals` impossible to
+ * emit at all, because each branch named only its own two or three properties
+ * and an unspecified `additionalProperties` forbids every other key. Each
+ * ExternalIdentity then reached fusion carrying nothing but a free-text name,
+ * which candidateIdentityKey can only classify as Unmergeable.
+ *
+ * The relationship between `kind` and `candidateId` is enforced by
+ * parseVlmResponse instead. The allowlist enum is unaffected by the converter's
+ * behaviour, so an unsupplied id stays ungeneratable.
+ */
 const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => {
-  const candidateIds = candidates.map((candidate) => candidate.candidateId);
   const kinds =
-    candidateIds.length > 0
+    candidates.length > 0
       ? ["InternalCandidate", "ExternalIdentity", "Unknown"]
       : ["ExternalIdentity", "Unknown"];
-  const branches: unknown[] = [
-    ...(candidateIds.length === 0
-      ? []
-      : [
-          {
-            required: ["kind", "candidateId"],
-            properties: {
-              kind: { type: "string", const: "InternalCandidate" },
-              candidateId: { type: "string", enum: candidateIds },
-            },
-          },
-        ]),
-    {
-      required: ["kind", "candidateId", "name"],
-      properties: {
-        kind: { type: "string", const: "ExternalIdentity" },
-        candidateId: { type: "null" },
-        name: { type: "string", minLength: 1, maxLength: MAX_FIELD_LENGTH },
-      },
-    },
-    {
-      required: ["kind", "candidateId"],
-      properties: {
-        kind: { type: "string", const: "Unknown" },
-        candidateId: { type: "null" },
-      },
-    },
-  ];
 
   return {
     type: "object",
@@ -274,7 +257,6 @@ const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]):
       variantAttributes: variantAttributesSchema,
       evidenceImageOrdinals: evidenceImageOrdinalsSchema,
     },
-    oneOf: branches,
   };
 };
 
@@ -310,6 +292,12 @@ const readVariantAttributes = (value: unknown): readonly VlmVariantAttribute[] =
  * schema was built from. A response the schema should have prevented — an
  * unsupplied id, in particular — is treated exactly like invalid JSON: it
  * earns the one constrained retry, never a silent pass-through.
+ *
+ * This is also where the kind/candidateId relationship is enforced, because the
+ * flat schema deliberately cannot express it: an id belongs to
+ * InternalCandidate and to nothing else. A self-contradictory response is
+ * rejected so the corrective retry can fix it, rather than being quietly
+ * reinterpreted as something the model did not say.
  */
 export const parseVlmResponse = (
   raw: unknown,
@@ -317,11 +305,15 @@ export const parseVlmResponse = (
 ): VlmProposal | null => {
   if (!isRecord(raw)) return null;
   const kind = raw.kind;
+  const candidateId = raw.candidateId;
+  const hasCandidateId = candidateId !== null && candidateId !== undefined;
 
-  if (kind === "Unknown") return { kind: "Unknown" };
+  if (kind === "Unknown") {
+    if (hasCandidateId) return null;
+    return { kind: "Unknown" };
+  }
 
   if (kind === "InternalCandidate") {
-    const candidateId = raw.candidateId;
     if (typeof candidateId !== "string") return null;
     const allowed = candidates.some((candidate) => candidate.candidateId === candidateId);
     if (!allowed) return null;
@@ -333,6 +325,7 @@ export const parseVlmResponse = (
   }
 
   if (kind === "ExternalIdentity") {
+    if (hasCandidateId) return null;
     const manufacturer = raw.manufacturer;
     const partNumber = raw.partNumber;
     const barcode = raw.barcode;

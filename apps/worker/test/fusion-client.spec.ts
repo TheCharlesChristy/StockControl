@@ -123,6 +123,34 @@ describe("parseVlmResponse — hallucinated-id and schema-conformance defence", 
     expect(parseVlmResponse({ kind: "Unknown" }, ALLOWLIST)).toEqual({ kind: "Unknown" });
   });
 
+  /*
+   * The flat schema cannot tie candidateId to a single kind, so these two
+   * contradictions are reachable through the grammar and have to be caught
+   * here. Reinterpreting them — reading the id and ignoring the kind, or the
+   * reverse — would invent a proposal the model never made, so they earn the
+   * corrective retry instead.
+   */
+  it("rejects Unknown that also names a candidate", () => {
+    expect(
+      parseVlmResponse({ kind: "Unknown", candidateId: ALLOWLIST[0]?.candidateId }, ALLOWLIST),
+    ).toBeNull();
+  });
+
+  it("rejects an ExternalIdentity that also names a candidate", () => {
+    expect(
+      parseVlmResponse(
+        { kind: "ExternalIdentity", candidateId: ALLOWLIST[0]?.candidateId, name: "Widget" },
+        ALLOWLIST,
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts an explicit null candidateId alongside a non-internal kind", () => {
+    expect(parseVlmResponse({ kind: "Unknown", candidateId: null }, ALLOWLIST)).toEqual({
+      kind: "Unknown",
+    });
+  });
+
   it("rejects a missing or unrecognised kind", () => {
     expect(parseVlmResponse({}, ALLOWLIST)).toBeNull();
     expect(parseVlmResponse({ kind: "DeleteEverything" }, ALLOWLIST)).toBeNull();
@@ -273,7 +301,7 @@ const chatCompletionResponse = (content: unknown): string =>
   JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] });
 
 describe("FusionClient.proposeIdentity", () => {
-  it("couples each proposal kind to parser-valid fields and the exact allowlist", async () => {
+  it("asks for every identity field in one flat object the grammar can actually emit", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
       void readBody(request).then((body) => {
@@ -296,13 +324,7 @@ describe("FusionClient.proposeIdentity", () => {
               kind: { enum: string[] };
               candidateId: { enum: (string | null)[] };
             };
-            oneOf: {
-              properties: {
-                kind: { const: string };
-                candidateId?: { enum?: string[]; type?: string };
-                name?: { minLength?: number };
-              };
-            }[];
+            oneOf?: unknown;
           };
         };
       };
@@ -312,21 +334,27 @@ describe("FusionClient.proposeIdentity", () => {
       ...ALLOWLIST.map((candidate) => candidate.candidateId),
       null,
     ]);
-    expect(schema.required).toEqual(
-      expect.arrayContaining(["kind", "candidateId", "name", "evidenceImageOrdinals"]),
-    );
+    expect(schema.required).toEqual([
+      "kind",
+      "candidateId",
+      "manufacturer",
+      "name",
+      "partNumber",
+      "barcode",
+      "variantAttributes",
+      "evidenceImageOrdinals",
+    ]);
 
-    const internal = schema.oneOf.find(
-      (branch) => branch.properties.kind.const === "InternalCandidate",
-    );
-    expect(internal?.properties.candidateId?.enum).toEqual(
-      ALLOWLIST.map((candidate) => candidate.candidateId),
-    );
-    const external = schema.oneOf.find(
-      (branch) => branch.properties.kind.const === "ExternalIdentity",
-    );
-    expect(external?.properties.candidateId?.type).toBe("null");
-    expect(external?.properties.name?.minLength).toBe(1);
+    /*
+     * This assertion exists because of a specific production failure. With a
+     * oneOf present, llama.cpp's grammar converter discarded the sibling
+     * properties and required, and each branch's unspecified
+     * additionalProperties then forbade every key the branch did not name. The
+     * model could emit no manufacturer, part number or barcode at all, so every
+     * ExternalIdentity arrived at fusion as an Unmergeable bare name. Keeping
+     * the schema flat is what makes the identifier fields reachable.
+     */
+    expect(schema.oneOf).toBeUndefined();
   });
 
   it("embeds untrusted OCR text as an inert JSON string value, not as instructions", async () => {
@@ -538,7 +566,7 @@ describe("FusionClient.proposeIdentity", () => {
     expect((error as FusionUnavailableError).reason).toBe("TimedOut");
   });
 
-  it("removes the InternalCandidate branch when no candidates are supplied", async () => {
+  it("offers no internal-candidate kind when no candidates are supplied", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
       void readBody(request).then((body) => {
@@ -559,7 +587,6 @@ describe("FusionClient.proposeIdentity", () => {
               kind: { enum: string[] };
               candidateId: { enum: readonly (string | null)[] };
             };
-            oneOf: { properties: { kind: { const: string } } }[];
           };
         };
       };
@@ -567,9 +594,6 @@ describe("FusionClient.proposeIdentity", () => {
     const schema = parsed.response_format.json_schema.schema;
     expect(schema.properties.kind.enum).toEqual(["ExternalIdentity", "Unknown"]);
     expect(schema.properties.candidateId.enum).toEqual([null]);
-    expect(schema.oneOf.map((branch) => branch.properties.kind.const)).not.toContain(
-      "InternalCandidate",
-    );
   });
 
   it("bounds observations per image at the declared limit", async () => {
