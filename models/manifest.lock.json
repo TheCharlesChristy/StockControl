@@ -59,13 +59,13 @@
       "id": "qwen3.5-0.8b-q8-0",
       "description": "Qwen3.5-0.8B Q8_0 GGUF with its matching F16 multimodal projector. Community conversion; see models/NOTICE.txt.",
       "repoId": "unsloth/Qwen3.5-0.8B-GGUF",
-      "revision": "PENDING-PIN-COMMIT-SHA",
+      "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
       "licence": "Apache-2.0",
       "preprocessingId": "llama.cpp-qwen3.5-vl-image-v1",
       "files": [
         {
           "path": "Qwen3.5-0.8B-Q8_0.gguf",
-          "sha256": "PENDING-SHA256"
+          "sha256": "0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c"
         },
         {
           "path": "mmproj-F16.gguf",
