@@ -151,6 +151,15 @@ export class FusionUnavailableError extends Error {
  * detail, and a confident wrong material or size costs more review time than a
  * blank field: a person checks every one of these before anything is written,
  * and a plausible invention is the kind they are least likely to catch.
+ *
+ * No worked example of a good name belongs here, however tempting one is. An
+ * earlier revision carried two, one garment and one pipe fitting, to show what
+ * "specific" meant. A photograph of a Honeywell room timer came back named as
+ * the garment: at this size the model does not read a quoted example as an
+ * illustration of a property, it reads it as text that is allowed in the name
+ * field, and constrained decoding then requires it to fill that field with
+ * something. The instructions describe the property wanted and give no string
+ * that could be copied into an answer.
  */
 const SYSTEM_PROMPT = [
   "You identify a physical stock item from photographs and structured evidence.",
@@ -159,12 +168,13 @@ const SYSTEM_PROMPT = [
   'If you recognise the item as one of the supplied candidates, use "InternalCandidate" with its exact id.',
   'Otherwise, if the photographs show a clear product identity, use "ExternalIdentity".',
   'If you cannot tell, respond "Unknown".',
-  "Name the item precisely enough that someone could pick it out from similar items on the same shelf.",
-  "Give the kind of thing it is together with the details that separate it from a near neighbour: colour, material, pattern, size, capacity, finish or cut.",
-  '"Navy cotton crew-neck T-shirt" is useful; "T-shirt" is not. "15mm copper compression elbow" is useful; "pipe fitting" is not.',
-  'Put each distinguishing property in variantAttributes as its own label and value, such as {"label":"Colour","value":"Navy"}.',
-  "Describe only what the photographs and the supplied evidence actually show.",
-  "Never guess a brand, size or material that is not visible; leaving a detail out is better than inventing one.",
+  "Build the name from this photograph and the supplied evidence, and from nothing else.",
+  "Wording printed on the item, including anything read from it in the supplied observations, is the strongest evidence of what it is: put the brand in manufacturer, any model or catalogue code in partNumber, and use both in the name.",
+  "Where no wording is legible, name the item by what it visibly is, then add the properties that separate it from a similar item, such as its colour, material, size, capacity, rating or finish.",
+  "Either way the name should be precise enough that someone could pick this item out from similar ones on the same shelf.",
+  "Put each such property in variantAttributes as its own label and value.",
+  "Never repeat wording from these instructions as though it were the item.",
+  "Never guess a brand, model, size or material that is not visible; leaving a detail out is better than inventing one.",
   "Never invent an id that was not supplied. Do not call a tool or ask a question.",
 ].join(" ");
 

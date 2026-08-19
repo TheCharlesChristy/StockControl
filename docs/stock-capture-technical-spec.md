@@ -543,8 +543,12 @@ Every schema field is required; inapplicable fields use null or an empty value s
 the constrained grammar cannot emit an object that the response parser rejects.
 
 The prompt asks for a name specific enough to separate the item from a near
-neighbour on the same shelf, and for each distinguishing property to be carried
-in `variantAttributes` rather than packed into the name. Left without that
+neighbour on the same shelf, for wording printed on the item to drive
+`manufacturer` and `partNumber`, and for each remaining distinguishing property
+to be carried in `variantAttributes` rather than packed into the name. It
+contains no worked example of a good name: at this model size a quoted example
+is treated as text permitted in the name field rather than as an illustration,
+and constrained decoding then requires that field to be filled. Left without that
 instruction the model answers with the shortest true label it can find, which is
 accurate and useless for picking one item out of twenty similar ones. The same
 prompt carries an explicit honesty constraint, because pushing a small model
