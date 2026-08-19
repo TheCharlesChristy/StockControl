@@ -401,7 +401,7 @@ describe("FusionClient.proposeIdentity", () => {
    * detail, and a person confirms every field before stock moves. Dropping
    * either one alone is the regression worth catching.
    */
-  it("asks for a distinguishing name without licensing invented detail", async () => {
+  it("asks for a distinguishing name without supplying one to copy", async () => {
     let sentBody: string | undefined;
     const baseUrl = await startServer((request, response) => {
       void readBody(request).then((body) => {
@@ -420,9 +420,26 @@ describe("FusionClient.proposeIdentity", () => {
     };
     const system = String(parsed.messages[0]?.content);
 
-    expect(system).toContain("pick it out from similar items");
+    expect(system).toContain("pick this item out from similar ones");
+
+    /*
+     * A photograph of a Honeywell room timer was once returned named as a navy
+     * crew-neck T-shirt. The prompt had carried two worked examples of a good
+     * name, one garment and one pipe fitting, and at this model size a quoted
+     * example is not read as an illustration of a property -- it is read as
+     * text allowed in the name field, which constrained decoding then obliges
+     * the model to fill. The failure looked like a recognition problem and was
+     * a prompt problem, and nothing else in this suite could see it. Any
+     * concrete product noun-phrase in these instructions is a string the model
+     * may hand back as an identity: describe the property, name no product.
+     */
+    expect(system).not.toMatch(/crew.?neck|t.?shirt|compression elbow|pipe fitting/iu);
+    expect(system).not.toMatch(/\bnavy\b|\bcotton\b|\bcopper\b/iu);
     expect(system).toContain("variantAttributes");
-    expect(system).toMatch(/Never guess a brand, size or material that is not visible/u);
+    expect(system).toMatch(/Never guess a brand, model, size or material that is not visible/u);
+    // Printed brand and model are the strongest identity evidence this
+    // system gets, and the case that regressed was one where OCR had them.
+    expect(system).toContain("supplied observations");
 
     // A fully populated variantAttributes array plus a bounded name does not
     // fit the original 256-token cap, and truncation costs a whole retry.
