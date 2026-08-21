@@ -119,6 +119,18 @@ export const claimJobs = async (
   const leasedUntil = new Date(now.getTime() + options.leaseMilliseconds);
   if (options.limit < 1) return [];
 
+  /*
+   * What counts as "due" is asked of the server's clock, not this process's,
+   * unless the caller pinned the time. `available_at` is stamped by PostgreSQL
+   * on insert and keeps microseconds; a JavaScript Date stops at the
+   * millisecond. Comparing the two hid every job enqueued during the same
+   * millisecond as a poll: stamped a few microseconds past a cutoff that
+   * cannot express microseconds, it read as not yet due. The following poll
+   * collected it, so this surfaced as a rare late job rather than a stuck one
+   * -- which is why it survived until it made the concurrent claim test flake.
+   */
+  const dueBy = options.now ?? sql<Date>`now()`;
+
   return database.transaction().execute(async (tx) => {
     const candidates = await schemaOf(tx)
       .selectFrom("stock_recognition_jobs")
@@ -127,10 +139,10 @@ export const claimJobs = async (
         eb.or([
           eb.and([
             eb("status", "in", ["Ready", "Retry"] satisfies RecognitionJobStatus[]),
-            eb("available_at", "<=", now),
+            eb("available_at", "<=", dueBy),
           ]),
           /* A lease nobody is extending: the worker that held it is gone. */
-          eb.and([eb("status", "=", "Running"), eb("leased_until", "<=", now)]),
+          eb.and([eb("status", "=", "Running"), eb("leased_until", "<=", dueBy)]),
         ]),
       )
       .orderBy("available_at")

@@ -47,7 +47,7 @@ export function ChangePasswordPage(): ReactElement {
          * redirect bounces straight back.
          */
         await refresh();
-        navigate("/profile", { replace: true });
+        await navigate("/profile", { replace: true });
       })
       .catch((caught: unknown) => {
         if (caught instanceof ApiError && caught.hasFieldErrors) {

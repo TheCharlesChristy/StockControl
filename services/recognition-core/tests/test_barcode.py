@@ -10,8 +10,8 @@ from recognition_core.contracts import BarcodeSymbology
 
 
 def _render_barcode_pixels(text: str, barcode_format: zxingcpp.BarcodeFormat) -> np.ndarray:
-    encoded = zxingcpp.write_barcode(barcode_format, text)
-    return np.asarray(encoded)
+    encoded = zxingcpp.create_barcode(text, barcode_format)
+    return np.asarray(zxingcpp.write_barcode_to_image(encoded))
 
 
 def _code128_pixels(text: str) -> np.ndarray:
