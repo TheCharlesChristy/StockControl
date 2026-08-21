@@ -25,6 +25,14 @@ void bootstrap().catch((error: unknown) => {
       ? (error as { readonly code: string }).code
       : undefined;
 
+  /*
+   * Railway must see a failed role bootstrap as a failed deployment. Setting
+   * exitCode is correct for a quiet event loop, but it is too easy for a
+   * platform wrapper or a lingering handle to report the one-shot service as
+   * successful. Set it before logging, then force the exit only after the
+   * sanitized failure line has been flushed.
+   */
+  process.exitCode = 1;
   process.stderr.write(
     `${JSON.stringify({
       level: "error",
@@ -32,6 +40,8 @@ void bootstrap().catch((error: unknown) => {
       code,
       ...(sqlState === undefined ? {} : { sqlState }),
     })}\n`,
+    () => {
+      process.exit(1);
+    },
   );
-  process.exitCode = 1;
 });

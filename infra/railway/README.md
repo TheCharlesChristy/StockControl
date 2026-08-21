@@ -184,12 +184,30 @@ attributes. It restricts public privileges and creates the migrator/runtime
 boundary without printing connection strings or passwords. On a safe rerun it
 does not rotate compatible existing-role passwords; instead, it connects
 through both supplied role URLs and verifies their identity/database, so a
-wrong or stale secret fails closed. During a deliberate credential rotation,
-set `DATABASE_ROLE_BOOTSTRAP_ROTATE_PASSWORDS=true` only for this temporary
-service; it rotates both compatible application-role passwords, then performs
-the same identity checks. Copy the migrator URL to `migrate` and the
-runtime URL to `api`, then delete the entire temporary `bootstrap` service.
-This removes `DATABASE_ADMIN_URL` from the application deployment surface.
+wrong or stale secret fails closed.
+
+For a deliberate credential rotation, use this order:
+
+1. Put both proposed URLs on `bootstrap` only. Do not update `migrate`,
+   `api` or `worker` yet.
+2. Set `DATABASE_ROLE_BOOTSTRAP_ROTATE_PASSWORDS=true` on `bootstrap`,
+   deploy it once and require the
+   `{"event":"database.roles.bootstrap.complete"}` log line.
+3. Remove the rotation flag (or set it to `false`) before any later bootstrap
+   run.
+4. Copy the exact verified migrator URL to `migrate`, deploy it and require a
+   completed migration.
+5. Copy the exact verified runtime URL to both `api` and `worker`, then
+   deploy them and require their readiness checks to pass.
+6. Delete the entire temporary `bootstrap` service. This removes
+   `DATABASE_ADMIN_URL` from the application deployment surface.
+
+If a rollout was started out of order, PostgreSQL logs identify which role is
+rejecting its password. Keep the previous healthy application deployments in
+place, run the rotation through `bootstrap`, and resume at step 4. Do not
+change `Postgres.POSTGRES_PASSWORD` on an initialized volume as a shortcut:
+the image uses that value during first initialization and changing the Railway
+variable does not alter the existing PostgreSQL owner's password.
 
 Never use `scripts/postgres/init/001_roles.sql` against Railway. It contains
 fixed local-development names and passwords.
