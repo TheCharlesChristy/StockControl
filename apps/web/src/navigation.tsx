@@ -6,6 +6,7 @@ import PlaylistAddCheckRounded from "@mui/icons-material/PlaylistAddCheckRounded
 import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import WorkOutlineRounded from "@mui/icons-material/WorkOutlineRounded";
 import MapRounded from "@mui/icons-material/MapRounded";
+import ManageSearchRounded from "@mui/icons-material/ManageSearchRounded";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import type { ComponentType } from "react";
 
@@ -85,6 +86,14 @@ export const navigationItems: readonly NavigationItem[] = [
     description: "See the full history of stock changes.",
     roles: [],
     icon: ReceiptLongRounded,
+  },
+  {
+    path: "/mcp-activity",
+    label: "ChatGPT activity",
+    description: "Inspect the StockControl activity performed through ChatGPT.",
+    roles: [],
+    icon: ManageSearchRounded,
+    requiresFeature: "mcpActivity",
   },
   {
     path: "/locations",

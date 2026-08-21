@@ -3,6 +3,7 @@ import "reflect-metadata";
 import fastifyCookie from "@fastify/cookie";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { RequestMethod } from "@nestjs/common";
 import type { FastifyInstance } from "fastify";
 
 import { API_V1_PREFIX } from "@stockcontrol/contracts";
@@ -102,7 +103,13 @@ export const createApiApplication = async (
   );
   registerCorrelationIdHook(fastify, context);
   registerSecurityHeadersHook(fastify);
-  app.setGlobalPrefix(API_V1_PREFIX);
+  app.setGlobalPrefix(API_V1_PREFIX, {
+    exclude: [
+      { path: "mcp", method: RequestMethod.ALL },
+      { path: "oauth/{*path}", method: RequestMethod.ALL },
+      { path: ".well-known/{*path}", method: RequestMethod.ALL },
+    ],
+  });
   app.useLogger(logger);
   app.useGlobalFilters(new ProblemDetailsExceptionFilter(context, logger));
 

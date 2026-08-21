@@ -42,6 +42,9 @@ import type {
   StartCaptureBatchRequest,
   StartRecognitionSessionRequest,
   StockCaptureBatchView,
+  McpActivityListResponse,
+  McpActivityQuery,
+  McpConnectionListResponse,
 } from "@stockcontrol/contracts";
 
 /**
@@ -554,6 +557,26 @@ export class ApiClient {
     return this.send("GET", `/users/${id}/activity`, {
       ...(signal === undefined ? {} : { signal }),
     });
+  }
+
+  public listMcpActivity(
+    query: McpActivityQuery = {},
+    signal?: AbortSignal,
+  ): Promise<McpActivityListResponse> {
+    return this.send("GET", "/mcp-activity", {
+      query,
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public listMcpConnections(signal?: AbortSignal): Promise<McpConnectionListResponse> {
+    return this.send("GET", "/mcp-activity/connections", {
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public async revokeMcpConnection(grantId: string): Promise<void> {
+    await this.send("POST", `/mcp-activity/connections/${grantId}/revoke`);
   }
 
   // ---- Assisted stock capture, specification section 10 --------------------

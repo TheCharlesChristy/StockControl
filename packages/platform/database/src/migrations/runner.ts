@@ -34,6 +34,13 @@ export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
    */
   item_visual_examples: ["select", "insert", "update", "delete"],
   migration_integrity: [],
+  mcp_command_receipts: ["select", "insert"],
+  mcp_effect_links: ["select", "insert"],
+  mcp_tool_call_events: ["select", "insert"],
+  mcp_tool_calls: ["select", "insert"],
+  oauth_grant_events: ["select", "insert"],
+  // OAuth grant state is the one mutable part of the integration.
+  oauth_grants: ["select", "insert", "update"],
   recognition_feedback: ["select", "insert", "delete"],
   reservations: ["select", "insert", "update"],
   sessions: ["select", "insert", "delete"],

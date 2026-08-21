@@ -1,0 +1,104 @@
+export interface McpConfiguration {
+  readonly enabled: boolean;
+  readonly readToolsEnabled: boolean;
+  readonly writeToolsEnabled: boolean;
+  readonly publicBaseUrl: string;
+  readonly clientId: string;
+  readonly redirectUri: string;
+  readonly accessTokenMinutes: number;
+  readonly refreshTokenDays: number;
+  readonly maximumToolSeconds: number;
+}
+
+export interface McpEnvironment {
+  readonly NODE_ENV?: string;
+  readonly MCP_ENABLED?: string;
+  readonly MCP_READ_TOOLS_ENABLED?: string;
+  readonly MCP_WRITE_TOOLS_ENABLED?: string;
+  readonly MCP_PUBLIC_BASE_URL?: string;
+  readonly MCP_CLIENT_ID?: string;
+  readonly MCP_REDIRECT_URI?: string;
+  readonly MCP_ACCESS_TOKEN_MINUTES?: string;
+  readonly MCP_REFRESH_TOKEN_DAYS?: string;
+  readonly MCP_MAX_TOOL_SECONDS?: string;
+  readonly PUBLIC_APP_ORIGIN?: string;
+}
+
+const enabled = (value: string | undefined): boolean => value?.trim().toLowerCase() === "true";
+
+const boundedInteger = (
+  environment: McpEnvironment,
+  name: keyof McpEnvironment,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number => {
+  const candidate = environment[name];
+  if (candidate === undefined || candidate.trim().length === 0) {
+    return fallback;
+  }
+
+  const parsed = Number(candidate);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`Invalid ${String(name)} value: ${candidate}`);
+  }
+
+  return parsed;
+};
+
+const absoluteUrl = (value: string, name: string, production: boolean): string => {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Invalid ${name}: use an absolute URL.`);
+  }
+
+  if (parsed.username.length > 0 || parsed.password.length > 0 || parsed.hash.length > 0) {
+    throw new Error(`Invalid ${name}: credentials and fragments are not allowed.`);
+  }
+
+  if (production && parsed.protocol !== "https:") {
+    throw new Error(`Invalid ${name}: production must use https://.`);
+  }
+
+  return parsed.toString().replace(/\/$/u, "");
+};
+
+export const isMcpEnabled = (environment: McpEnvironment = process.env): boolean =>
+  enabled(environment.MCP_ENABLED);
+
+export const loadMcpConfiguration = (
+  environment: McpEnvironment = process.env,
+): McpConfiguration => {
+  const production = environment.NODE_ENV === "production";
+  const publicBaseUrl = absoluteUrl(
+    environment.MCP_PUBLIC_BASE_URL?.trim() ||
+      environment.PUBLIC_APP_ORIGIN?.trim() ||
+      "http://localhost:3000",
+    "MCP_PUBLIC_BASE_URL",
+    production,
+  );
+  const clientId = environment.MCP_CLIENT_ID?.trim() || "stockcontrol-chatgpt";
+  const redirectUri = absoluteUrl(
+    environment.MCP_REDIRECT_URI?.trim() || `${publicBaseUrl}/oauth/callback`,
+    "MCP_REDIRECT_URI",
+    production,
+  );
+
+  if (clientId.length > 160) {
+    throw new Error("MCP_CLIENT_ID must be 160 characters or fewer.");
+  }
+
+  return {
+    enabled: enabled(environment.MCP_ENABLED),
+    readToolsEnabled: enabled(environment.MCP_READ_TOOLS_ENABLED),
+    writeToolsEnabled: enabled(environment.MCP_WRITE_TOOLS_ENABLED),
+    publicBaseUrl,
+    clientId,
+    redirectUri,
+    accessTokenMinutes: boundedInteger(environment, "MCP_ACCESS_TOKEN_MINUTES", 15, 5, 60),
+    refreshTokenDays: boundedInteger(environment, "MCP_REFRESH_TOKEN_DAYS", 30, 1, 90),
+    maximumToolSeconds: boundedInteger(environment, "MCP_MAX_TOOL_SECONDS", 30, 5, 120),
+  };
+};
