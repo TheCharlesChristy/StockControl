@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type { Kysely } from "kysely";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { sql, type Kysely } from "kysely";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   databaseRoleFromConnectionString,
@@ -175,6 +175,42 @@ describe.sequential("durable recognition job queue", () => {
 
     expect(new Set(claimedIds).size).toBe(claimedIds.length);
     expect(claimedIds).toHaveLength(ids.size);
+  });
+
+  /*
+   * This is why the claim above used to flake roughly once in a hundred runs.
+   * PostgreSQL stamps `available_at` with microseconds and a JavaScript Date
+   * stops at the millisecond, so a job enqueued during the same millisecond as
+   * a poll sat a few microseconds beyond a cutoff that could not express them
+   * and read as not yet due. Freezing this process's clock inside that
+   * millisecond is what turns a rare race into a test that fails every time
+   * the cutoff is taken from this process instead of the server.
+   */
+  it("claims a job stamped later in the same millisecond as the poll", async () => {
+    const id = await enqueue();
+
+    const stamped = await runtime
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .updateTable("stock_recognition_jobs")
+      .set({
+        available_at: sql<Date>`date_trunc('milliseconds', clock_timestamp()) + interval '900 microseconds'`,
+      })
+      .where("id", "=", id)
+      .returning("available_at")
+      .executeTakeFirstOrThrow();
+
+    vi.useFakeTimers({ toFake: ["Date"], now: stamped.available_at });
+    try {
+      const claimed = await claimJobs(runtime, {
+        leaseOwner: "worker-a",
+        limit: 10,
+        leaseMilliseconds: 60_000,
+      });
+
+      expect(claimed.map(({ id: claimedId }) => claimedId)).toContain(id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("honours the claim limit", async () => {
