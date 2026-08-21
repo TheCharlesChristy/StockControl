@@ -101,12 +101,7 @@ export function App(): ReactElement {
   return (
     <ApplicationErrorBoundary>
       <StockControlProviders>
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
+        <BrowserRouter>
           <AppRoutes />
         </BrowserRouter>
       </StockControlProviders>

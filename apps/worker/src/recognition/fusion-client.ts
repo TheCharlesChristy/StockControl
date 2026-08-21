@@ -15,9 +15,9 @@
  *   result type below — there is no field for it to land in.
  */
 
-// recognition-fusion runs with a 4,096-token context and a 256-token output
-// cap (spec 7.9/9.2). These bounds keep the request well inside that budget
-// without this client needing to count tokens itself.
+// recognition-fusion runs with a 4,096-token context per slot (spec 7.9/9.2).
+// These bounds keep the request well inside that budget without this client
+// needing to count tokens itself.
 const MAX_IMAGES = 5;
 const MAX_OBSERVATIONS_PER_IMAGE = 8;
 const MAX_OBSERVATION_LENGTH = 200;
@@ -28,7 +28,17 @@ const MAX_WEB_FIELD_LENGTH = 300;
 const MAX_CATEGORIES = 5;
 const MAX_FIELD_LENGTH = 120;
 const MAX_VARIANT_ATTRIBUTES = 8;
-const MAX_OUTPUT_TOKENS = 256;
+/*
+ * Raised from 256 alongside the specificity instructions above. The flat schema
+ * requires all eight fields on every response, and a filled variantAttributes
+ * array is now the expected shape rather than the exception: eight label/value
+ * pairs at their declared bounds plus a 120-character name lands close enough
+ * to 256 that the model would be truncated mid-object exactly when it does what
+ * it was asked. Truncation costs a whole corrective retry, so the headroom is
+ * cheaper than the round trip. Greedy decoding stops at the closing brace, so a
+ * short answer costs nothing extra.
+ */
+const MAX_OUTPUT_TOKENS = 384;
 
 // ---- Sanitisation ---------------------------------------------------------
 
@@ -128,6 +138,29 @@ export class FusionUnavailableError extends Error {
 
 // ---- Prompt construction ------------------------------------------------
 
+/*
+ * The specificity instructions are load-bearing, not padding. Asked only to
+ * identify "a physical stock item", the model satisfies the schema with the
+ * shortest true answer it can find — "T-shirt", "pipe fitting" — which is
+ * accurate and useless, because a stockroom holds twenty of those and the
+ * person is trying to tell them apart. The schema cannot express "be precise",
+ * so the prompt has to.
+ *
+ * The honesty clause is the counterweight and must not be dropped when this is
+ * edited. Pushing a small model toward detail pushes it toward inventing
+ * detail, and a confident wrong material or size costs more review time than a
+ * blank field: a person checks every one of these before anything is written,
+ * and a plausible invention is the kind they are least likely to catch.
+ *
+ * No worked example of a good name belongs here, however tempting one is. An
+ * earlier revision carried two, one garment and one pipe fitting, to show what
+ * "specific" meant. A photograph of a Honeywell room timer came back named as
+ * the garment: at this size the model does not read a quoted example as an
+ * illustration of a property, it reads it as text that is allowed in the name
+ * field, and constrained decoding then requires it to fill that field with
+ * something. The instructions describe the property wanted and give no string
+ * that could be copied into an answer.
+ */
 const SYSTEM_PROMPT = [
   "You identify a physical stock item from photographs and structured evidence.",
   "Respond with JSON matching the supplied schema only.",
@@ -135,6 +168,13 @@ const SYSTEM_PROMPT = [
   'If you recognise the item as one of the supplied candidates, use "InternalCandidate" with its exact id.',
   'Otherwise, if the photographs show a clear product identity, use "ExternalIdentity".',
   'If you cannot tell, respond "Unknown".',
+  "Build the name from this photograph and the supplied evidence, and from nothing else.",
+  "Wording printed on the item, including anything read from it in the supplied observations, is the strongest evidence of what it is: put the brand in manufacturer, any model or catalogue code in partNumber, and use both in the name.",
+  "Where no wording is legible, name the item by what it visibly is, then add the properties that separate it from a similar item, such as its colour, material, size, capacity, rating or finish.",
+  "Either way the name should be precise enough that someone could pick this item out from similar ones on the same shelf.",
+  "Put each such property in variantAttributes as its own label and value.",
+  "Never repeat wording from these instructions as though it were the item.",
+  "Never guess a brand, model, size or material that is not visible; leaving a detail out is better than inventing one.",
   "Never invent an id that was not supplied. Do not call a tool or ask a question.",
 ].join(" ");
 
@@ -221,44 +261,27 @@ const evidenceImageOrdinalsSchema = {
   items: { type: "integer", minimum: 1, maximum: MAX_IMAGES },
 };
 
-/** The conditional branches are the load-bearing defence: every output that
- * satisfies the grammar also satisfies parseVlmResponse. In particular, an
- * InternalCandidate is impossible when the allowlist is empty and a real
- * allowlisted id is mandatory when that branch is selected. */
+/*
+ * Deliberately flat: no `oneOf`. llama.cpp's JSON-schema-to-GBNF converter
+ * returns as soon as it sees `oneOf`/`anyOf` and discards the sibling
+ * `properties`, `required` and `additionalProperties` (ggml-org/llama.cpp
+ * issue #7703, open since 2024). A branched schema therefore did not merely
+ * fail to require the eight fields — it made `manufacturer`, `partNumber`,
+ * `barcode`, `variantAttributes` and `evidenceImageOrdinals` impossible to
+ * emit at all, because each branch named only its own two or three properties
+ * and an unspecified `additionalProperties` forbids every other key. Each
+ * ExternalIdentity then reached fusion carrying nothing but a free-text name,
+ * which candidateIdentityKey can only classify as Unmergeable.
+ *
+ * The relationship between `kind` and `candidateId` is enforced by
+ * parseVlmResponse instead. The allowlist enum is unaffected by the converter's
+ * behaviour, so an unsupplied id stays ungeneratable.
+ */
 const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]): unknown => {
-  const candidateIds = candidates.map((candidate) => candidate.candidateId);
   const kinds =
-    candidateIds.length > 0
+    candidates.length > 0
       ? ["InternalCandidate", "ExternalIdentity", "Unknown"]
       : ["ExternalIdentity", "Unknown"];
-  const branches: unknown[] = [
-    ...(candidateIds.length === 0
-      ? []
-      : [
-          {
-            required: ["kind", "candidateId"],
-            properties: {
-              kind: { type: "string", const: "InternalCandidate" },
-              candidateId: { type: "string", enum: candidateIds },
-            },
-          },
-        ]),
-    {
-      required: ["kind", "candidateId", "name"],
-      properties: {
-        kind: { type: "string", const: "ExternalIdentity" },
-        candidateId: { type: "null" },
-        name: { type: "string", minLength: 1, maxLength: MAX_FIELD_LENGTH },
-      },
-    },
-    {
-      required: ["kind", "candidateId"],
-      properties: {
-        kind: { type: "string", const: "Unknown" },
-        candidateId: { type: "null" },
-      },
-    },
-  ];
 
   return {
     type: "object",
@@ -274,7 +297,6 @@ const buildResponseSchema = (candidates: readonly VlmCandidateAllowlistEntry[]):
       variantAttributes: variantAttributesSchema,
       evidenceImageOrdinals: evidenceImageOrdinalsSchema,
     },
-    oneOf: branches,
   };
 };
 
@@ -310,6 +332,12 @@ const readVariantAttributes = (value: unknown): readonly VlmVariantAttribute[] =
  * schema was built from. A response the schema should have prevented — an
  * unsupplied id, in particular — is treated exactly like invalid JSON: it
  * earns the one constrained retry, never a silent pass-through.
+ *
+ * This is also where the kind/candidateId relationship is enforced, because the
+ * flat schema deliberately cannot express it: an id belongs to
+ * InternalCandidate and to nothing else. A self-contradictory response is
+ * rejected so the corrective retry can fix it, rather than being quietly
+ * reinterpreted as something the model did not say.
  */
 export const parseVlmResponse = (
   raw: unknown,
@@ -317,11 +345,15 @@ export const parseVlmResponse = (
 ): VlmProposal | null => {
   if (!isRecord(raw)) return null;
   const kind = raw.kind;
+  const candidateId = raw.candidateId;
+  const hasCandidateId = candidateId !== null && candidateId !== undefined;
 
-  if (kind === "Unknown") return { kind: "Unknown" };
+  if (kind === "Unknown") {
+    if (hasCandidateId) return null;
+    return { kind: "Unknown" };
+  }
 
   if (kind === "InternalCandidate") {
-    const candidateId = raw.candidateId;
     if (typeof candidateId !== "string") return null;
     const allowed = candidates.some((candidate) => candidate.candidateId === candidateId);
     if (!allowed) return null;
@@ -333,6 +365,7 @@ export const parseVlmResponse = (
   }
 
   if (kind === "ExternalIdentity") {
+    if (hasCandidateId) return null;
     const manufacturer = raw.manufacturer;
     const partNumber = raw.partNumber;
     const barcode = raw.barcode;

@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.9.0
           run_install: false
@@ -83,7 +83,7 @@ jobs:
             || sudo apt-get install --yes --no-install-recommends libvips42
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: "3.12"
           enable-cache: true
@@ -191,6 +191,96 @@ jobs:
           docker exec "$container_id" nginx -T 2>&1 \
             | grep --quiet 'client_max_body_size 16m;'
 
+      - name: Smoke test the recognition-fusion runtime
+        if: matrix.runtime == 'recognition-fusion'
+        run: |
+          # Starting the server is itself most of the assertion. llama-server
+          # loads both the language model and the multimodal projector before it
+          # serves anything, so a passing /health proves the pinned runtime
+          # understands this model's architecture and its projector type, and
+          # that it accepted every flag the entrypoint passes. Each of those
+          # failed loudly at startup or not at all, which is exactly the class of
+          # break that is otherwise only discovered on deploy.
+          container_id="$(docker run --detach --publish 18001:8000 \
+            --env RECOGNITION_FUSION_MODEL_PATH=/models/qwen3.5-0.8b-q8-0/Qwen3.5-0.8B-Q8_0.gguf \
+            --env RECOGNITION_FUSION_MMPROJ_PATH=/models/qwen3.5-0.8b-q8-0/mmproj-F16.gguf \
+            --env RECOGNITION_FUSION_API_KEY=ci-not-a-secret \
+            stockcontrol-recognition-fusion:ci)"
+          trap 'docker logs "$container_id" 2>&1 | tail -40; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+
+          curl --fail --silent --show-error --retry 60 --retry-all-errors \
+            --retry-delay 2 http://127.0.0.1:18001/health
+
+          # The response contract, against the real grammar converter rather than
+          # a generated approximation of it. Two things are under test that unit
+          # tests cannot reach: that llama.cpp turns this schema into a grammar
+          # admitting every required field, and that thinking is actually
+          # suppressed. Qwen3.5 thinks by default, and a thinking pass would
+          # consume the 256-token cap and return no JSON at all -- which reads
+          # like a model that cannot follow a schema rather than a missing flag.
+          response="$(curl --fail --silent --show-error --max-time 300 \
+            --header 'content-type: application/json' \
+            --header 'authorization: Bearer ci-not-a-secret' \
+            --data @- http://127.0.0.1:18001/v1/chat/completions <<'REQUEST'
+          {
+            "model": "qwen3.5-0.8b",
+            "temperature": 0,
+            "max_tokens": 256,
+            "messages": [
+              { "role": "system", "content": "You identify a physical stock item from photographs and structured evidence. Respond with JSON matching the supplied schema only. Always emit every field in the schema; use null, an empty string, or an empty array for fields that do not apply. If you cannot tell, respond \"Unknown\"." },
+              { "role": "user", "content": "Evidence: {\"candidates\":[],\"categories\":[],\"observations\":[],\"webEvidence\":[]}" }
+            ],
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "vlm_proposal",
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind","candidateId","manufacturer","name","partNumber","barcode","variantAttributes","evidenceImageOrdinals"],
+                  "properties": {
+                    "kind": { "type": "string", "enum": ["ExternalIdentity","Unknown"] },
+                    "candidateId": { "type": "null", "enum": [null] },
+                    "manufacturer": { "type": ["string","null"], "maxLength": 120 },
+                    "name": { "type": "string", "maxLength": 120 },
+                    "partNumber": { "type": ["string","null"], "maxLength": 120 },
+                    "barcode": { "type": ["string","null"], "maxLength": 40 },
+                    "variantAttributes": {
+                      "type": "array", "maxItems": 8,
+                      "items": { "type": "object", "additionalProperties": false,
+                        "required": ["label","value"],
+                        "properties": { "label": {"type":"string","maxLength":40}, "value": {"type":"string","maxLength":80} } }
+                    },
+                    "evidenceImageOrdinals": { "type": "array", "maxItems": 5, "items": {"type":"integer","minimum":1,"maximum":5} }
+                  }
+                }
+              }
+            }
+          }
+          REQUEST
+          )"
+
+          printf '%s' "$response" | python3 -c '
+          import json, sys
+          body = json.load(sys.stdin)
+          message = body["choices"][0]["message"]
+          reasoning = message.get("reasoning_content")
+          if reasoning:
+              print("::error::model returned reasoning content; thinking is not suppressed")
+              sys.exit(1)
+          proposal = json.loads(message["content"])
+          required = {"kind","candidateId","manufacturer","name","partNumber",
+                      "barcode","variantAttributes","evidenceImageOrdinals"}
+          missing = required - proposal.keys()
+          if missing:
+              print("::error::grammar omitted required fields: %s" % sorted(missing))
+              sys.exit(1)
+          if proposal["candidateId"] is not None:
+              print("::error::candidateId was not null with an empty allowlist")
+              sys.exit(1)
+          print("constrained response carried all %d fields; kind=%s" % (len(required), proposal["kind"]))
+          '
+
       - name: Smoke test the recognition-core runtime
         if: matrix.runtime == 'recognition-core'
         run: |
@@ -259,7 +349,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.9.0
           run_install: false
@@ -319,7 +409,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.9.0
           run_install: false

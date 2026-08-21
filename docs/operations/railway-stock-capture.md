@@ -131,10 +131,10 @@ no longer exist in the `media` Bucket under `stock-capture/<sessionId>/`.
 
 Do this only with the reviewed manifest revision intended for the deployment.
 The current manifest includes recognition-core's OCR/embedding artefacts and
-recognition-fusion's LFM2.5-VL-1.6B model/projector. It is a staging evaluation
-candidate and remains provisional because the S0 accuracy and resource
-benchmark was skipped; deployment must retain the manual/partial-assist posture
-until those measurements are supplied.
+recognition-fusion's Qwen3.5-0.8B model/projector. It remains provisional
+because the S0 accuracy and resource benchmark has not been run; deployment
+must retain the manual/partial-assist posture until those measurements are
+supplied.
 
 ### 1. Create `recognition-core`
 
@@ -162,17 +162,18 @@ Retained, private, no public domain. Config as Code path
 ```text
 RUNTIME_TARGET=recognition-fusion
 PORT=8000
-RECOGNITION_FUSION_MODEL_PATH=/models/lfm2.5-vl-1.6b-q4-0/LFM2.5-VL-1.6B-Q4_0.gguf
-RECOGNITION_FUSION_MMPROJ_PATH=/models/lfm2.5-vl-1.6b-q4-0/mmproj-LFM2.5-VL-1.6b-F16.gguf
+RECOGNITION_FUSION_MODEL_PATH=/models/qwen3.5-0.8b-q8-0/Qwen3.5-0.8B-Q8_0.gguf
+RECOGNITION_FUSION_MMPROJ_PATH=/models/qwen3.5-0.8b-q8-0/mmproj-F16.gguf
 RECOGNITION_FUSION_API_KEY=<a fresh 64-hex-character secret>
 LLAMA_ARG_N_PARALLEL=2
 LLAMA_ARG_CTX_SIZE=8192
 ```
 
-The image contains one-release compatibility aliases for the former 3B paths,
-so an existing staging service remains healthy during this variable migration.
-Move Railway to the canonical 1.6B paths above before removing those aliases in
-a later release.
+These paths changed with the move off LFM2.5-VL. The compatibility symlinks
+that let a stale variable keep resolving have been removed, so a service still
+carrying an old `lfm2.5-vl-*` path now fails at startup with a named missing
+file rather than quietly serving weights that do not match the variable. Update
+both variables in the same deploy as the image.
 
 Generate `RECOGNITION_FUSION_API_KEY` the same way the PostgreSQL role
 passwords in the base runbook are generated — 32 random bytes, hex-encoded,
@@ -181,6 +182,13 @@ secret from anywhere else. The two `_PATH` variables must match exactly
 where the image build placed those files; wrong or missing paths fail the
 container at startup (`docker-entrypoint.sh`'s own check), not silently.
 Deploy and confirm `/health` passes.
+
+`RECOGNITION_FUSION_IMAGE_MAX_TOKENS` is optional and unset by default, which
+leaves llama.cpp using the model's own per-image token budget. It is the single
+most effective latency control this service has, because the projector's token
+output per photograph dominates CPU prefill and scales with whatever resolution
+the phone produced. Set it only against measured numbers; capping it too hard
+costs label legibility, which is the whole point of the photograph.
 
 `LLAMA_ARG_CTX_SIZE` is the total llama.cpp KV context, not a per-request
 limit. Keep it at least `4096 * LLAMA_ARG_N_PARALLEL`; otherwise adding slots

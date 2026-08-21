@@ -56,20 +56,20 @@
       ]
     },
     {
-      "id": "lfm2.5-vl-1.6b-q4-0",
-      "description": "Staging evaluation of the official LFM2.5-VL-1.6B Q4_0 GGUF export with its matching F16 multimodal projector.",
-      "repoId": "LiquidAI/LFM2.5-VL-1.6B-GGUF",
-      "revision": "0df8719db7180cedababc2bc589abfe5e8ebcd1f",
-      "licence": "LFM Open License v1.0 (upstream LiquidAI; commercial-use threshold USD 10M annual revenue)",
-      "preprocessingId": "llama.cpp-lfm2.5-vl-image-v1",
+      "id": "qwen3.5-0.8b-q8-0",
+      "description": "Qwen3.5-0.8B Q8_0 GGUF with its matching F16 multimodal projector. Community conversion; see models/NOTICE.txt.",
+      "repoId": "unsloth/Qwen3.5-0.8B-GGUF",
+      "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+      "licence": "Apache-2.0",
+      "preprocessingId": "llama.cpp-qwen3.5-vl-image-v1",
       "files": [
         {
-          "path": "LFM2.5-VL-1.6B-Q4_0.gguf",
-          "sha256": "8186364a4e7c3ad30f6dd3d3b7a4e0074c77dd91eed6cad5d8be9090ce285804"
+          "path": "Qwen3.5-0.8B-Q8_0.gguf",
+          "sha256": "0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c"
         },
         {
-          "path": "mmproj-LFM2.5-VL-1.6b-F16.gguf",
-          "sha256": "2cddba98b98390c011c606c416de2e63dcfdd3b21452bf71ad6aab59fa52d2ee"
+          "path": "mmproj-F16.gguf",
+          "sha256": "56e4c6cfe73b0c82e3e82bc518d7591997e61d81f723fc41a586f4fa69ea2453"
         }
       ]
     }

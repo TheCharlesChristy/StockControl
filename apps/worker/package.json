@@ -15,9 +15,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1101.0",
-    "@nestjs/common": "^11.1.28",
-    "@nestjs/core": "^11.1.28",
+    "@aws-sdk/client-s3": "^3.1110.0",
+    "@nestjs/common": "^11.1.29",
+    "@nestjs/core": "^11.1.29",
     "@stockcontrol/contracts": "workspace:*",
     "@stockcontrol/module-stock-capture": "workspace:*",
     "@stockcontrol/module-system": "workspace:*",
@@ -28,9 +28,9 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "catalog:",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
