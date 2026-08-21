@@ -8,7 +8,7 @@ rows, and never receives database or bucket credentials.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -27,7 +27,7 @@ class _WireModel(BaseModel):
     model_config = ConfigDict(frozen=True, alias_generator=to_camel, populate_by_name=True)
 
 
-class BarcodeSymbology(str, Enum):
+class BarcodeSymbology(StrEnum):
     """Symbologies this service will attempt to decode.
 
     Deliberately narrower than everything ZXing-C++ supports. A QR code can
@@ -106,7 +106,7 @@ class CategoryLabel(_WireModel):
     score: float = Field(ge=0.0, le=1.0)
 
 
-class StageAvailability(str, Enum):
+class StageAvailability(StrEnum):
     SUCCEEDED = "Succeeded"
     NOT_APPLICABLE = "NotApplicable"
     UNAVAILABLE = "Unavailable"

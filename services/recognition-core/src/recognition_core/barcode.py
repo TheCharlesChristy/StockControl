@@ -34,11 +34,7 @@ _FORMAT_TO_SYMBOLOGY: dict[zxingcpp.BarcodeFormat, BarcodeSymbology] = {
 
 
 def _read_formats() -> zxingcpp.BarcodeFormats:
-    formats_iterator = iter(_FORMAT_TO_SYMBOLOGY)
-    combined = zxingcpp.BarcodeFormats(next(formats_iterator))
-    for barcode_format in formats_iterator:
-        combined = combined | barcode_format
-    return combined
+    return zxingcpp.BarcodeFormats(tuple(_FORMAT_TO_SYMBOLOGY))
 
 
 _READ_FORMATS = _read_formats()
