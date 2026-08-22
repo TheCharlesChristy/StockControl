@@ -52,6 +52,13 @@ export default defineConfig({
         // the SQL they write.
         "src/inventory/catalogue-writer.ts",
         "src/inventory/stock-writer.ts",
+        // MCP persistence services are exercised by the real-PostgreSQL
+        // integration suites; their query-builder branches do not provide
+        // useful signal in the unit runner's coverage report.
+        "src/integrations/mcp/mcp-activity.service.ts",
+        "src/integrations/mcp/mcp-audit.service.ts",
+        "src/integrations/mcp/mcp-reconciliation.ts",
+        "src/integrations/mcp/oauth.service.ts",
       ],
       /*
        * Ratchet floors, not targets. CI enforces these from the commit that

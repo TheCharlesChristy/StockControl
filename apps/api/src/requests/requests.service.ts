@@ -4,7 +4,8 @@ import type { StockRequestListResponse, StockRequestView } from "@stockcontrol/c
 import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
+import type { StockTransaction } from "../persistence/stock-store";
 
 import type { StockService } from "../inventory/stock.service";
 import { listStockRequests, type StockRequestQuery } from "../persistence/read-models";
@@ -58,6 +59,13 @@ export class StockRequestsService {
   }
 
   public async create(input: NewStockRequest): Promise<StockRequestView> {
+    return this.database.transaction().execute((tx) => this.createInTransaction(tx, input));
+  }
+
+  public async createInTransaction(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    input: NewStockRequest,
+  ): Promise<StockRequestView> {
     const quantity = parseQuantity(input.quantity);
 
     if (quantity === null || quantity <= 0) {
@@ -66,20 +74,20 @@ export class StockRequestsService {
       );
     }
 
-    await this.requireActiveItem(input.itemId);
+    await this.requireActiveItem(database, input.itemId);
 
     if (input.jobId !== null) {
-      await this.requireOpenJob(input.jobId);
+      await this.requireOpenJob(database, input.jobId);
     }
 
     const id = randomUUID();
 
-    await this.database
+    await database
       .withSchema(SCHEMA)
       .insertInto("stock_requests")
       .values({
         id,
-        reference: await this.nextReference(),
+        reference: await this.nextReference(database),
         item_id: input.itemId,
         job_id: input.jobId,
         quantity: input.quantity,
@@ -93,7 +101,7 @@ export class StockRequestsService {
       })
       .execute();
 
-    return this.requireView(id);
+    return this.requireView(database, id);
   }
 
   /**
@@ -103,7 +111,14 @@ export class StockRequestsService {
    * stock arrives rather than being lost in a half-decided state.
    */
   public async approve(decision: Decision): Promise<StockRequestView> {
-    const request = await this.requirePending(decision.requestId);
+    return this.database.transaction().execute((tx) => this.approveInTransaction(tx, decision));
+  }
+
+  public async approveInTransaction(
+    database: StockTransaction,
+    decision: Decision,
+  ): Promise<StockRequestView> {
+    const request = await this.requirePending(database, decision.requestId);
     const quantity = decision.quantity ?? request.quantity;
     const parsed = parseQuantity(quantity);
 
@@ -116,9 +131,9 @@ export class StockRequestsService {
     const reservationId =
       request.job_id === null
         ? null
-        : await this.reserveFor(request.job_id, request.item_id, parsed, decision);
+        : await this.reserveFor(database, request.job_id, request.item_id, parsed, decision);
 
-    await this.database
+    await database
       .withSchema(SCHEMA)
       .updateTable("stock_requests")
       .set({
@@ -133,11 +148,18 @@ export class StockRequestsService {
       .where("id", "=", request.id)
       .execute();
 
-    return this.requireView(request.id);
+    return this.requireView(database, request.id);
   }
 
   public async reject(decision: Decision): Promise<StockRequestView> {
-    const request = await this.requirePending(decision.requestId);
+    return this.database.transaction().execute((tx) => this.rejectInTransaction(tx, decision));
+  }
+
+  public async rejectInTransaction(
+    database: StockTransaction,
+    decision: Decision,
+  ): Promise<StockRequestView> {
+    const request = await this.requirePending(database, decision.requestId);
 
     if (decision.decisionNote === null || decision.decisionNote.length === 0) {
       throw new ApplicationFailureException(
@@ -145,7 +167,7 @@ export class StockRequestsService {
       );
     }
 
-    await this.database
+    await database
       .withSchema(SCHEMA)
       .updateTable("stock_requests")
       .set({
@@ -158,12 +180,12 @@ export class StockRequestsService {
       .where("id", "=", request.id)
       .execute();
 
-    return this.requireView(request.id);
+    return this.requireView(database, request.id);
   }
 
   /** Only the person who raised a request may withdraw it, and only while it waits. */
   public async cancel(requestId: string, actorUserId: string): Promise<StockRequestView> {
-    const request = await this.requirePending(requestId);
+    const request = await this.requirePending(this.database, requestId);
 
     if (request.requested_by_user_id !== actorUserId) {
       throw new ApplicationFailureException(
@@ -183,16 +205,17 @@ export class StockRequestsService {
       .where("id", "=", requestId)
       .execute();
 
-    return this.requireView(requestId);
+    return this.requireView(this.database, requestId);
   }
 
   private async reserveFor(
+    database: StockTransaction,
     jobId: string,
     itemId: string,
     quantity: Quantity,
     decision: Decision,
   ): Promise<string | null> {
-    const result = await this.stock.reserve({
+    const result = await this.stock.reserveInTransaction(database, {
       actorUserId: decision.decidedByUserId,
       scopeActivityToActor: decision.scopeActivityToActor,
       jobId,
@@ -203,8 +226,11 @@ export class StockRequestsService {
     return result.reservationId;
   }
 
-  private async requirePending(requestId: string): Promise<RequestRow> {
-    const row = (await this.database
+  private async requirePending(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    requestId: string,
+  ): Promise<RequestRow> {
+    const row = (await database
       .withSchema(SCHEMA)
       .selectFrom("stock_requests")
       .select(["id", "item_id", "job_id", "quantity", "status", "requested_by_user_id"])
@@ -228,8 +254,11 @@ export class StockRequestsService {
     return row;
   }
 
-  private async requireActiveItem(itemId: string): Promise<void> {
-    const item = await this.database
+  private async requireActiveItem(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    itemId: string,
+  ): Promise<void> {
+    const item = await database
       .withSchema(SCHEMA)
       .selectFrom("items")
       .select("id")
@@ -244,8 +273,11 @@ export class StockRequestsService {
     }
   }
 
-  private async requireOpenJob(jobId: string): Promise<void> {
-    const job = await this.database
+  private async requireOpenJob(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    jobId: string,
+  ): Promise<void> {
+    const job = await database
       .withSchema(SCHEMA)
       .selectFrom("jobs")
       .select("id")
@@ -260,8 +292,11 @@ export class StockRequestsService {
     }
   }
 
-  private async requireView(requestId: string): Promise<StockRequestView> {
-    const { rows } = await listStockRequests(this.database, {
+  private async requireView(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    requestId: string,
+  ): Promise<StockRequestView> {
+    const { rows } = await listStockRequests(database, {
       id: requestId,
       limit: 1,
       offset: 0,
@@ -278,8 +313,10 @@ export class StockRequestsService {
   }
 
   /** REQ-0001, REQ-0002, … continuing from the highest existing reference. */
-  private async nextReference(): Promise<string> {
-    const row = await this.database
+  private async nextReference(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+  ): Promise<string> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("stock_requests")
       .select((builder) => [

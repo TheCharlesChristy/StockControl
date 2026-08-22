@@ -58,6 +58,21 @@ import {
 } from "./stock-capture/capture-configuration";
 import { StockCaptureController } from "./stock-capture/stock-capture.controller";
 import { StockCaptureService } from "./stock-capture/stock-capture.service";
+import { McpActivityController } from "./integrations/mcp/mcp-activity.controller";
+import { McpActivityService } from "./integrations/mcp/mcp-activity.service";
+import { McpController } from "./integrations/mcp/mcp.controller";
+import { McpAuditService } from "./integrations/mcp/mcp-audit.service";
+import {
+  isMcpEnabled,
+  loadMcpConfiguration,
+  type McpConfiguration,
+} from "./integrations/mcp/mcp-configuration";
+import { McpToolExecutor } from "./integrations/mcp/mcp-tool-executor";
+import { McpReconciliationJob } from "./integrations/mcp/mcp-reconciliation";
+import { McpRateLimiter } from "./integrations/mcp/mcp-rate-limiter";
+import { OAuthAuthorizationRequestSweeper } from "./integrations/mcp/oauth-authorization-request-sweeper";
+import { OAuthController } from "./integrations/mcp/oauth.controller";
+import { OAuthService } from "./integrations/mcp/oauth.service";
 
 type Database = Kysely<StockControlDatabase>;
 
@@ -197,8 +212,9 @@ const providers: Provider[] = [
      * are public routes, but they still mutate authentication state.
      */
     provide: APP_GUARD,
-    useFactory: (allowedOrigin: string | null) => new RequestOriginGuard(allowedOrigin),
-    inject: [API_TOKENS.publicAppOrigin],
+    useFactory: (allowedOrigin: string | null, reflector: Reflector) =>
+      new RequestOriginGuard(allowedOrigin, reflector),
+    inject: [API_TOKENS.publicAppOrigin, Reflector],
   },
   {
     /*
@@ -220,6 +236,7 @@ const providers: Provider[] = [
  * setting nobody is using yet could take an otherwise-healthy API down.
  */
 const stockCaptureEnabled = isStockCaptureEnabled();
+const mcpEnabled = isMcpEnabled();
 
 const stockCaptureProviders: Provider[] = stockCaptureEnabled
   ? [
@@ -236,6 +253,113 @@ const stockCaptureProviders: Provider[] = stockCaptureEnabled
     ]
   : [];
 
+const mcpProviders: Provider[] = mcpEnabled
+  ? [
+      {
+        provide: API_TOKENS.mcpConfiguration,
+        useFactory: (): McpConfiguration => loadMcpConfiguration(),
+      },
+      {
+        provide: API_TOKENS.mcpAuditService,
+        useFactory: (database: Database) => new McpAuditService(database),
+        inject: [SYSTEM_TOKENS.database],
+      },
+      {
+        provide: API_TOKENS.mcpOAuthService,
+        useFactory: (database: Database, configuration: McpConfiguration) =>
+          new OAuthService(database, configuration),
+        inject: [SYSTEM_TOKENS.database, API_TOKENS.mcpConfiguration],
+      },
+      {
+        provide: API_TOKENS.mcpActivityService,
+        useFactory: (database: Database, oauth: OAuthService) =>
+          new McpActivityService(database, oauth),
+        inject: [SYSTEM_TOKENS.database, API_TOKENS.mcpOAuthService],
+      },
+      {
+        provide: API_TOKENS.mcpReconciliationJob,
+        useFactory: (
+          database: Database,
+          audit: McpAuditService,
+          configuration: McpConfiguration,
+          logger: StructuredLogger,
+          executor: McpToolExecutor,
+        ) =>
+          new McpReconciliationJob(
+            database,
+            audit,
+            () => new Date(),
+            configuration.abandonedCallSeconds,
+            logger,
+            configuration.enabled,
+            (callId) => executor.isInFlight(callId),
+          ),
+        inject: [
+          SYSTEM_TOKENS.database,
+          API_TOKENS.mcpAuditService,
+          API_TOKENS.mcpConfiguration,
+          SYSTEM_TOKENS.logger,
+          API_TOKENS.mcpToolExecutor,
+        ],
+      },
+      {
+        provide: API_TOKENS.mcpToolExecutor,
+        useFactory: (
+          database: Database,
+          audit: McpAuditService,
+          oauth: OAuthService,
+          configuration: McpConfiguration,
+          dashboard: DashboardService,
+          catalogue: CatalogueService,
+          stock: StockService,
+          jobs: JobsService,
+          requests: StockRequestsService,
+          correlation: CorrelationContext,
+          logger: StructuredLogger,
+          rateLimiter: McpRateLimiter,
+        ) =>
+          new McpToolExecutor(
+            database,
+            audit,
+            oauth,
+            configuration,
+            dashboard,
+            catalogue,
+            stock,
+            jobs,
+            requests,
+            correlation,
+            logger,
+            rateLimiter,
+          ),
+        inject: [
+          SYSTEM_TOKENS.database,
+          API_TOKENS.mcpAuditService,
+          API_TOKENS.mcpOAuthService,
+          API_TOKENS.mcpConfiguration,
+          API_TOKENS.dashboardService,
+          API_TOKENS.catalogueService,
+          API_TOKENS.stockService,
+          API_TOKENS.jobsService,
+          API_TOKENS.stockRequestsService,
+          SYSTEM_TOKENS.correlationContext,
+          SYSTEM_TOKENS.logger,
+          API_TOKENS.mcpRateLimiter,
+        ],
+      },
+      {
+        provide: API_TOKENS.mcpRateLimiter,
+        useFactory: () => new McpRateLimiter(),
+      },
+      {
+        provide: API_TOKENS.mcpAuthorizationRequestSweeper,
+        useFactory: (oauth: OAuthService, logger: StructuredLogger) =>
+          new OAuthAuthorizationRequestSweeper(oauth, logger),
+        inject: [API_TOKENS.mcpOAuthService, SYSTEM_TOKENS.logger],
+      },
+    ]
+  : [];
+
 @Module({
   controllers: [
     SystemController,
@@ -248,7 +372,8 @@ const stockCaptureProviders: Provider[] = stockCaptureEnabled
     UsersController,
     LocationsController,
     ...(stockCaptureEnabled ? [StockCaptureController] : []),
+    ...(mcpEnabled ? [OAuthController, McpController, McpActivityController] : []),
   ],
-  providers: [...providers, ...stockCaptureProviders],
+  providers: [...providers, ...stockCaptureProviders, ...mcpProviders],
 })
 export class AppModule {}

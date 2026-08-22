@@ -67,6 +67,108 @@ export interface SessionsTable {
   readonly expires_at: ImmutableColumn<Date>;
 }
 
+export type OAuthGrantEventType =
+  "Connected" | "Reauthorised" | "ScopeChanged" | "Revoked" | "Refreshed";
+
+export interface OAuthGrantsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly client_id: ImmutableColumn<string>;
+  readonly redirect_uri: ImmutableColumn<string>;
+  readonly granted_scopes: JsonArrayColumn;
+  readonly authorization_code_hash: string | null;
+  readonly authorization_code_challenge: string | null;
+  readonly authorization_code_method: string | null;
+  readonly authorization_code_expires_at: Date | null;
+  readonly authorization_code_used_at: Date | null;
+  readonly access_token_hash: string | null;
+  readonly access_token_expires_at: Date | null;
+  readonly refresh_token_hash: string | null;
+  readonly refresh_token_expires_at: Date | null;
+  readonly revoked_at: Date | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface OAuthGrantEventsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly grant_id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly event_type: ImmutableColumn<OAuthGrantEventType>;
+  readonly scopes: JsonArrayColumn;
+  readonly occurred_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface OAuthAuthorizationRequestsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly client_id: ImmutableColumn<string>;
+  readonly redirect_uri: ImmutableColumn<string>;
+  readonly state: string | null;
+  readonly requested_scopes: JsonArrayColumn;
+  readonly code_challenge: ImmutableColumn<string>;
+  readonly code_challenge_method: ImmutableColumn<string>;
+  readonly authorization_code_hash: string | null;
+  readonly expires_at: ImmutableColumn<Date>;
+  readonly approved_at: Date | null;
+  readonly consumed_at: Date | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+export type McpOperation = "read" | "write";
+export type McpToolCallEventType =
+  "Received" | "Authorised" | "Denied" | "Succeeded" | "Failed" | "Interrupted";
+
+export interface McpToolCallsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly correlation_id: ImmutableColumn<string>;
+  readonly actor_user_id: string | null;
+  readonly oauth_grant_id: string | null;
+  readonly tool_name: ImmutableColumn<string>;
+  readonly contract_version: ImmutableColumn<string>;
+  readonly operation: ImmutableColumn<McpOperation>;
+  readonly arguments: JSONColumnType<JsonObject, string, string>;
+  readonly arguments_sha256: ImmutableColumn<string>;
+  readonly action_summary: string | null;
+  readonly client_request_id: string | null;
+  readonly received_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface McpToolCallEventsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly call_id: ImmutableColumn<string>;
+  readonly actor_user_id: string | null;
+  readonly oauth_grant_id: string | null;
+  readonly event_type: ImmutableColumn<McpToolCallEventType>;
+  readonly occurred_at: GeneratedImmutableColumn<Date>;
+  readonly failure_code: string | null;
+  readonly duration_ms: number | null;
+  readonly result_summary: JSONColumnType<JsonObject, string | undefined, string>;
+  readonly record_count: number | null;
+  readonly record_types: JsonArrayColumn;
+  readonly response_digest: string | null;
+}
+
+export interface McpEffectLinksTable {
+  readonly id: ImmutableColumn<string>;
+  readonly call_id: ImmutableColumn<string>;
+  readonly effect_type: ImmutableColumn<string>;
+  readonly effect_id: ImmutableColumn<string>;
+  readonly linked_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface McpCommandReceiptsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly actor_user_id: ImmutableColumn<string>;
+  readonly tool_name: ImmutableColumn<string>;
+  readonly idempotency_key: ImmutableColumn<string>;
+  readonly request_fingerprint: ImmutableColumn<string>;
+  readonly call_id: ImmutableColumn<string>;
+  readonly result: JSONColumnType<JsonObject, string, string>;
+  readonly result_digest: ImmutableColumn<string>;
+  readonly committed_at: GeneratedImmutableColumn<Date>;
+}
+
 export interface JobsTable {
   readonly id: ImmutableColumn<string>;
   readonly number: ImmutableColumn<string>;
@@ -411,6 +513,13 @@ export interface StockControlDatabase {
   readonly user_profile_photos: UserProfilePhotosTable;
   readonly item_photos: ItemPhotosTable;
   readonly migration_integrity: MigrationIntegrityTable;
+  readonly mcp_command_receipts: McpCommandReceiptsTable;
+  readonly mcp_effect_links: McpEffectLinksTable;
+  readonly mcp_tool_call_events: McpToolCallEventsTable;
+  readonly mcp_tool_calls: McpToolCallsTable;
+  readonly oauth_grant_events: OAuthGrantEventsTable;
+  readonly oauth_authorization_requests: OAuthAuthorizationRequestsTable;
+  readonly oauth_grants: OAuthGrantsTable;
   readonly recognition_feedback: RecognitionFeedbackTable;
   readonly reservations: ReservationsTable;
   readonly sessions: SessionsTable;

@@ -117,7 +117,8 @@ LABEL org.opencontainers.image.created="${BUILD_TIMESTAMP}" \
 
 ENV API_HOST=api.railway.internal \
     API_PORT=3000 \
-    NGINX_ENVSUBST_FILTER="^(API_HOST|API_PORT|NGINX_RESOLVER)$"
+    MCP_ENABLED=false \
+    NGINX_ENVSUBST_FILTER="^(API_HOST|API_PORT|MCP_ENABLED|NGINX_RESOLVER)$"
 
 COPY --chmod=755 infra/railway/15-stockcontrol-runtime.envsh /docker-entrypoint.d/15-stockcontrol-runtime.envsh
 COPY infra/railway/web-nginx.conf.template /etc/nginx/templates/default.conf.template

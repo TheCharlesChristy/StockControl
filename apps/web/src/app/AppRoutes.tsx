@@ -16,6 +16,7 @@ import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
+import { McpActivityPage } from "../pages/McpActivityPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
 import { RouteErrorBoundary } from "./ErrorBoundaries";
@@ -111,6 +112,14 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route
+              path="/mcp-activity"
+              element={
+                <Guarded path="/mcp-activity">
+                  <McpActivityPage />
+                </Guarded>
+              }
+            />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path={CHANGE_PASSWORD_PATH} element={<ChangePasswordPage />} />
             <Route

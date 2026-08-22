@@ -96,8 +96,11 @@ export class CatalogueService {
     return { rows, total, limit: query.limit, offset: query.offset };
   }
 
-  public listLocations(): Promise<readonly LocationView[]> {
-    return listLocations(this.database);
+  public listLocations(query?: {
+    readonly limit?: number;
+    readonly offset?: number;
+  }): Promise<readonly LocationView[]> {
+    return listLocations(this.database, query);
   }
 
   public async createItem(input: NewItem, viewer: ItemDetailOptions): Promise<ItemDetailView> {

@@ -27,6 +27,8 @@ export interface JobFilter {
   readonly search?: string | undefined;
   readonly assignedTo?: string | undefined;
   readonly jobId?: string | undefined;
+  readonly limit?: number | undefined;
+  readonly offset?: number | undefined;
 }
 
 export interface JobDetailOptions {
@@ -85,7 +87,7 @@ export class JobsService {
       );
     }
 
-    const rows = await selection
+    let rowsQuery = selection
       .select((builder) => [
         "jobs.id as id",
         "jobs.number as number",
@@ -107,8 +109,10 @@ export class JobsService {
         "jobs.closed_at",
         "locations.id",
       ])
-      .orderBy("jobs.number")
-      .execute();
+      .orderBy("jobs.number");
+    if (filter.limit !== undefined) rowsQuery = rowsQuery.limit(filter.limit);
+    if (filter.offset !== undefined) rowsQuery = rowsQuery.offset(filter.offset);
+    const rows = await rowsQuery.execute();
 
     const assignees = await assigneesForJobs(
       this.database,
