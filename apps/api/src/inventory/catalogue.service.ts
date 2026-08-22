@@ -99,6 +99,7 @@ export class CatalogueService {
   public listLocations(query?: {
     readonly limit?: number;
     readonly offset?: number;
+    readonly activeOnly?: boolean;
   }): Promise<readonly LocationView[]> {
     return listLocations(this.database, query);
   }

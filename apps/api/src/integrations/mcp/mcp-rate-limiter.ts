@@ -14,14 +14,8 @@ const WINDOW_MILLISECONDS = 60_000;
 const DEFAULT_LIMIT = 60;
 const MAX_BUCKETS = 10_000;
 
-const bucketKey = (userId: string, grantId: string, toolName: string): string =>
-  createHash("sha256")
-    .update(userId)
-    .update("\0")
-    .update(grantId)
-    .update("\0")
-    .update(toolName)
-    .digest("base64url");
+const bucketKey = (dimension: string, value: string): string =>
+  createHash("sha256").update(dimension).update("\0").update(value).digest("base64url");
 
 /** Bounded per-principal/tool throttling for the single-replica deployment. */
 export class McpRateLimiter {
@@ -36,19 +30,38 @@ export class McpRateLimiter {
   public check(userId: string, grantId: string, toolName: string): McpRateLimitDecision {
     const currentTime = this.now();
     this.prune(currentTime);
-    const key = bucketKey(userId, grantId, toolName);
-    const current = this.windows.get(key);
-    if (current === undefined) {
-      this.windows.set(key, { count: 1, expiresAt: currentTime + this.windowMilliseconds });
-      return { allowed: true };
-    }
-    if (current.count >= this.limit) {
+    /*
+     * Keep three independent ceilings. A tuple bucket alone lets a caller
+     * evade the limit by changing tools or grants, while a globally shared
+     * tool bucket would let one customer throttle every other customer using
+     * that tool. Tool calls therefore use a per-user/tool bucket.
+     */
+    const keys = [
+      bucketKey("user", userId),
+      bucketKey("grant", grantId),
+      bucketKey("tool", `${userId}\0${toolName}`),
+    ];
+    const blocked = keys
+      .map((key) => this.windows.get(key))
+      .filter((window): window is Window => window !== undefined && window.count >= this.limit);
+    if (blocked.length > 0) {
       return {
         allowed: false,
-        retryAfterSeconds: Math.max(1, Math.ceil((current.expiresAt - currentTime) / 1_000)),
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil(Math.max(...blocked.map((window) => window.expiresAt - currentTime)) / 1_000),
+        ),
       };
     }
-    current.count += 1;
+
+    for (const key of keys) {
+      const current = this.windows.get(key);
+      if (current === undefined) {
+        this.windows.set(key, { count: 1, expiresAt: currentTime + this.windowMilliseconds });
+      } else {
+        current.count += 1;
+      }
+    }
     return { allowed: true };
   }
 

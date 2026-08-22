@@ -6,7 +6,7 @@ import { ORIGIN_EXEMPT_ROUTE } from "../../src/auth/public.decorator";
 import { attachSession } from "../../src/auth/request-context";
 import type { McpConfiguration } from "../../src/integrations/mcp/mcp-configuration";
 import {
-  OAUTH_CONSENT_CONTENT_SECURITY_POLICY,
+  oauthConsentContentSecurityPolicy,
   OAuthController,
 } from "../../src/integrations/mcp/oauth.controller";
 
@@ -14,6 +14,7 @@ const configuration = {
   publicBaseUrl: "https://stockcontrol.example",
   clientId: "stockcontrol-chatgpt",
   redirectUri: "https://chatgpt.example/callback",
+  resourceUri: "https://stockcontrol.example/mcp",
 } as McpConfiguration;
 
 const user = {
@@ -29,19 +30,22 @@ const user = {
 const replyFor = (): {
   readonly reply: FastifyReply;
   readonly code: ReturnType<typeof vi.fn>;
+  readonly header: ReturnType<typeof vi.fn>;
   readonly send: ReturnType<typeof vi.fn>;
   readonly redirect: ReturnType<typeof vi.fn>;
 } => {
   const code = vi.fn();
+  const header = vi.fn();
   const type = vi.fn();
   const send = vi.fn();
   const redirect = vi.fn();
-  const reply = { code, type, send, redirect } as unknown as FastifyReply;
+  const reply = { code, header, type, send, redirect } as unknown as FastifyReply;
   code.mockReturnValue(reply);
+  header.mockReturnValue(reply);
   type.mockReturnValue(reply);
   send.mockReturnValue(reply);
   redirect.mockReturnValue(reply);
-  return { reply, code, send, redirect };
+  return { reply, code, header, send, redirect };
 };
 
 const requestFor = (query: Record<string, unknown>): FastifyRequest => {
@@ -62,6 +66,7 @@ const validQuery = {
   state: 'state-"<script>alert(1)</script>',
   code_challenge: "a".repeat(43),
   code_challenge_method: "S256",
+  resource: configuration.resourceUri,
 };
 
 describe("OAuth controller input handling", () => {
@@ -86,29 +91,72 @@ describe("OAuth controller input handling", () => {
     expect(send).toHaveBeenCalledWith(expect.stringContaining("Secure connection"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining("<script>"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
-    expect(OAUTH_CONSENT_CONTENT_SECURITY_POLICY).not.toContain("sandbox");
-    expect(OAUTH_CONSENT_CONTENT_SECURITY_POLICY).toContain("frame-ancestors https://chatgpt.com");
+    const policy = oauthConsentContentSecurityPolicy(configuration.publicBaseUrl);
+    expect(policy).not.toContain("sandbox");
+    expect(policy).toContain("form-action https://stockcontrol.example");
+    expect(policy).toContain("frame-ancestors https://chatgpt.com");
   });
 
   it("sends an anonymous user to sign in and preserves the authorization request", async () => {
-    const oauth = { createAuthorizationRequest: vi.fn() };
+    const oauth = {
+      createAuthorizationRequest: vi
+        .fn()
+        .mockResolvedValue("opaque-request-handle-123456789012345678901234567890"),
+    };
     const controller = new OAuthController(oauth as never, configuration);
-    const { reply, code, redirect } = replyFor();
-    const authorizationUrl =
-      "/oauth/authorize?response_type=code&client_id=stockcontrol-chatgpt&scope=stock%3Aread";
+    const { reply, send } = replyFor();
 
     await controller.authorizeScreen(
-      { query: validQuery, url: authorizationUrl } as FastifyRequest,
+      { query: validQuery, url: "/oauth/authorize" } as FastifyRequest,
       reply,
     );
 
-    expect(redirect).toHaveBeenCalledOnce();
-    expect(code).toHaveBeenCalledWith(302);
-    const location = new URL(redirect.mock.calls[0]?.[0] as string);
-    expect(location.origin).toBe(configuration.publicBaseUrl);
-    expect(location.pathname).toBe("/sign-in");
-    expect(location.searchParams.get("next")).toBe(authorizationUrl);
-    expect(oauth.createAuthorizationRequest).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(expect.stringContaining("Sign in to continue"));
+    expect(send).toHaveBeenCalledWith(expect.stringContaining("opaque-request-handle"));
+    expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
+    expect(oauth.createAuthorizationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: null, resourceUri: configuration.resourceUri }),
+    );
+  });
+
+  it("resumes an opaque request only on the dedicated resume endpoint", async () => {
+    const oauth = {
+      bindAuthorizationRequest: vi.fn().mockResolvedValue(["stock:read"]),
+    };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, send } = replyFor();
+
+    await controller.resumeAuthorizeScreen(
+      requestFor({ request_id: "opaque-request-handle-123456789012345678901234567890" }),
+      reply,
+    );
+
+    expect(oauth.bindAuthorizationRequest).toHaveBeenCalledWith(
+      "opaque-request-handle-123456789012345678901234567890",
+      user.id,
+    );
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('name="request_id"'));
+  });
+
+  it("rejects mixed authorization and resume parameters", async () => {
+    const oauth = { bindAuthorizationRequest: vi.fn() };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, code, send } = replyFor();
+
+    await controller.resumeAuthorizeScreen(
+      requestFor({
+        request_id: "opaque-request-handle-123456789012345678901234567890",
+        state: "x",
+      }),
+      reply,
+    );
+
+    expect(code).toHaveBeenCalledWith(400);
+    expect(send).toHaveBeenCalledWith({
+      error: "invalid_request",
+      error_description: "The authorization request is invalid.",
+    });
+    expect(oauth.bindAuthorizationRequest).not.toHaveBeenCalled();
   });
 
   it("redirects an approved request to the registered callback with OAuth parameters", async () => {
@@ -122,7 +170,11 @@ describe("OAuth controller input handling", () => {
     const controller = new OAuthController(oauth as never, configuration);
     const { reply, code, redirect } = replyFor();
 
-    await controller.authorize(requestFor(validQuery), { request_id: "request-id" }, reply);
+    await controller.authorize(
+      requestFor(validQuery),
+      { request_id: "request-id", decision: "approve" },
+      reply,
+    );
 
     expect(oauth.approveAuthorizationRequest).toHaveBeenCalledWith("request-id", user.id);
     expect(code).toHaveBeenCalledWith(302);
@@ -137,7 +189,11 @@ describe("OAuth controller input handling", () => {
     const { reply, code, send } = replyFor();
 
     await controller.token(
-      { grant_type: "client_credentials", client_id: configuration.clientId },
+      {
+        grant_type: "client_credentials",
+        client_id: configuration.clientId,
+        resource: configuration.resourceUri,
+      },
       reply,
     );
 
@@ -167,16 +223,22 @@ describe("OAuth controller input handling", () => {
         grant_type: "refresh_token",
         client_id: configuration.clientId,
         refresh_token: "refresh-token",
+        resource: configuration.resourceUri,
       },
       reply,
     );
 
-    expect(oauth.refresh).toHaveBeenCalledWith("refresh-token", configuration.clientId);
+    expect(oauth.refresh).toHaveBeenCalledWith(
+      "refresh-token",
+      configuration.clientId,
+      configuration.resourceUri,
+    );
     expect(code).toHaveBeenCalledWith(200);
     expect(send).toHaveBeenCalledWith({
       token_type: "Bearer",
       access_token: "access-token",
       refresh_token: "refresh-token",
+      resource: configuration.resourceUri,
       expires_in: 900,
       scope: "stock:read",
     });
@@ -201,6 +263,7 @@ describe("OAuth controller input handling", () => {
         code: "authorization-code",
         redirect_uri: configuration.redirectUri,
         code_verifier: "a".repeat(43),
+        resource: configuration.resourceUri,
       },
       reply,
     );
@@ -210,6 +273,7 @@ describe("OAuth controller input handling", () => {
       configuration.clientId,
       configuration.redirectUri,
       "a".repeat(43),
+      configuration.resourceUri,
     );
   });
 

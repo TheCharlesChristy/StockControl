@@ -25,4 +25,34 @@ describe("MCP audit-safe serialization", () => {
       itemId: "item-1",
     });
   });
+
+  it("redacts credential-shaped free text and cycles without throwing", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(
+      safeJsonObject({
+        summary: "Bearer opaque-secret",
+        nested: circular,
+      }),
+    ).toEqual({
+      summary: "[REDACTED]",
+      nested: { self: "[CIRCULAR]" },
+    });
+  });
+
+  it("does not let throwing getters break audit projection", () => {
+    const hostile = {} as Record<string, unknown>;
+    Object.defineProperty(hostile, "secret", {
+      enumerable: true,
+      get: () => {
+        throw new Error("getter failed");
+      },
+    });
+
+    expect(safeJsonObject(hostile)).toEqual({});
+    expect(safeJsonObject({ note: "prefix sk-1234567890123456 suffix" })).toEqual({
+      note: "[REDACTED]",
+    });
+  });
 });
