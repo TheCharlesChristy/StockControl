@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { attachSession } from "../../src/auth/request-context";
 import type { McpConfiguration } from "../../src/integrations/mcp/mcp-configuration";
-import { OAuthController } from "../../src/integrations/mcp/oauth.controller";
+import {
+  OAUTH_CONSENT_CONTENT_SECURITY_POLICY,
+  OAuthController,
+} from "../../src/integrations/mcp/oauth.controller";
 
 const configuration = {
   publicBaseUrl: "https://stockcontrol.example",
@@ -25,6 +28,7 @@ const replyFor = (): {
   readonly reply: FastifyReply;
   readonly code: ReturnType<typeof vi.fn>;
   readonly send: ReturnType<typeof vi.fn>;
+  readonly redirect: ReturnType<typeof vi.fn>;
 } => {
   const code = vi.fn();
   const type = vi.fn();
@@ -35,11 +39,11 @@ const replyFor = (): {
   type.mockReturnValue(reply);
   send.mockReturnValue(reply);
   redirect.mockReturnValue(reply);
-  return { reply, code, send };
+  return { reply, code, send, redirect };
 };
 
 const requestFor = (query: Record<string, unknown>): FastifyRequest => {
-  const request = { query } as FastifyRequest;
+  const request = { query, url: "/oauth/authorize" } as FastifyRequest;
   attachSession(request, {
     user,
     issuedAt: "2026-08-21T00:00:00.000Z",
@@ -68,11 +72,32 @@ describe("OAuth controller input handling", () => {
 
     expect(oauth.createAuthorizationRequest).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith(expect.stringContaining('name="request_id"'));
-    expect(send).toHaveBeenCalledWith(
-      expect.stringContaining("Requested permissions: stock:read, activity:read"),
-    );
+    expect(send).toHaveBeenCalledWith(expect.stringContaining("View stock items and locations"));
+    expect(send).toHaveBeenCalledWith(expect.stringContaining("Secure connection"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining("<script>"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
+    expect(OAUTH_CONSENT_CONTENT_SECURITY_POLICY).not.toContain("sandbox");
+    expect(OAUTH_CONSENT_CONTENT_SECURITY_POLICY).toContain("frame-ancestors https://chatgpt.com");
+  });
+
+  it("sends an anonymous user to sign in and preserves the authorization request", async () => {
+    const oauth = { createAuthorizationRequest: vi.fn() };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, redirect } = replyFor();
+    const authorizationUrl =
+      "/oauth/authorize?response_type=code&client_id=stockcontrol-chatgpt&scope=stock%3Aread";
+
+    await controller.authorizeScreen(
+      { query: validQuery, url: authorizationUrl } as FastifyRequest,
+      reply,
+    );
+
+    expect(redirect).toHaveBeenCalledOnce();
+    const location = new URL(redirect.mock.calls[0]?.[0] as string);
+    expect(location.origin).toBe(configuration.publicBaseUrl);
+    expect(location.pathname).toBe("/sign-in");
+    expect(location.searchParams.get("next")).toBe(authorizationUrl);
+    expect(oauth.createAuthorizationRequest).not.toHaveBeenCalled();
   });
 
   it("returns OAuth-shaped 400 errors for unsupported grants", async () => {

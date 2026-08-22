@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 
 /*
- * The API answers with JSON and with image bytes that a user uploaded. It never
- * answers with a document, so the strictest policy is also the correct one:
- * nothing this response contains may be loaded or executed as a resource.
+ * The API normally answers with JSON and with image bytes that a user uploaded.
+ * The strictest policy is therefore the correct default: nothing this response
+ * contains may be loaded or executed as a resource. A handler that deliberately
+ * serves a browser document can provide its own, narrower policy.
  */
 const RESOURCE_POLICY = "default-src 'none'; frame-ancestors 'none'; sandbox";
 
@@ -23,7 +24,9 @@ const RESOURCE_POLICY = "default-src 'none'; frame-ancestors 'none'; sandbox";
 export const registerSecurityHeadersHook = (fastify: FastifyInstance): void => {
   fastify.addHook("onSend", (_request, reply, payload, done) => {
     reply.header("x-content-type-options", "nosniff");
-    reply.header("content-security-policy", RESOURCE_POLICY);
+    if (reply.getHeader("content-security-policy") === undefined) {
+      reply.header("content-security-policy", RESOURCE_POLICY);
+    }
     reply.header("referrer-policy", "no-referrer");
 
     if (reply.getHeader("cache-control") === undefined) {
