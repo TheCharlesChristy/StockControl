@@ -228,7 +228,7 @@ export class OAuthController {
   ): Promise<FastifyReply> {
     const user = sessionOf(request)?.user;
     if (user === undefined) {
-      return reply.redirect(signInLocation(request, this.configuration));
+      return reply.code(302).redirect(signInLocation(request, this.configuration));
     }
 
     try {
@@ -296,7 +296,7 @@ export class OAuthController {
       const location = new URL(approval.redirectUri);
       location.searchParams.set("code", approval.code);
       if (approval.state !== null) location.searchParams.set("state", approval.state);
-      return reply.redirect(location.toString());
+      return reply.code(302).redirect(location.toString());
     } catch (error: unknown) {
       return oauthError(reply, error);
     }
