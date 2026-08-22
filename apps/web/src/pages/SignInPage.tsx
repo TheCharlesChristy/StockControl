@@ -38,6 +38,7 @@ const DEEP_LINK_PATTERNS: readonly RegExp[] = [
 ];
 
 const OAUTH_AUTHORIZE_PATH = "/oauth/authorize";
+const OAUTH_AUTHORIZE_RESUME_PATH = "/oauth/authorize/resume";
 
 export const DEFAULT_SIGNED_IN_PATH = "/dashboard";
 
@@ -63,7 +64,9 @@ function safeDeepLink(candidate: unknown): string | null {
   }
 
   const isRecordDeepLink = DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname));
-  const isOAuthAuthorization = resolvedUrl.pathname === OAUTH_AUTHORIZE_PATH;
+  const isOAuthAuthorization =
+    resolvedUrl.pathname === OAUTH_AUTHORIZE_PATH ||
+    resolvedUrl.pathname === OAUTH_AUTHORIZE_RESUME_PATH;
 
   if (!isRecordDeepLink && !isOAuthAuthorization) {
     return null;
@@ -98,7 +101,8 @@ export function signInPathFor(attemptedPath: string): string {
 
 /** OAuth is served by the API, so the SPA must hand it back to the server. */
 export function requiresDocumentNavigation(destination: string): boolean {
-  return new URL(destination, window.location.origin).pathname === OAUTH_AUTHORIZE_PATH;
+  const pathname = new URL(destination, window.location.origin).pathname;
+  return pathname === OAUTH_AUTHORIZE_PATH || pathname === OAUTH_AUTHORIZE_RESUME_PATH;
 }
 
 export function SignInPage(): ReactElement {

@@ -103,7 +103,17 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 PUBLIC_APP_ORIGIN=https://<the exact web domain>
+MCP_ENABLED=true
+MCP_READ_TOOLS_ENABLED=true
+MCP_WRITE_TOOLS_ENABLED=false
+MCP_PUBLIC_BASE_URL=https://<the exact web domain>
+MCP_CLIENT_ID=stockcontrol-chatgpt
+MCP_REDIRECT_URI=https://chatgpt.com/connector/oauth/<connector-id>
 MCP_TOKEN_HASH_KEY=<random secret of at least 32 characters when MCP_ENABLED=true>
+MCP_ACCESS_TOKEN_MINUTES=15
+MCP_REFRESH_TOKEN_DAYS=30
+MCP_MAX_TOOL_SECONDS=30
+MCP_ABANDONED_CALL_SECONDS=300
 TRUSTED_PROXY_HOPS=1
 DATABASE_URL=<private URL for stockcontrol_app>
 DATABASE_POOL_MAX=5

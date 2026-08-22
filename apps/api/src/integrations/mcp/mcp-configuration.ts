@@ -3,11 +3,13 @@ export interface McpConfiguration {
   readonly readToolsEnabled: boolean;
   readonly writeToolsEnabled: boolean;
   readonly publicBaseUrl: string;
+  readonly resourceUri: string;
   readonly clientId: string;
   readonly redirectUri: string;
   readonly tokenHashKey: string;
   readonly accessTokenMinutes: number;
   readonly refreshTokenDays: number;
+  readonly maxToolSeconds: number;
   readonly abandonedCallSeconds: number;
 }
 
@@ -49,7 +51,12 @@ const boundedInteger = (
   return parsed;
 };
 
-const absoluteUrl = (value: string, name: string, production: boolean): string => {
+const absoluteUrl = (
+  value: string,
+  name: string,
+  production: boolean,
+  originOnly = false,
+): string => {
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -59,6 +66,10 @@ const absoluteUrl = (value: string, name: string, production: boolean): string =
 
   if (parsed.username.length > 0 || parsed.password.length > 0 || parsed.hash.length > 0) {
     throw new Error(`Invalid ${name}: credentials and fragments are not allowed.`);
+  }
+
+  if (originOnly && (parsed.pathname !== "/" || parsed.search.length > 0)) {
+    throw new Error(`Invalid ${name}: provide an origin only, without a path or query.`);
   }
 
   if (production && parsed.protocol !== "https:") {
@@ -81,6 +92,7 @@ export const loadMcpConfiguration = (
       "http://localhost:3000",
     "MCP_PUBLIC_BASE_URL",
     production,
+    true,
   );
   const clientId = environment.MCP_CLIENT_ID?.trim() || "stockcontrol-chatgpt";
   const redirectUriValue = environment.MCP_REDIRECT_URI?.trim();
@@ -108,11 +120,17 @@ export const loadMcpConfiguration = (
     throw new Error("MCP_CLIENT_ID must be 160 characters or fewer.");
   }
 
+  const configuredAbandonedCallGrace = environment.MCP_ABANDONED_CALL_SECONDS?.trim();
+  const hasExplicitAbandonedCallGrace =
+    configuredAbandonedCallGrace !== undefined && configuredAbandonedCallGrace.length > 0;
+  const maxToolSeconds = hasExplicitAbandonedCallGrace
+    ? 30
+    : boundedInteger(environment, "MCP_MAX_TOOL_SECONDS", 30, 5, 120);
   let abandonedCallSeconds = 300;
-  if (environment.MCP_ABANDONED_CALL_SECONDS?.trim().length) {
+  if (hasExplicitAbandonedCallGrace) {
     abandonedCallSeconds = boundedInteger(environment, "MCP_ABANDONED_CALL_SECONDS", 300, 60, 900);
   } else if (environment.MCP_MAX_TOOL_SECONDS?.trim().length) {
-    abandonedCallSeconds = boundedInteger(environment, "MCP_MAX_TOOL_SECONDS", 30, 5, 120) * 4;
+    abandonedCallSeconds = maxToolSeconds * 4;
   }
 
   return {
@@ -120,11 +138,13 @@ export const loadMcpConfiguration = (
     readToolsEnabled: enabled(environment.MCP_READ_TOOLS_ENABLED),
     writeToolsEnabled: enabled(environment.MCP_WRITE_TOOLS_ENABLED),
     publicBaseUrl,
+    resourceUri: `${publicBaseUrl}/mcp`,
     clientId,
     redirectUri,
     tokenHashKey: tokenHashKey ?? "",
     accessTokenMinutes: boundedInteger(environment, "MCP_ACCESS_TOKEN_MINUTES", 15, 5, 60),
     refreshTokenDays: boundedInteger(environment, "MCP_REFRESH_TOKEN_DAYS", 30, 1, 90),
+    maxToolSeconds,
     abandonedCallSeconds,
   };
 };

@@ -68,13 +68,14 @@ export interface SessionsTable {
 }
 
 export type OAuthGrantEventType =
-  "Connected" | "Reauthorised" | "ScopeChanged" | "Revoked" | "Refreshed";
+  "Connected" | "Reauthorised" | "ScopeChanged" | "Revoked" | "Refreshed" | "RefreshReplayDetected";
 
 export interface OAuthGrantsTable {
   readonly id: ImmutableColumn<string>;
   readonly user_id: ImmutableColumn<string>;
   readonly client_id: ImmutableColumn<string>;
   readonly redirect_uri: ImmutableColumn<string>;
+  readonly resource_uri: string | null;
   readonly granted_scopes: JsonArrayColumn;
   readonly authorization_code_hash: string | null;
   readonly authorization_code_challenge: string | null;
@@ -101,9 +102,11 @@ export interface OAuthGrantEventsTable {
 
 export interface OAuthAuthorizationRequestsTable {
   readonly id: ImmutableColumn<string>;
-  readonly user_id: ImmutableColumn<string>;
+  readonly user_id: string | null;
   readonly client_id: ImmutableColumn<string>;
   readonly redirect_uri: ImmutableColumn<string>;
+  readonly resource_uri: string | null;
+  readonly approval_handle_hash: string | null;
   readonly state: string | null;
   readonly requested_scopes: JsonArrayColumn;
   readonly code_challenge: ImmutableColumn<string>;
@@ -112,6 +115,20 @@ export interface OAuthAuthorizationRequestsTable {
   readonly expires_at: ImmutableColumn<Date>;
   readonly approved_at: Date | null;
   readonly consumed_at: Date | null;
+  readonly authorization_code_expires_at: Date | null;
+  readonly denied_at: Date | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
+export interface OAuthRefreshTokensTable {
+  readonly id: ImmutableColumn<string>;
+  readonly grant_id: ImmutableColumn<string>;
+  readonly client_id: ImmutableColumn<string>;
+  readonly resource_uri: ImmutableColumn<string>;
+  readonly token_hash: ImmutableColumn<string>;
+  readonly expires_at: ImmutableColumn<Date>;
+  readonly used_at: Date | null;
+  readonly revoked_at: Date | null;
   readonly created_at: GeneratedImmutableColumn<Date>;
 }
 
@@ -519,6 +536,7 @@ export interface StockControlDatabase {
   readonly mcp_tool_calls: McpToolCallsTable;
   readonly oauth_grant_events: OAuthGrantEventsTable;
   readonly oauth_authorization_requests: OAuthAuthorizationRequestsTable;
+  readonly oauth_refresh_tokens: OAuthRefreshTokensTable;
   readonly oauth_grants: OAuthGrantsTable;
   readonly recognition_feedback: RecognitionFeedbackTable;
   readonly reservations: ReservationsTable;

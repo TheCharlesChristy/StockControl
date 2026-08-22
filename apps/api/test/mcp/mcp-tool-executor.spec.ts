@@ -25,7 +25,7 @@ describe("MCP tool audit ordering", () => {
       definitions.find((definition) => definition.name === "search_items")?.outputSchema,
     ).toEqual(
       expect.objectContaining({
-        required: ["rows", "total", "limit", "offset"],
+        required: ["rows", "total", "limit", "offset", "hasMore"],
       }),
     );
   });

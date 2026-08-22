@@ -34,6 +34,7 @@ export interface JobFilter {
 export interface JobDetailOptions {
   readonly viewerUserId: string;
   readonly scopeActivityToViewer: boolean;
+  readonly restrictToAssignedJobs?: boolean;
 }
 
 export class JobsService {
@@ -134,7 +135,10 @@ export class JobsService {
   }
 
   public async detail(jobId: string, viewer: JobDetailOptions): Promise<JobDetailView> {
-    const [summary] = await this.list({ jobId });
+    const [summary] = await this.list({
+      jobId,
+      ...(viewer.restrictToAssignedJobs === true ? { assignedTo: viewer.viewerUserId } : {}),
+    });
 
     if (summary === undefined) {
       throw new ApplicationFailureException(

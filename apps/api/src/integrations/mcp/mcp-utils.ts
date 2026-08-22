@@ -4,7 +4,16 @@ export type SafeJson =
   string | number | boolean | null | SafeJson[] | { readonly [key: string]: SafeJson };
 
 const SECRET_KEY =
-  /authorization|cookie|password|secret|token|credential|prompt|stack|api[-_]?key|private[-_]?key|bearer|jwt|code[-_]?verifier|code[-_]?challenge/iu;
+  /(?:access[-_]?token|api[-_]?key|authorization|bearer|client[-_]?secret|code(?:[-_](?:challenge|verifier))?|cookie|credential|jwt|oauth[-_]?code|password|private[-_]?key|prompt|refresh[-_]?token|secret|session(?:[-_]?id)?|stack|state|token)/iu;
+
+/*
+ * Key-based redaction is the primary defence because opaque OAuth tokens do
+ * not have a reliable prefix. These value patterns are a second line for
+ * common credentials accidentally placed in a free-text field such as an
+ * action summary.
+ */
+const SECRET_VALUE =
+  /(?:\bbearer\s+\S+|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b(?:gh[pousr]_\w+|sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,})|-----BEGIN [A-Z ]+ PRIVATE KEY-----)/iu;
 
 export const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -22,33 +31,48 @@ export const canonicalJson = (value: unknown): string => {
 
 export const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
-const safeValue = (value: unknown, depth: number): SafeJson => {
+const safeValue = (value: unknown, depth: number, seen: WeakSet<object>): SafeJson => {
   if (depth > 4) {
     return "[TRUNCATED]";
   }
   if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return typeof value === "string" ? value.slice(0, 500) : value;
+    if (typeof value !== "string") return value;
+    return SECRET_VALUE.test(value) ? "[REDACTED]" : value.slice(0, 500);
   }
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : "[INVALID_NUMBER]";
   }
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((entry) => safeValue(entry, depth + 1));
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    const output = value.slice(0, 50).map((entry) => safeValue(entry, depth + 1, seen));
+    seen.delete(value);
+    return output;
   }
   if (typeof value === "object") {
-    return Object.fromEntries(
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    const output = Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
-        SECRET_KEY.test(key) ? "[REDACTED]" : safeValue(entry, depth + 1),
+        SECRET_KEY.test(key) ? "[REDACTED]" : safeValue(entry, depth + 1, seen),
       ]),
     );
+    seen.delete(value);
+    return output;
   }
   return "[UNSUPPORTED]";
 };
 
 export const safeJsonObject = (value: unknown): Readonly<Record<string, SafeJson>> => {
-  const result = safeValue(value, 0);
-  return typeof result === "object" && !Array.isArray(result) && result !== null ? result : {};
+  try {
+    const result = safeValue(value, 0, new WeakSet<object>());
+    return typeof result === "object" && !Array.isArray(result) && result !== null ? result : {};
+  } catch {
+    // Getters and proxies are untrusted input too. A projection must never
+    // prevent the durable Received audit row from being written.
+    return {};
+  }
 };
 
 export const safeString = (value: unknown, maximum = 300): string | null => {
@@ -56,7 +80,9 @@ export const safeString = (value: unknown, maximum = 300): string | null => {
     return null;
   }
   const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed.slice(0, maximum);
+  if (trimmed.length === 0) return null;
+  const bounded = trimmed.slice(0, maximum);
+  return SECRET_VALUE.test(bounded) ? "[REDACTED]" : bounded;
 };
 
 export const recordReferences = (value: unknown): readonly string[] => {

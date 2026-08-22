@@ -6,6 +6,7 @@ import type { McpConfiguration } from "../../src/integrations/mcp/mcp-configurat
 
 const configuration = {
   publicBaseUrl: "https://stockcontrol.example",
+  resourceUri: "https://stockcontrol.example/mcp",
 } as McpConfiguration;
 
 describe("MCP transport authentication", () => {
@@ -19,6 +20,7 @@ describe("MCP transport authentication", () => {
         isError: true,
       }),
       tools: vi.fn(),
+      authenticate: vi.fn().mockResolvedValue(null),
     };
     const logger = { log: vi.fn() };
     const code = vi.fn();
@@ -35,7 +37,7 @@ describe("MCP transport authentication", () => {
 
     const controller = new McpController(executor as never, logger as never, configuration);
     await controller.handle(
-      { headers: {} } as FastifyRequest,
+      { headers: { accept: "application/json, text/event-stream" } } as FastifyRequest,
       {
         jsonrpc: "2.0",
         id: "request-1",

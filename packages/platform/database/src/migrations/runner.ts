@@ -42,6 +42,7 @@ export const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
   // OAuth grant state is the one mutable part of the integration.
   oauth_grants: ["select", "insert", "update"],
   oauth_authorization_requests: ["select", "insert", "update", "delete"],
+  oauth_refresh_tokens: ["select", "insert", "update"],
   recognition_feedback: ["select", "insert", "delete"],
   reservations: ["select", "insert", "update"],
   sessions: ["select", "insert", "delete"],

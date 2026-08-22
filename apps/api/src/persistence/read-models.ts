@@ -35,6 +35,7 @@ export interface ItemQuery {
   readonly limit: number;
   readonly offset: number;
   readonly belowThresholdOnly?: boolean | undefined;
+  readonly activeOnly?: boolean | undefined;
   /** Whose commitments `reservedForYou` reports. */
   readonly viewerUserId: string;
 }
@@ -237,6 +238,10 @@ export async function listItems(
 
   const search = query.search?.trim();
 
+  if (query.activeOnly === true) {
+    selection = selection.where("is_active", "=", true);
+  }
+
   if (search !== undefined && search.length > 0) {
     const pattern = `%${search.toLowerCase()}%`;
     selection = selection.where((builder) =>
@@ -390,7 +395,11 @@ export async function findItemByCode(
 
 export async function listLocations(
   database: Database,
-  query?: { readonly limit?: number; readonly offset?: number },
+  query?: {
+    readonly limit?: number;
+    readonly offset?: number;
+    readonly activeOnly?: boolean;
+  },
 ): Promise<readonly LocationView[]> {
   let selection = database
     .withSchema(SCHEMA)
@@ -398,6 +407,7 @@ export async function listLocations(
     .select(["id", "code", "name", "kind", "job_id", "is_active", "derived_parent_id"])
     .orderBy("kind")
     .orderBy("code");
+  if (query?.activeOnly === true) selection = selection.where("is_active", "=", true);
   if (query?.limit !== undefined) selection = selection.limit(query.limit);
   if (query?.offset !== undefined) selection = selection.offset(query.offset);
   const rows = await selection.execute();

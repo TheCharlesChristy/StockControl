@@ -21,15 +21,15 @@ import {
  * `sandbox`, which blocks the host's OAuth-frame completion, so this is an
  * explicit and tightly-scoped exception rather than a relaxation for the API.
  */
-export const OAUTH_CONSENT_CONTENT_SECURITY_POLICY =
-  "default-src 'none'; base-uri 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com";
+export const oauthConsentContentSecurityPolicy = (publicBaseUrl: string): string =>
+  `default-src 'none'; base-uri 'none'; form-action ${new URL(publicBaseUrl).origin}; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com`;
 
 const oauthText = (body: Readonly<Record<string, unknown>>, field: string): string => {
   const value = body[field];
   if (typeof value !== "string" || value.trim().length === 0 || value.length > 2048) {
     throw new OAuthTokenError("invalid_request", `The ${field} parameter is required.`);
   }
-  return value.trim();
+  return value;
 };
 
 const oauthState = (query: Readonly<Record<string, unknown>>): string | null => {
@@ -69,11 +69,59 @@ const scopeLabel = (scope: McpScope): string => {
 
 const signInLocation = (request: FastifyRequest, configuration: McpConfiguration): string => {
   const signInUrl = new URL("/sign-in", configuration.publicBaseUrl);
-  signInUrl.searchParams.set("next", request.url);
+  const query = request.query as Record<string, unknown>;
+  const requestId = query["request_id"];
+  if (typeof requestId !== "string" || requestId.length < 40 || requestId.length > 512) {
+    throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
+  }
+  const resumeUrl = new URL("/oauth/authorize/resume", configuration.publicBaseUrl);
+  resumeUrl.searchParams.set("request_id", requestId);
+  // The SPA deliberately accepts only same-origin relative deep links. Keep
+  // the resume target relative so the signed-in handoff can navigate back to
+  // the API endpoint instead of falling back to the dashboard.
+  signInUrl.searchParams.set("next", `${resumeUrl.pathname}${resumeUrl.search}`);
   return signInUrl.toString();
 };
 
-const consentDocument = (requestId: string, scopes: readonly McpScope[]): string => {
+const loginHandoffDocument = (signInUrl: string): string => `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Sign in to connect StockControl</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { min-width: 320px; min-height: 100vh; margin: 0; color: #172033; background: #f5f7fb; }
+      main { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+      .card { width: min(100%, 480px); padding: 40px; border: 1px solid #dce2ea; border-radius: 24px; background: #fff; box-shadow: 0 24px 60px rgba(7, 27, 58, .12); }
+      .brand { color: #00309d; font-weight: 800; letter-spacing: .01em; }
+      h1 { margin: 32px 0 12px; font-family: Georgia, "Times New Roman", serif; font-size: 2.35rem; font-weight: 400; line-height: 1.08; }
+      p { color: #3f4858; line-height: 1.6; }
+      a { display: inline-grid; width: 100%; min-height: 50px; margin-top: 20px; place-items: center; border-radius: 10px; color: #fff; background: #00309d; font-weight: 800; text-decoration: none; }
+      a:focus-visible { outline: 3px solid rgba(0, 48, 157, .35); outline-offset: 3px; }
+      .note { margin-top: 18px; color: #667085; font-size: .84rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card" aria-labelledby="sign-in-title">
+        <div class="brand">StockControl</div>
+        <h1 id="sign-in-title">Sign in to continue</h1>
+        <p>Sign in to StockControl to approve the secure ChatGPT connection. Your requested permissions will be shown after sign-in.</p>
+        <a href="${signInUrl}" target="_top">Continue to StockControl sign in</a>
+        <p class="note">The connection request is kept pending for a short time and can only be used once.</p>
+      </section>
+    </main>
+  </body>
+</html>`;
+
+const consentDocument = (
+  requestId: string,
+  scopes: readonly McpScope[],
+  action: string,
+): string => {
   const encodedRequestId = encodeURIComponent(requestId);
   const permissions = scopes.map((scope) => `<li>${scopeLabel(scope)}</li>`).join("");
 
@@ -122,9 +170,12 @@ const consentDocument = (requestId: string, scopes: readonly McpScope[]): string
           <h2 id="permissions-title">ChatGPT will be able to:</h2>
           <ul>${permissions}</ul>
         </section>
-        <form method="post" action="/oauth/authorize">
+        <form method="post" action="${action}">
           <input type="hidden" name="request_id" value="${encodedRequestId}">
-          <button type="submit">Approve connection</button>
+          <div style="display:grid;gap:10px">
+            <button type="submit" name="decision" value="approve">Approve connection</button>
+            <button type="submit" name="decision" value="deny" style="color:#00309d;background:#eef2ff;box-shadow:none">Cancel</button>
+          </div>
         </form>
         <p class="note">You can disconnect this connection at any time.</p>
       </section>
@@ -159,7 +210,11 @@ const registeredOAuthClient = (
 const oauthTokenExchange = (
   body: Readonly<Record<string, unknown>>,
   clientId: string,
+  resourceUri: string,
 ): ((oauth: OAuthService) => Promise<TokenResponse>) => {
+  if (oauthText(body, "resource") !== resourceUri) {
+    throw new OAuthTokenError("invalid_request", "The OAuth resource is not registered.");
+  }
   switch (oauthText(body, "grant_type")) {
     case "authorization_code":
       return (oauth) =>
@@ -168,9 +223,10 @@ const oauthTokenExchange = (
           clientId,
           oauthText(body, "redirect_uri"),
           oauthText(body, "code_verifier"),
+          resourceUri,
         );
     case "refresh_token":
-      return (oauth) => oauth.refresh(oauthText(body, "refresh_token"), clientId);
+      return (oauth) => oauth.refresh(oauthText(body, "refresh_token"), clientId, resourceUri);
     default:
       throw new OAuthTokenError("unsupported_grant_type", "That grant type is not supported.");
   }
@@ -178,7 +234,11 @@ const oauthTokenExchange = (
 
 const oauthError = (reply: FastifyReply, error: unknown): FastifyReply => {
   if (error instanceof OAuthTokenError) {
-    return reply.code(400).send({ error: error.code, error_description: error.message });
+    return reply
+      .code(400)
+      .header("cache-control", "no-store")
+      .header("pragma", "no-cache")
+      .send({ error: error.code, error_description: error.message });
   }
   throw error;
 };
@@ -195,7 +255,7 @@ export class OAuthController {
   @Header("cache-control", "public, max-age=300")
   public protectedResource(): Record<string, unknown> {
     return {
-      resource: `${this.configuration.publicBaseUrl}/mcp`,
+      resource: this.configuration.resourceUri,
       authorization_servers: [this.configuration.publicBaseUrl],
       scopes_supported: MCP_SCOPES,
       bearer_methods_supported: ["header"],
@@ -215,21 +275,23 @@ export class OAuthController {
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       scopes_supported: MCP_SCOPES,
+      token_endpoint_auth_methods_supported: ["none"],
+      revocation_endpoint_auth_methods_supported: ["none"],
     };
   }
 
   @Get("oauth/authorize")
   @Public()
   @Header("cache-control", "no-store")
-  @Header("content-security-policy", OAUTH_CONSENT_CONTENT_SECURITY_POLICY)
   public async authorizeScreen(
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<FastifyReply> {
     const user = sessionOf(request)?.user;
-    if (user === undefined) {
-      return reply.code(302).redirect(signInLocation(request, this.configuration));
-    }
+    reply.header(
+      "content-security-policy",
+      oauthConsentContentSecurityPolicy(this.configuration.publicBaseUrl),
+    );
 
     try {
       const query = request.query as Record<string, unknown>;
@@ -237,6 +299,7 @@ export class OAuthController {
       const redirectUri = oauthText(query, "redirect_uri");
       const responseType = oauthText(query, "response_type");
       const scope = oauthText(query, "scope");
+      const resource = oauthText(query, "resource");
       const codeChallenge = oauthText(query, "code_challenge");
       const codeChallengeMethod = oauthText(query, "code_challenge_method");
       const state = oauthState(query);
@@ -247,20 +310,78 @@ export class OAuthController {
         redirectUri,
         responseType,
       );
+      if (resource !== this.configuration.resourceUri) {
+        throw new OAuthTokenError("invalid_request", "The OAuth resource is not registered.");
+      }
       const scopes = scopeList(scope);
 
       const requestId = await this.oauth.createAuthorizationRequest({
-        userId: user.id,
+        userId: user?.id ?? null,
         clientId: registeredClient.clientId,
         redirectUri: registeredClient.redirectUri,
         state,
         scopes,
         codeChallenge,
         codeChallengeMethod,
+        resourceUri: this.configuration.resourceUri,
       });
+      if (user === undefined) {
+        const handoffRequest = {
+          ...request,
+          query: { request_id: requestId },
+        } as FastifyRequest;
+        return reply
+          .type("text/html")
+          .send(loginHandoffDocument(signInLocation(handoffRequest, this.configuration)));
+      }
       // Only a random, server-generated handle is reflected. OAuth request
       // parameters are held in the database and never interpolated into HTML.
-      return reply.type("text/html").send(consentDocument(requestId, scopes));
+      return reply
+        .type("text/html")
+        .send(
+          consentDocument(
+            requestId,
+            scopes,
+            new URL("/oauth/authorize", this.configuration.publicBaseUrl).toString(),
+          ),
+        );
+    } catch (error: unknown) {
+      return oauthError(reply, error);
+    }
+  }
+
+  @Get("oauth/authorize/resume")
+  @Public()
+  @Header("cache-control", "no-store")
+  public async resumeAuthorizeScreen(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    const user = sessionOf(request)?.user;
+    reply.header(
+      "content-security-policy",
+      oauthConsentContentSecurityPolicy(this.configuration.publicBaseUrl),
+    );
+
+    try {
+      const query = request.query as Record<string, unknown>;
+      if (Object.keys(query).some((key) => key !== "request_id")) {
+        throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
+      }
+      if (user === undefined) {
+        return reply.code(302).redirect(signInLocation(request, this.configuration));
+      }
+      const requestId = oauthText(query, "request_id");
+      const scopes = await this.oauth.bindAuthorizationRequest(requestId, user.id);
+      return reply
+        .type("text/html")
+        .send(
+          consentDocument(
+            requestId,
+            scopes,
+            new URL("/oauth/authorize", this.configuration.publicBaseUrl).toString(),
+          ),
+        );
     } catch (error: unknown) {
       return oauthError(reply, error);
     }
@@ -271,8 +392,9 @@ export class OAuthController {
   /*
    * ChatGPT submits this same-origin form from an embedded OAuth document.
    * Browser framing can omit the app Origin header or classify the submission
-   * as cross-site. The single-use request id and the matching authenticated
-   * session are the CSRF binding for this protocol endpoint.
+   * as cross-site. The single-use opaque request handle is the CSRF binding;
+   * the request is bound to the signed-in user before the consent document is
+   * rendered, so this final form post does not depend on third-party cookies.
    */
   @OriginExempt()
   public async authorize(
@@ -281,20 +403,29 @@ export class OAuthController {
     @Res() reply: FastifyReply,
   ): Promise<FastifyReply> {
     const user = sessionOf(request)?.user;
-    if (user === undefined) {
-      return reply
-        .code(401)
-        .type("text/plain")
-        .send("Sign in to StockControl before connecting ChatGPT.");
-    }
 
     try {
-      const approval = await this.oauth.approveAuthorizationRequest(
-        oauthText(bodyOf(rawBody), "request_id"),
-        user.id,
-      );
+      const body = bodyOf(rawBody);
+      const requestId = oauthText(body, "request_id");
+      const decisionValue = body["decision"];
+      if (decisionValue !== "approve" && decisionValue !== "deny") {
+        throw new OAuthTokenError("invalid_request", "The authorization decision is invalid.");
+      }
+      const decision = decisionValue;
+      const approval =
+        decision === "deny"
+          ? await this.oauth.denyAuthorizationRequest(requestId, user?.id)
+          : await this.oauth.approveAuthorizationRequest(requestId, user?.id);
       const location = new URL(approval.redirectUri);
-      location.searchParams.set("code", approval.code);
+      if (decision === "deny") {
+        location.searchParams.set("error", "access_denied");
+        location.searchParams.set(
+          "error_description",
+          "The StockControl connection was cancelled.",
+        );
+      } else {
+        location.searchParams.set("code", approval.code);
+      }
       if (approval.state !== null) location.searchParams.set("state", approval.state);
       return reply.code(302).redirect(location.toString());
     } catch (error: unknown) {
@@ -313,15 +444,24 @@ export class OAuthController {
         throw new OAuthTokenError("invalid_client", "The OAuth client is not registered.");
       }
       const clientId = this.configuration.clientId;
-      const outcome = await oauthTokenExchange(body, clientId)(this.oauth);
+      const outcome = await oauthTokenExchange(
+        body,
+        clientId,
+        this.configuration.resourceUri,
+      )(this.oauth);
 
-      return reply.code(200).send({
-        token_type: "Bearer",
-        access_token: outcome.accessToken,
-        refresh_token: outcome.refreshToken,
-        expires_in: outcome.expiresIn,
-        scope: outcome.scopes.join(" "),
-      });
+      return reply
+        .code(200)
+        .header("cache-control", "no-store")
+        .header("pragma", "no-cache")
+        .send({
+          token_type: "Bearer",
+          access_token: outcome.accessToken,
+          refresh_token: outcome.refreshToken,
+          resource: this.configuration.resourceUri,
+          expires_in: outcome.expiresIn,
+          scope: outcome.scopes.join(" "),
+        });
     } catch (error: unknown) {
       return oauthError(reply, error);
     }
@@ -333,7 +473,11 @@ export class OAuthController {
   public async revoke(@Body() rawBody: unknown, @Res() reply: FastifyReply): Promise<FastifyReply> {
     try {
       await this.oauth.revoke(oauthText(bodyOf(rawBody), "token"));
-      return reply.code(200).send({});
+      return reply
+        .code(200)
+        .header("cache-control", "no-store")
+        .header("pragma", "no-cache")
+        .send({});
     } catch (error: unknown) {
       return oauthError(reply, error);
     }
