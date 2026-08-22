@@ -74,7 +74,7 @@ const signInLocation = (request: FastifyRequest, configuration: McpConfiguration
   if (typeof requestId !== "string" || requestId.length < 40 || requestId.length > 512) {
     throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
   }
-  const resumeUrl = new URL("/oauth/authorize", configuration.publicBaseUrl);
+  const resumeUrl = new URL("/oauth/authorize/resume", configuration.publicBaseUrl);
   resumeUrl.searchParams.set("request_id", requestId);
   // The SPA deliberately accepts only same-origin relative deep links. Keep
   // the resume target relative so the signed-in handoff can navigate back to
@@ -295,28 +295,6 @@ export class OAuthController {
 
     try {
       const query = request.query as Record<string, unknown>;
-      const requestIdValue = query["request_id"];
-      if (requestIdValue !== undefined) {
-        if (Object.keys(query).some((key) => key !== "request_id")) {
-          throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
-        }
-        if (user === undefined) {
-          return reply.code(302).redirect(signInLocation(request, this.configuration));
-        }
-        const scopes = await this.oauth.bindAuthorizationRequest(
-          oauthText(query, "request_id"),
-          user.id,
-        );
-        return reply
-          .type("text/html")
-          .send(
-            consentDocument(
-              oauthText(query, "request_id"),
-              scopes,
-              new URL("/oauth/authorize", this.configuration.publicBaseUrl).toString(),
-            ),
-          );
-      }
       const clientId = oauthText(query, "client_id");
       const redirectUri = oauthText(query, "redirect_uri");
       const responseType = oauthText(query, "response_type");
@@ -358,6 +336,43 @@ export class OAuthController {
       }
       // Only a random, server-generated handle is reflected. OAuth request
       // parameters are held in the database and never interpolated into HTML.
+      return reply
+        .type("text/html")
+        .send(
+          consentDocument(
+            requestId,
+            scopes,
+            new URL("/oauth/authorize", this.configuration.publicBaseUrl).toString(),
+          ),
+        );
+    } catch (error: unknown) {
+      return oauthError(reply, error);
+    }
+  }
+
+  @Get("oauth/authorize/resume")
+  @Public()
+  @Header("cache-control", "no-store")
+  public async resumeAuthorizeScreen(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    const user = sessionOf(request)?.user;
+    reply.header(
+      "content-security-policy",
+      oauthConsentContentSecurityPolicy(this.configuration.publicBaseUrl),
+    );
+
+    try {
+      const query = request.query as Record<string, unknown>;
+      if (Object.keys(query).some((key) => key !== "request_id")) {
+        throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
+      }
+      if (user === undefined) {
+        return reply.code(302).redirect(signInLocation(request, this.configuration));
+      }
+      const requestId = oauthText(query, "request_id");
+      const scopes = await this.oauth.bindAuthorizationRequest(requestId, user.id);
       return reply
         .type("text/html")
         .send(

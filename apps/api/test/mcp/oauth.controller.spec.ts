@@ -119,6 +119,46 @@ describe("OAuth controller input handling", () => {
     );
   });
 
+  it("resumes an opaque request only on the dedicated resume endpoint", async () => {
+    const oauth = {
+      bindAuthorizationRequest: vi.fn().mockResolvedValue(["stock:read"]),
+    };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, send } = replyFor();
+
+    await controller.resumeAuthorizeScreen(
+      requestFor({ request_id: "opaque-request-handle-123456789012345678901234567890" }),
+      reply,
+    );
+
+    expect(oauth.bindAuthorizationRequest).toHaveBeenCalledWith(
+      "opaque-request-handle-123456789012345678901234567890",
+      user.id,
+    );
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('name="request_id"'));
+  });
+
+  it("rejects mixed authorization and resume parameters", async () => {
+    const oauth = { bindAuthorizationRequest: vi.fn() };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, code, send } = replyFor();
+
+    await controller.resumeAuthorizeScreen(
+      requestFor({
+        request_id: "opaque-request-handle-123456789012345678901234567890",
+        state: "x",
+      }),
+      reply,
+    );
+
+    expect(code).toHaveBeenCalledWith(400);
+    expect(send).toHaveBeenCalledWith({
+      error: "invalid_request",
+      error_description: "The authorization request is invalid.",
+    });
+    expect(oauth.bindAuthorizationRequest).not.toHaveBeenCalled();
+  });
+
   it("redirects an approved request to the registered callback with OAuth parameters", async () => {
     const oauth = {
       approveAuthorizationRequest: vi.fn().mockResolvedValue({
