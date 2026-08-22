@@ -21,8 +21,13 @@ import {
  * `sandbox`, which blocks the host's OAuth-frame completion, so this is an
  * explicit and tightly-scoped exception rather than a relaxation for the API.
  */
-export const oauthConsentContentSecurityPolicy = (publicBaseUrl: string): string =>
-  `default-src 'none'; base-uri 'none'; form-action ${new URL(publicBaseUrl).origin}; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com`;
+export const oauthConsentContentSecurityPolicy = (
+  publicBaseUrl: string,
+  redirectUri: string,
+): string => {
+  const allowedFormOrigins = [new URL(publicBaseUrl).origin, new URL(redirectUri).origin];
+  return `default-src 'none'; base-uri 'none'; form-action ${[...new Set(allowedFormOrigins)].join(" ")}; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com`;
+};
 
 const oauthText = (body: Readonly<Record<string, unknown>>, field: string): string => {
   const value = body[field];
@@ -170,7 +175,8 @@ const consentDocument = (
           <h2 id="permissions-title">ChatGPT will be able to:</h2>
           <ul>${permissions}</ul>
         </section>
-        <form method="post" action="${action}">
+        <!-- Top-level navigation is required when ChatGPT renders this page in a sandboxed frame. -->
+        <form method="post" action="${action}" target="_top">
           <input type="hidden" name="request_id" value="${encodedRequestId}">
           <div style="display:grid;gap:10px">
             <button type="submit" name="decision" value="approve">Approve connection</button>
@@ -290,7 +296,10 @@ export class OAuthController {
     const user = sessionOf(request)?.user;
     reply.header(
       "content-security-policy",
-      oauthConsentContentSecurityPolicy(this.configuration.publicBaseUrl),
+      oauthConsentContentSecurityPolicy(
+        this.configuration.publicBaseUrl,
+        this.configuration.redirectUri,
+      ),
     );
 
     try {
@@ -360,7 +369,10 @@ export class OAuthController {
     const user = sessionOf(request)?.user;
     reply.header(
       "content-security-policy",
-      oauthConsentContentSecurityPolicy(this.configuration.publicBaseUrl),
+      oauthConsentContentSecurityPolicy(
+        this.configuration.publicBaseUrl,
+        this.configuration.redirectUri,
+      ),
     );
 
     try {

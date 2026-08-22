@@ -91,10 +91,16 @@ describe("OAuth controller input handling", () => {
     expect(send).toHaveBeenCalledWith(expect.stringContaining("Secure connection"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining("<script>"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
-    const policy = oauthConsentContentSecurityPolicy(configuration.publicBaseUrl);
+    const policy = oauthConsentContentSecurityPolicy(
+      configuration.publicBaseUrl,
+      configuration.redirectUri,
+    );
     expect(policy).not.toContain("sandbox");
     expect(policy).toContain("form-action https://stockcontrol.example");
+    expect(policy).toContain("https://chatgpt.example");
     expect(policy).toContain("frame-ancestors https://chatgpt.com");
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('<form method="post"'));
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('target="_top"'));
   });
 
   it("sends an anonymous user to sign in and preserves the authorization request", async () => {
