@@ -1,6 +1,8 @@
+import { Reflector } from "@nestjs/core";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
 
+import { ORIGIN_EXEMPT_ROUTE } from "../../src/auth/public.decorator";
 import { attachSession } from "../../src/auth/request-context";
 import type { McpConfiguration } from "../../src/integrations/mcp/mcp-configuration";
 import {
@@ -63,6 +65,14 @@ const validQuery = {
 };
 
 describe("OAuth controller input handling", () => {
+  it("exempts the embedded consent approval from the application origin guard", () => {
+    const reflector = new Reflector();
+    const handler = Object.getOwnPropertyDescriptor(OAuthController.prototype, "authorize")?.value;
+
+    expect(handler).toBeDefined();
+    expect(reflector.get<boolean>(ORIGIN_EXEMPT_ROUTE, handler)).toBe(true);
+  });
+
   it("renders only the opaque authorization-request handle", async () => {
     const oauth = { createAuthorizationRequest: vi.fn().mockResolvedValue("request-handle") };
     const controller = new OAuthController(oauth as never, configuration);
