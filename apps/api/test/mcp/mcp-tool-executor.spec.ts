@@ -53,19 +53,21 @@ describe("MCP tool audit ordering", () => {
     const oauth = { resolveAccessToken: vi.fn().mockResolvedValue(null) };
     const correlation = { normalize: vi.fn().mockReturnValue("correlation-1") };
     const logger = { log: vi.fn(), warn: vi.fn() };
-    const executor = new McpToolExecutor(
-      {} as never,
-      audit as never,
-      oauth as never,
+    const executor = new McpToolExecutor({
+      database: {} as never,
+      audit: audit as never,
+      oauth: oauth as never,
       configuration,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      correlation as never,
-      logger as never,
-    );
+      dashboard: {} as never,
+      catalogue: {} as never,
+      stock: {} as never,
+      jobs: {} as never,
+      requests: {} as never,
+      locations: {} as never,
+      users: {} as never,
+      correlation: correlation as never,
+      logger: logger as never,
+    });
 
     const result = await executor.execute(
       { headers: {} } as FastifyRequest,
@@ -102,19 +104,21 @@ describe("MCP tool audit ordering", () => {
     const oauth = { resolveAccessToken: vi.fn().mockResolvedValue(null) };
     const correlation = { normalize: vi.fn().mockReturnValue("correlation-1") };
     const logger = { log: vi.fn(), warn: vi.fn() };
-    const executor = new McpToolExecutor(
-      {} as never,
-      audit as never,
-      oauth as never,
+    const executor = new McpToolExecutor({
+      database: {} as never,
+      audit: audit as never,
+      oauth: oauth as never,
       configuration,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      correlation as never,
-      logger as never,
-    );
+      dashboard: {} as never,
+      catalogue: {} as never,
+      stock: {} as never,
+      jobs: {} as never,
+      requests: {} as never,
+      locations: {} as never,
+      users: {} as never,
+      correlation: correlation as never,
+      logger: logger as never,
+    });
 
     const result = await executor.execute(
       { headers: { authorization: "Bearer malformed" } } as FastifyRequest,

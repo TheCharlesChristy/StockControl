@@ -42,6 +42,21 @@ tool selected, validated argument projection, result summary and business
 effect references; it does not store prompts, credentials, cookies, raw
 authorization headers, exception stacks or unrestricted response bodies.
 
+The catalogue covers what a signed-in person can do, tool for action, so the
+assistant is not limited to a subset of the product nobody chose deliberately.
+Scopes follow the capability boundaries rather than the tool list —
+`catalogue:write`, `jobs:write`, `locations:write`, `users:read` and
+`users:write` join the original five — so consent stays legible and a grant
+issued before a tool existed cannot reach it.
+
+Three user actions are deliberately absent, and the reason is the same each
+time. Creating a user and resetting a password carry a credential, which would
+land in the audit ledger's argument projection. Uploading a photo or a floor
+plan carries bytes that are validated, hashed and stored privately, which a
+JSON tool argument is the wrong shape for. Deleting a photo and reporting an
+issue commit outside PostgreSQL — object storage and an external tracker — and
+so cannot be undone by the transaction that carries their receipt.
+
 ## Consequences
 
 - The public edge exposes only the exact `/mcp`, OAuth metadata and OAuth
@@ -50,6 +65,10 @@ authorization headers, exception stacks or unrestricted response bodies.
   addition to the MCP call throttle.
 - Read tools can be enabled independently of write tools and are bounded by
   existing activity scoping and explicit page/date limits.
+- A tool reaches its business effect through the same service a controller
+  uses, in the caller's transaction. Services that a write tool reaches
+  therefore expose an `InTransaction` variant; the HTTP path keeps opening its
+  own transaction and is unchanged.
 - The activity screen can reconstruct successful, denied, invalid, failed and
   incomplete calls without replaying the model conversation.
 - A small reconciliation job must append `Interrupted` for calls left without

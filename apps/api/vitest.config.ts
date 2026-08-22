@@ -69,10 +69,10 @@ export default defineConfig({
        * config. Raise a floor whenever a change lifts the measured value.
        */
       thresholds: {
-        branches: 35,
-        functions: 40,
-        lines: 42,
-        statements: 41,
+        branches: 39,
+        functions: 42,
+        lines: 45,
+        statements: 44,
       },
     },
   },
