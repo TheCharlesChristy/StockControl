@@ -234,10 +234,10 @@ export class McpAuditService {
 
   public static compactWriteResult(value: unknown): Readonly<Record<string, unknown>> {
     const safe = safeJsonObject(value);
-    const entries: [string, string][] = [];
+    const entries: [string, unknown][] = [];
     for (const key of ["transactionId", "reservationId", "requestId", "itemId", "jobId", "id"]) {
-      if (typeof safe[key] === "string") {
-        entries.push([key, safe[key]]);
+      if (Object.prototype.hasOwnProperty.call(safe, key)) {
+        entries.push([key, safe[key] ?? null]);
       }
     }
     for (const [container, idKey] of [
@@ -284,7 +284,10 @@ export class McpAuditService {
     toolName: string,
     idempotencyKey: string,
   ): Promise<void> {
-    const lockKey = `${actorUserId}\0${toolName}\0${idempotencyKey}`;
+    // PostgreSQL text values cannot contain NUL bytes. JSON gives each part a
+    // deterministic, collision-resistant representation without relying on a
+    // delimiter that could also occur in user-controlled input.
+    const lockKey = JSON.stringify([actorUserId, toolName, idempotencyKey]);
     await sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`.execute(database);
   }
 

@@ -24,7 +24,7 @@ import { McpAuditService, type McpCallHandle, type McpEffectLinkInput } from "./
 import type { McpRateLimiter } from "./mcp-rate-limiter";
 import type { McpPrincipal, McpScope, OAuthService } from "./oauth.service";
 
-const CONTRACT_VERSION = "1.0";
+const CONTRACT_VERSION = "1.1";
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10_000;
 const MAX_DATE_RANGE_MS = 31 * 86_400_000;
@@ -91,7 +91,9 @@ const projectedOptionalText = (value: unknown, maximum = 200): string | undefine
 
 const id = (value: unknown, field: string): string => {
   const candidate = text(value, field, 80);
-  if (!/^[0-9a-f-]{20,80}$/iu.test(candidate)) {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(candidate)
+  ) {
     throw new ToolValidationError(field, `Enter a valid ${field}.`);
   }
   return candidate;
@@ -321,7 +323,7 @@ const toolSpecs: readonly ToolSpec[] = [
         offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
       },
     },
-    project: () => ({}),
+    project: (value) => safeJsonObject(value),
     validate: (value) => page(record(value)["limit"], record(value)["offset"]),
   },
   {
@@ -574,32 +576,317 @@ export const mcpToolDefinitions = (configuration: McpConfiguration): readonly Mc
       inputSchema: tool.inputSchema,
       outputSchema: outputSchemaFor(tool.name),
       ...(tool.operation === "read"
-        ? { annotations: { readOnlyHint: true } }
-        : { annotations: { readOnlyHint: false } }),
+        ? { annotations: { readOnlyHint: true, openWorldHint: false } }
+        : {
+            annotations: {
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: true,
+              openWorldHint: false,
+            },
+          }),
     }));
 
-const pageSchema = {
+const idSchema = { type: "string", format: "uuid" } as const;
+const nullableIdSchema = { type: ["string", "null"], format: "uuid" } as const;
+
+const itemSummarySchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    rows: { type: "array" },
+    id: idSchema,
+    reference: { type: "string" },
+    name: { type: "string" },
+    unit: { type: "string" },
+    barcode: { type: ["string", "null"] },
+    partNumber: { type: ["string", "null"] },
+    lowStockThreshold: { type: ["string", "null"] },
+    isActive: { type: "boolean" },
+    onHand: { type: "string" },
+    inStores: { type: "string" },
+    atJobSites: { type: "string" },
+    reserved: { type: "string" },
+    reservedForYou: { type: "string" },
+    available: { type: "string" },
+    belowThreshold: { type: "boolean" },
+    coverPhotoUrl: { type: ["string", "null"] },
+  },
+  required: [
+    "id",
+    "reference",
+    "name",
+    "unit",
+    "barcode",
+    "partNumber",
+    "lowStockThreshold",
+    "isActive",
+    "onHand",
+    "inStores",
+    "atJobSites",
+    "reserved",
+    "reservedForYou",
+    "available",
+    "belowThreshold",
+    "coverPhotoUrl",
+  ],
+} as const;
+
+const locationBalanceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    locationId: idSchema,
+    locationCode: { type: "string" },
+    locationName: { type: "string" },
+    kind: { type: "string", enum: ["Store", "JobSite"] },
+    quantity: { type: "string" },
+    unit: { type: "string" },
+  },
+  required: ["locationId", "locationCode", "locationName", "kind", "quantity"],
+} as const;
+
+const itemPhotoSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    url: { type: "string", format: "uri-reference" },
+    originalFileName: { type: "string" },
+    isCover: { type: "boolean" },
+  },
+  required: ["id", "url", "originalFileName", "isCover"],
+} as const;
+
+const transactionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    kind: {
+      type: "string",
+      enum: ["Receive", "Issue", "Transfer", "Adjust", "Reserve", "Collect", "Release"],
+    },
+    itemId: idSchema,
+    itemReference: { type: "string" },
+    itemName: { type: "string" },
+    itemPhotoUrl: { type: ["string", "null"] },
+    unit: { type: "string" },
+    quantity: { type: "string" },
+    fromLocationCode: { type: ["string", "null"] },
+    toLocationCode: { type: ["string", "null"] },
+    jobNumber: { type: ["string", "null"] },
+    reason: { type: ["string", "null"] },
+    actorUserId: idSchema,
+    actorName: { type: "string" },
+    occurredAt: { type: "string", format: "date-time" },
+  },
+  required: [
+    "id",
+    "kind",
+    "itemId",
+    "itemReference",
+    "itemName",
+    "itemPhotoUrl",
+    "unit",
+    "quantity",
+    "fromLocationCode",
+    "toLocationCode",
+    "jobNumber",
+    "reason",
+    "actorUserId",
+    "actorName",
+    "occurredAt",
+  ],
+} as const;
+
+const itemDetailSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    ...itemSummarySchema.properties,
+    balances: { type: "array", items: locationBalanceSchema },
+    recentTransactions: { type: "array", items: transactionSchema },
+    photos: { type: "array", items: itemPhotoSchema },
+  },
+  required: [...itemSummarySchema.required, "balances", "recentTransactions", "photos"],
+} as const;
+
+const locationSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    code: { type: "string" },
+    name: { type: "string" },
+    kind: { type: "string", enum: ["Store", "JobSite"] },
+    jobId: nullableIdSchema,
+    isActive: { type: "boolean" },
+    path: { type: "string" },
+  },
+  required: ["id", "code", "name", "kind", "jobId", "isActive", "path"],
+} as const;
+
+const jobAssigneeSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    userId: idSchema,
+    displayName: { type: "string" },
+    role: { type: "string", enum: ["Engineer", "Office", "Admin"] },
+  },
+  required: ["userId", "displayName", "role"],
+} as const;
+
+const jobSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    number: { type: "string" },
+    name: { type: "string" },
+    customer: { type: "string" },
+    status: { type: "string", enum: ["Open", "Closed"] },
+    jobSiteLocationId: idSchema,
+    openReservationCount: { type: "integer" },
+    assignees: { type: "array", items: jobAssigneeSchema },
+    createdAt: { type: "string", format: "date-time" },
+    closedAt: { type: ["string", "null"], format: "date-time" },
+  },
+  required: [
+    "id",
+    "number",
+    "name",
+    "customer",
+    "status",
+    "jobSiteLocationId",
+    "openReservationCount",
+    "assignees",
+    "createdAt",
+    "closedAt",
+  ],
+} as const;
+
+const reservationSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    itemId: idSchema,
+    itemReference: { type: "string" },
+    itemName: { type: "string" },
+    itemPhotoUrl: { type: ["string", "null"] },
+    unit: { type: "string" },
+    quantityReserved: { type: "string" },
+    quantityCollected: { type: "string" },
+    quantityOutstanding: { type: "string" },
+    status: { type: "string", enum: ["Open", "Fulfilled", "Released"] },
+    createdById: idSchema,
+    createdByName: { type: "string" },
+    createdAt: { type: "string", format: "date-time" },
+  },
+  required: [
+    "id",
+    "itemId",
+    "itemReference",
+    "itemName",
+    "itemPhotoUrl",
+    "unit",
+    "quantityReserved",
+    "quantityCollected",
+    "quantityOutstanding",
+    "status",
+    "createdById",
+    "createdByName",
+    "createdAt",
+  ],
+} as const;
+
+const jobDetailSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    ...jobSchema.properties,
+    reservations: { type: "array", items: reservationSchema },
+    jobSiteStock: { type: "array", items: locationBalanceSchema },
+    recentTransactions: { type: "array", items: transactionSchema },
+  },
+  required: [...jobSchema.required, "reservations", "jobSiteStock", "recentTransactions"],
+} as const;
+
+const stockRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    reference: { type: "string" },
+    itemId: idSchema,
+    itemReference: { type: "string" },
+    itemName: { type: "string" },
+    itemPhotoUrl: { type: ["string", "null"] },
+    unit: { type: "string" },
+    jobId: nullableIdSchema,
+    jobNumber: { type: ["string", "null"] },
+    jobName: { type: ["string", "null"] },
+    quantity: { type: "string" },
+    note: { type: ["string", "null"] },
+    status: { type: "string", enum: ["Pending", "Approved", "Rejected", "Cancelled"] },
+    requestedById: idSchema,
+    requestedByName: { type: "string" },
+    decidedByName: { type: ["string", "null"] },
+    decisionNote: { type: ["string", "null"] },
+    reservationId: nullableIdSchema,
+    createdAt: { type: "string", format: "date-time" },
+    decidedAt: { type: ["string", "null"], format: "date-time" },
+  },
+  required: [
+    "id",
+    "reference",
+    "itemId",
+    "itemReference",
+    "itemName",
+    "itemPhotoUrl",
+    "unit",
+    "jobId",
+    "jobNumber",
+    "jobName",
+    "quantity",
+    "note",
+    "status",
+    "requestedById",
+    "requestedByName",
+    "decidedByName",
+    "decisionNote",
+    "reservationId",
+    "createdAt",
+    "decidedAt",
+  ],
+} as const;
+
+const pageSchema = (
+  items: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> => ({
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    rows: { type: "array", items },
     total: { type: "integer" },
     limit: { type: "integer" },
     offset: { type: "integer" },
+    hasMore: { type: "boolean" },
   },
-  required: ["rows", "total", "limit", "offset"],
-} as const;
+  required: ["rows", "total", "limit", "offset", "hasMore"],
+});
 
-const operationSchema = {
+const stockOperationSchema = (reservationNullable: boolean): Readonly<Record<string, unknown>> => ({
   type: "object",
   additionalProperties: false,
   properties: {
-    item: { type: "object" },
-    transactionId: { type: "string" },
-    reservationId: { type: ["string", "null"] },
+    itemId: idSchema,
+    transactionId: idSchema,
+    reservationId: reservationNullable ? nullableIdSchema : idSchema,
   },
-  required: ["item", "transactionId", "reservationId"],
-} as const;
+  required: ["itemId", "transactionId", "reservationId"],
+});
 
 const operationalSummarySchema = {
   type: "object",
@@ -618,36 +905,56 @@ const operationalSummarySchema = {
 } as const;
 
 const outputSchemaFor = (name: string): Readonly<Record<string, unknown>> => {
-  if (name === "search_items" || name === "list_transactions" || name === "list_stock_requests") {
-    return pageSchema;
+  if (name === "search_items") {
+    return pageSchema(itemSummarySchema);
+  }
+  if (name === "list_transactions") {
+    return pageSchema(transactionSchema);
+  }
+  if (name === "list_stock_requests") {
+    return pageSchema(stockRequestSchema);
   }
   if (name === "list_jobs")
     return {
       type: "object",
       additionalProperties: false,
-      properties: { jobs: { type: "array" } },
-      required: ["jobs"],
+      properties: {
+        jobs: { type: "array", items: jobSchema },
+        limit: { type: "integer" },
+        offset: { type: "integer" },
+        hasMore: { type: "boolean" },
+      },
+      required: ["jobs", "limit", "offset", "hasMore"],
     };
   if (name === "list_locations") {
     return {
       type: "object",
       additionalProperties: false,
-      properties: { locations: { type: "array" } },
-      required: ["locations"],
+      properties: {
+        locations: { type: "array", items: locationSchema },
+        limit: { type: "integer" },
+        offset: { type: "integer" },
+        hasMore: { type: "boolean" },
+      },
+      required: ["locations", "limit", "offset", "hasMore"],
     };
   }
   if (name === "get_item")
     return {
       type: "object",
       additionalProperties: false,
-      properties: { item: { type: "object" } },
+      properties: {
+        item: itemDetailSchema,
+      },
       required: ["item"],
     };
   if (name === "get_job")
     return {
       type: "object",
       additionalProperties: false,
-      properties: { job: { type: "object" } },
+      properties: {
+        job: jobDetailSchema,
+      },
       required: ["job"],
     };
   if (name === "get_operational_summary") {
@@ -678,7 +985,10 @@ const outputSchemaFor = (name: string): Readonly<Record<string, unknown>> => {
       required: ["requestId", "itemId", "jobId"],
     };
   }
-  return operationSchema;
+  if (["reserve_stock", "collect_reserved_stock"].includes(name)) {
+    return stockOperationSchema(false);
+  }
+  return stockOperationSchema(true);
 };
 
 export class McpToolExecutor {
@@ -705,6 +1015,10 @@ export class McpToolExecutor {
 
   public isInFlight(callId: string): boolean {
     return this.activeCalls.has(callId);
+  }
+
+  public authenticate(request: FastifyRequest): Promise<McpPrincipal | null> {
+    return this.principalFrom(request);
   }
 
   public async execute(
@@ -874,7 +1188,9 @@ export class McpToolExecutor {
     if (typeof header !== "string" || !/^Bearer\s+/iu.test(header)) {
       return null;
     }
-    return this.oauth.resolveAccessToken(header.replace(/^Bearer\s+/iu, "").trim());
+    const token = header.replace(/^Bearer\s+/iu, "").trim();
+    if (token.length === 0 || token.length > 512) return null;
+    return this.oauth.resolveAccessToken(token);
   }
 
   private authorised(principal: McpPrincipal, spec: ToolSpec): boolean {
@@ -893,6 +1209,10 @@ export class McpToolExecutor {
       viewerUserId: principal.user.id,
       scopeActivityToViewer: !roleHasCapability(principal.user.role, "viewAllActivity"),
     };
+    const jobViewer = {
+      ...viewer,
+      restrictToAssignedJobs: !roleHasCapability(principal.user.role, "viewAllActivity"),
+    };
     switch (name) {
       case "get_operational_summary": {
         const dashboard = await this.dashboard.forUser({
@@ -901,17 +1221,20 @@ export class McpToolExecutor {
         });
         return operationalSummary(dashboard);
       }
-      case "search_items":
-        return this.catalogue.listItems({
+      case "search_items": {
+        const page = await this.catalogue.listItems({
           search: input["search"] as string | undefined,
           limit: input["limit"] as number,
           offset: input["offset"] as number,
+          activeOnly: true,
           viewerUserId: principal.user.id,
         });
+        return { ...page, hasMore: page.offset + page.rows.length < page.total };
+      }
       case "get_item":
         return { item: await this.stock.itemDetail(input["itemId"] as string, viewer) };
-      case "list_transactions":
-        return this.catalogue.listTransactions({
+      case "list_transactions": {
+        const page = await this.catalogue.listTransactions({
           itemId: input["itemId"] as string | undefined,
           jobId: input["jobId"] as string | undefined,
           from: input["from"] === undefined ? undefined : new Date(input["from"] as string),
@@ -922,22 +1245,30 @@ export class McpToolExecutor {
             ? undefined
             : principal.user.id,
         });
-      case "list_jobs":
+        return { ...page, hasMore: page.offset + page.rows.length < page.total };
+      }
+      case "list_jobs": {
+        const limit = input["limit"] as number;
+        const page = await this.jobs.list({
+          status: input["status"] as "Open" | "Closed" | undefined,
+          search: input["search"] as string | undefined,
+          limit: limit + 1,
+          offset: input["offset"] as number,
+          ...(roleHasCapability(principal.user.role, "viewAllActivity")
+            ? {}
+            : { assignedTo: principal.user.id }),
+        });
         return {
-          jobs: await this.jobs.list({
-            status: input["status"] as "Open" | "Closed" | undefined,
-            search: input["search"] as string | undefined,
-            limit: input["limit"] as number,
-            offset: input["offset"] as number,
-            ...(roleHasCapability(principal.user.role, "viewAllActivity")
-              ? {}
-              : { assignedTo: principal.user.id }),
-          }),
+          jobs: page.slice(0, limit),
+          limit,
+          offset: input["offset"] as number,
+          hasMore: page.length > limit,
         };
+      }
       case "get_job":
-        return { job: await this.jobs.detail(input["jobId"] as string, viewer) };
-      case "list_stock_requests":
-        return this.requests.list({
+        return { job: await this.jobs.detail(input["jobId"] as string, jobViewer) };
+      case "list_stock_requests": {
+        const page = await this.requests.list({
           status: input["status"] as "Pending" | "Approved" | "Rejected" | "Cancelled" | undefined,
           itemId: input["itemId"] as string | undefined,
           jobId: input["jobId"] as string | undefined,
@@ -947,13 +1278,22 @@ export class McpToolExecutor {
           limit: input["limit"] as number,
           offset: input["offset"] as number,
         });
-      case "list_locations":
+        return { ...page, hasMore: page.offset + page.rows.length < page.total };
+      }
+      case "list_locations": {
+        const limit = input["limit"] as number;
+        const page = await this.catalogue.listLocations({
+          limit: limit + 1,
+          offset: input["offset"] as number,
+          activeOnly: true,
+        });
         return {
-          locations: await this.catalogue.listLocations({
-            limit: input["limit"] as number,
-            offset: input["offset"] as number,
-          }),
+          locations: page.slice(0, limit),
+          limit,
+          offset: input["offset"] as number,
+          hasMore: page.length > limit,
         };
+      }
       default:
         throw new Error("Unknown MCP tool.");
     }
@@ -1153,5 +1493,9 @@ const effectsFor = (value: unknown): readonly McpEffectLinkInput[] => {
   add("request", safe["requestId"]);
   add("job", safe["jobId"]);
   add("item", safe["itemId"]);
+  const nestedItem = safe["item"];
+  if (typeof nestedItem === "object" && nestedItem !== null && !Array.isArray(nestedItem)) {
+    add("item", (nestedItem as Readonly<Record<string, unknown>>)["id"]);
+  }
   return effects;
 };

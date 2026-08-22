@@ -1,5 +1,6 @@
 import {
   Controller,
+  BadRequestException,
   Get,
   Inject,
   NotFoundException,
@@ -21,6 +22,26 @@ import { parseTimestamp, requireUuidParameter } from "../../inventory/request-pa
 import type { McpActivityService } from "./mcp-activity.service";
 import type { OAuthService } from "./oauth.service";
 
+const boundedInteger = (
+  value: string | undefined,
+  field: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number => {
+  if (value === undefined) return fallback;
+  if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
+    throw new BadRequestException(`${field} must be an integer.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new BadRequestException(
+      `${field} must be between ${String(minimum)} and ${String(maximum)}.`,
+    );
+  }
+  return parsed;
+};
+
 @Controller("mcp-activity")
 export class McpActivityController {
   public constructor(
@@ -41,15 +62,35 @@ export class McpActivityController {
     @Query("offset") offset?: string,
   ): Promise<McpActivityListResponse> {
     const user = requireCapability(request, "view");
-    const parsedLimit = limit === undefined ? 50 : Math.min(100, Math.max(1, Number(limit) || 50));
-    const parsedOffset =
-      offset === undefined ? 0 : Math.min(10_000, Math.max(0, Number(offset) || 0));
+    const parsedLimit = boundedInteger(limit, "limit", 50, 1, 100);
+    const parsedOffset = boundedInteger(offset, "offset", 0, 0, 10_000);
     const fromTimestamp = parseTimestamp(from, "from")?.toISOString();
     const toTimestamp = parseTimestamp(to, "to")?.toISOString();
+    if (
+      fromTimestamp !== undefined &&
+      toTimestamp !== undefined &&
+      new Date(fromTimestamp).getTime() > new Date(toTimestamp).getTime()
+    ) {
+      throw new BadRequestException("from must be before or equal to to.");
+    }
+    if (tool !== undefined && tool.trim().length > 120) {
+      throw new BadRequestException("tool must be 120 characters or fewer.");
+    }
+    if (
+      outcome !== undefined &&
+      !["Succeeded", "Denied", "Failed", "Interrupted", "Incomplete"].includes(outcome)
+    ) {
+      throw new BadRequestException("outcome is not supported.");
+    }
+    if (operation !== undefined && operation !== "read" && operation !== "write") {
+      throw new BadRequestException("operation must be read or write.");
+    }
     const query: McpActivityQuery = {
       ...(fromTimestamp === undefined ? {} : { from: fromTimestamp }),
       ...(toTimestamp === undefined ? {} : { to: toTimestamp }),
-      ...(userId === undefined ? {} : { userId: requireUuidParameter(userId, "user") }),
+      ...(userId === undefined || userId.trim().length === 0
+        ? {}
+        : { userId: requireUuidParameter(userId, "user") }),
       ...(tool === undefined ? {} : { tool }),
       ...(outcome === "Succeeded" ||
       outcome === "Denied" ||

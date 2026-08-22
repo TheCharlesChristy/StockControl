@@ -17,12 +17,16 @@ import { MCP_SCOPES, OAuthService } from "../../src/integrations/mcp/oauth.servi
 
 const clientId = "oauth-integration-client";
 const redirectUri = "https://chatgpt.example/oauth/callback";
+const resourceUri = "https://stockcontrol.example/mcp";
 const verifier = "v".repeat(64);
 const challenge = createHash("sha256").update(verifier).digest("base64url");
 const configuration = {
   accessTokenMinutes: 15,
   refreshTokenDays: 30,
+  clientId,
+  redirectUri,
   tokenHashKey: "test-only-mcp-token-hash-key-that-is-long-enough",
+  resourceUri,
 } as never;
 
 describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
@@ -72,6 +76,13 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       .execute();
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
+      .deleteFrom("oauth_refresh_tokens")
+      .where("grant_id", "in", (builder) =>
+        builder.selectFrom("oauth_grants").select("id").where("user_id", "=", userId),
+      )
+      .execute();
+    await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
       .deleteFrom("oauth_grants")
       .where("user_id", "=", userId)
       .execute();
@@ -93,6 +104,7 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       scopes: [MCP_SCOPES[0], MCP_SCOPES[1]],
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
+      resourceUri,
     });
     const approval = await oauth.approveAuthorizationRequest(requestId, userId);
     expect(approval.state).toBe("state-1");
@@ -102,10 +114,11 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       clientId,
       redirectUri,
       verifier,
+      resourceUri,
     );
     expect(await oauth.resolveAccessToken(first.accessToken)).not.toBeNull();
 
-    const refreshed = await oauth.refresh(first.refreshToken, clientId);
+    const refreshed = await oauth.refresh(first.refreshToken, clientId, resourceUri);
     expect(await oauth.resolveAccessToken(first.accessToken)).toBeNull();
     expect(await oauth.resolveAccessToken(refreshed.accessToken)).not.toBeNull();
 
@@ -117,6 +130,7 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       scopes: [MCP_SCOPES[0]],
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
+      resourceUri,
     });
     const narrowerApproval = await oauth.approveAuthorizationRequest(narrowerRequest, userId);
     const narrower = await oauth.exchangeAuthorizationCode(
@@ -124,6 +138,7 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       clientId,
       redirectUri,
       verifier,
+      resourceUri,
     );
     expect(await oauth.resolveAccessToken(refreshed.accessToken)).toBeNull();
     expect((await oauth.resolveAccessToken(narrower.accessToken))?.scopes).toEqual([MCP_SCOPES[0]]);
@@ -155,15 +170,28 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       scopes: [MCP_SCOPES[0]],
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
+      resourceUri,
     });
     const approval = await oauth.approveAuthorizationRequest(requestId, userId);
 
     await expect(
-      oauth.exchangeAuthorizationCode(approval.code, clientId, redirectUri, "x".repeat(64)),
+      oauth.exchangeAuthorizationCode(
+        approval.code,
+        clientId,
+        redirectUri,
+        "x".repeat(64),
+        resourceUri,
+      ),
     ).rejects.toMatchObject({ code: "invalid_grant" });
-    await oauth.exchangeAuthorizationCode(approval.code, clientId, redirectUri, verifier);
+    await oauth.exchangeAuthorizationCode(
+      approval.code,
+      clientId,
+      redirectUri,
+      verifier,
+      resourceUri,
+    );
     await expect(
-      oauth.exchangeAuthorizationCode(approval.code, clientId, redirectUri, verifier),
+      oauth.exchangeAuthorizationCode(approval.code, clientId, redirectUri, verifier, resourceUri),
     ).rejects.toMatchObject({ code: "invalid_grant" });
 
     currentTime += 11 * 60_000;
@@ -175,6 +203,7 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
       scopes: [MCP_SCOPES[0]],
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
+      resourceUri,
     });
     currentTime += 11 * 60_000;
     await expect(oauth.approveAuthorizationRequest(expired, userId)).rejects.toMatchObject({

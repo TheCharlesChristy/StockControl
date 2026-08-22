@@ -19,6 +19,10 @@ import {
   mcpOAuthAuthorizationRequestsMigration,
   mcpOAuthAuthorizationRequestsMigrationIntegrity,
 } from "./0010-mcp-oauth-authorization-requests";
+import {
+  mcpOAuthInteroperabilityMigration,
+  mcpOAuthInteroperabilityMigrationIntegrity,
+} from "./0011-mcp-oauth-interoperability";
 import type { MigrationIntegrityDescriptor } from "./integrity";
 
 export const MIGRATION_NAMES = [
@@ -32,6 +36,7 @@ export const MIGRATION_NAMES = [
   "0008_usernames",
   "0009_mcp_integration",
   "0010_mcp_oauth_authorization_requests",
+  "0011_mcp_oauth_interoperability",
 ] as const;
 
 const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> = Object.freeze({
@@ -45,6 +50,7 @@ const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> 
   "0008_usernames": usernamesMigration,
   "0009_mcp_integration": mcpIntegrationMigration,
   "0010_mcp_oauth_authorization_requests": mcpOAuthAuthorizationRequestsMigration,
+  "0011_mcp_oauth_interoperability": mcpOAuthInteroperabilityMigration,
 });
 
 export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
@@ -58,6 +64,7 @@ export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
   "0008_usernames": usernamesMigrationIntegrity,
   "0009_mcp_integration": mcpIntegrationMigrationIntegrity,
   "0010_mcp_oauth_authorization_requests": mcpOAuthAuthorizationRequestsMigrationIntegrity,
+  "0011_mcp_oauth_interoperability": mcpOAuthInteroperabilityMigrationIntegrity,
 }) satisfies Readonly<Record<(typeof MIGRATION_NAMES)[number], MigrationIntegrityDescriptor>>;
 
 export class StockControlMigrationProvider implements MigrationProvider {

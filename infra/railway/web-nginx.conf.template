@@ -143,15 +143,12 @@ server {
         if ($stockcontrol_mcp_enabled != true) { return 404; }
         set $api_upstream http://${API_HOST}:${API_PORT};
         limit_req zone=stockcontrol_oauth_by_ip burst=10 nodelay;
-        # The API's default CSP is intentionally sandboxed because it normally
-        # only serves data. The consent page is a script-free browser document
-        # that ChatGPT must be able to frame, so replace that one upstream
-        # policy with this narrow allowlist. Do not add X-Frame-Options: DENY,
-        # as it would override the CSP allowance in older user agents.
-        proxy_hide_header Content-Security-Policy;
+        # The API emits a request-specific consent CSP. Preserve it here: the
+        # form-action origin is the public app origin, not the opaque origin of
+        # ChatGPT's sandboxed frame. Do not add X-Frame-Options: DENY, as it
+        # would override the CSP allowance in older user agents.
         proxy_hide_header Referrer-Policy;
         proxy_hide_header X-Content-Type-Options;
-        add_header Content-Security-Policy "default-src 'none'; base-uri 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com" always;
         add_header Permissions-Policy "camera=(), geolocation=(), microphone=()" always;
         add_header Referrer-Policy "no-referrer" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
