@@ -32,7 +32,7 @@ export interface McpToolCallView {
 
 export type McpActivityListResponse = PagedResult<McpToolCallView>;
 
-export interface McpActivityQuery {
+export type McpActivityQuery = Readonly<{
   readonly from?: string;
   readonly to?: string;
   readonly userId?: string;
@@ -41,7 +41,7 @@ export interface McpActivityQuery {
   readonly operation?: McpOperation;
   readonly limit?: number;
   readonly offset?: number;
-}
+}>;
 
 export interface McpConnectionView {
   readonly id: string;

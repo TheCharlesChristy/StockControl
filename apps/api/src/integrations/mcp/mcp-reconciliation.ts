@@ -21,9 +21,10 @@ export class McpReconciliationJob implements OnApplicationBootstrap, OnApplicati
     private readonly database: Kysely<StockControlDatabase>,
     private readonly audit: McpAuditService,
     private readonly now: () => Date = () => new Date(),
-    private readonly maximumToolSeconds = 30,
+    private readonly abandonedCallSeconds = 300,
     private readonly logger?: StructuredLogger,
     private readonly enabled = true,
+    private readonly isInFlight: (callId: string) => boolean = () => false,
   ) {}
 
   public onApplicationBootstrap(): void {
@@ -45,7 +46,7 @@ export class McpReconciliationJob implements OnApplicationBootstrap, OnApplicati
     }
 
     try {
-      const interrupted = await this.reconcile(this.maximumToolSeconds);
+      const interrupted = await this.reconcile(this.abandonedCallSeconds);
       if (interrupted > 0) {
         this.logger?.log({ event: "mcp.calls.reconciled", interrupted });
       }
@@ -57,8 +58,8 @@ export class McpReconciliationJob implements OnApplicationBootstrap, OnApplicati
     }
   }
 
-  public async reconcile(maximumToolSeconds: number): Promise<number> {
-    const cutoff = new Date(this.now().getTime() - maximumToolSeconds * 1_000);
+  public async reconcile(abandonedCallSeconds: number): Promise<number> {
+    const cutoff = new Date(this.now().getTime() - abandonedCallSeconds * 1_000);
     const calls = await this.database
       .withSchema(SCHEMA)
       .selectFrom("mcp_tool_calls")
@@ -77,14 +78,19 @@ export class McpReconciliationJob implements OnApplicationBootstrap, OnApplicati
       )
       .execute();
 
+    let interrupted = 0;
     for (const call of calls) {
-      await this.audit.event(call.id, "Interrupted", {
-        failureCode: "mcp.timeout",
-        durationMs: this.now().getTime() - call.received_at.getTime(),
-        resultSummary: { outcome: "interrupted" },
-      });
+      if (this.isInFlight(call.id)) continue;
+      if (
+        await this.audit.eventIfIncomplete(call.id, {
+          failureCode: "mcp.timeout",
+          durationMs: this.now().getTime() - call.received_at.getTime(),
+          resultSummary: { outcome: "interrupted" },
+        })
+      )
+        interrupted += 1;
     }
 
-    return calls.length;
+    return interrupted;
   }
 }

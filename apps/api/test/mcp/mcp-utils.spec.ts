@@ -12,11 +12,15 @@ describe("MCP audit-safe serialization", () => {
     const result = safeJsonObject({
       accessToken: "never-store-this",
       cookie: "session",
+      apiKey: "never-store-this-too",
+      bearer: "token",
       itemId: "item-1",
     });
 
     expect(result).toEqual({
       accessToken: "[REDACTED]",
+      apiKey: "[REDACTED]",
+      bearer: "[REDACTED]",
       cookie: "[REDACTED]",
       itemId: "item-1",
     });

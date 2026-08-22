@@ -15,6 +15,10 @@ import {
 } from "./0007-assisted-stock-capture";
 import { usernamesMigration, usernamesMigrationIntegrity } from "./0008-usernames";
 import { mcpIntegrationMigration, mcpIntegrationMigrationIntegrity } from "./0009-mcp-integration";
+import {
+  mcpOAuthAuthorizationRequestsMigration,
+  mcpOAuthAuthorizationRequestsMigrationIntegrity,
+} from "./0010-mcp-oauth-authorization-requests";
 import type { MigrationIntegrityDescriptor } from "./integrity";
 
 export const MIGRATION_NAMES = [
@@ -27,6 +31,7 @@ export const MIGRATION_NAMES = [
   "0007_assisted_stock_capture",
   "0008_usernames",
   "0009_mcp_integration",
+  "0010_mcp_oauth_authorization_requests",
 ] as const;
 
 const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> = Object.freeze({
@@ -39,6 +44,7 @@ const migrations: Readonly<Record<(typeof MIGRATION_NAMES)[number], Migration>> 
   "0007_assisted_stock_capture": assistedStockCaptureMigration,
   "0008_usernames": usernamesMigration,
   "0009_mcp_integration": mcpIntegrationMigration,
+  "0010_mcp_oauth_authorization_requests": mcpOAuthAuthorizationRequestsMigration,
 });
 
 export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
@@ -51,6 +57,7 @@ export const MIGRATION_INTEGRITY_MANIFEST = Object.freeze({
   "0007_assisted_stock_capture": assistedStockCaptureMigrationIntegrity,
   "0008_usernames": usernamesMigrationIntegrity,
   "0009_mcp_integration": mcpIntegrationMigrationIntegrity,
+  "0010_mcp_oauth_authorization_requests": mcpOAuthAuthorizationRequestsMigrationIntegrity,
 }) satisfies Readonly<Record<(typeof MIGRATION_NAMES)[number], MigrationIntegrityDescriptor>>;
 
 export class StockControlMigrationProvider implements MigrationProvider {

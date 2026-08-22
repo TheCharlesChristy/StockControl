@@ -1,19 +1,47 @@
 import { Body, Controller, Get, Header, Inject, Post, Req, Res } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import { bodyOf, optionalText, requireText } from "../../inventory/request-parsing";
+import { bodyOf } from "../../inventory/request-parsing";
 import { API_TOKENS } from "../../api.tokens";
 import { OriginExempt, Public } from "../../auth/public.decorator";
 import { sessionOf } from "../../auth/request-context";
 import type { McpConfiguration } from "./mcp-configuration";
 import { MCP_SCOPES, OAuthService, OAuthTokenError, type McpScope } from "./oauth.service";
 
-const htmlEscape = (value: string): string =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+const oauthText = (body: Readonly<Record<string, unknown>>, field: string): string => {
+  const value = body[field];
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > 2048) {
+    throw new OAuthTokenError("invalid_request", `The ${field} parameter is required.`);
+  }
+  return value.trim();
+};
+
+const oauthState = (query: Readonly<Record<string, unknown>>): string | null => {
+  const value = query["state"];
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.length === 0 || value.length > 512) {
+    throw new OAuthTokenError("invalid_request", "The state parameter is invalid.");
+  }
+  return value;
+};
+
+const scopeList = (value: string): readonly McpScope[] => {
+  const requested = value.split(/\s+/u).filter((scope) => scope.length > 0);
+  if (
+    requested.length === 0 ||
+    requested.some((scope) => !(MCP_SCOPES as readonly string[]).includes(scope))
+  ) {
+    throw new OAuthTokenError("invalid_scope", "The requested scope is not supported.");
+  }
+  return requested as McpScope[];
+};
+
+const oauthError = (reply: FastifyReply, error: unknown): FastifyReply => {
+  if (error instanceof OAuthTokenError) {
+    return reply.code(400).send({ error: error.code, error_description: error.message });
+  }
+  throw error;
+};
 
 @Controller()
 export class OAuthController {
@@ -53,7 +81,10 @@ export class OAuthController {
   @Get("oauth/authorize")
   @Public()
   @Header("cache-control", "no-store")
-  public authorizeScreen(@Req() request: FastifyRequest, @Res() reply: FastifyReply): FastifyReply {
+  public async authorizeScreen(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<FastifyReply> {
     const user = sessionOf(request)?.user;
     if (user === undefined) {
       return reply
@@ -62,21 +93,45 @@ export class OAuthController {
         .send("Sign in to StockControl before connecting ChatGPT.");
     }
 
-    const query = request.query as Record<string, unknown>;
-    const clientId = typeof query["client_id"] === "string" ? query["client_id"] : "";
-    const redirectUri = typeof query["redirect_uri"] === "string" ? query["redirect_uri"] : "";
-    const state = typeof query["state"] === "string" ? query["state"] : "";
-    const challenge = typeof query["code_challenge"] === "string" ? query["code_challenge"] : "";
-    const method =
-      typeof query["code_challenge_method"] === "string" ? query["code_challenge_method"] : "";
-    const scopes =
-      typeof query["scope"] === "string" ? query["scope"] : MCP_SCOPES.slice(0, 2).join(" ");
+    try {
+      const query = request.query as Record<string, unknown>;
+      const clientId = oauthText(query, "client_id");
+      const redirectUri = oauthText(query, "redirect_uri");
+      const responseType = oauthText(query, "response_type");
+      const scope = oauthText(query, "scope");
+      const codeChallenge = oauthText(query, "code_challenge");
+      const codeChallengeMethod = oauthText(query, "code_challenge_method");
+      const state = oauthState(query);
 
-    return reply
-      .type("text/html")
-      .send(
-        `<!doctype html><meta charset="utf-8"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Signed in as ${htmlEscape(user.displayName)}. ChatGPT will be able to use the selected StockControl tools as your current role.</p><p>Scopes: ${htmlEscape(scopes)}</p><form method="post" action="/oauth/authorize"><input type="hidden" name="client_id" value="${htmlEscape(clientId)}"><input type="hidden" name="redirect_uri" value="${htmlEscape(redirectUri)}"><input type="hidden" name="state" value="${htmlEscape(state)}"><input type="hidden" name="code_challenge" value="${htmlEscape(challenge)}"><input type="hidden" name="code_challenge_method" value="${htmlEscape(method)}"><input type="hidden" name="scope" value="${htmlEscape(scopes)}"><button type="submit">Approve connection</button></form></main>`,
-      );
+      if (
+        clientId !== this.configuration.clientId ||
+        redirectUri !== this.configuration.redirectUri ||
+        responseType !== "code"
+      ) {
+        throw new OAuthTokenError("invalid_request", "The OAuth request is not registered.");
+      }
+
+      const requestId = await this.oauth.createAuthorizationRequest({
+        userId: user.id,
+        clientId,
+        redirectUri,
+        state,
+        scopes: scopeList(scope),
+        codeChallenge,
+        codeChallengeMethod,
+      });
+      const encodedRequestId = encodeURIComponent(requestId);
+
+      // Only a random, server-generated handle is reflected. OAuth request
+      // parameters are held in the database and never interpolated into HTML.
+      return reply
+        .type("text/html")
+        .send(
+          `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Approve this connection to let ChatGPT use StockControl tools according to your current role.</p><form method="post" action="/oauth/authorize"><input type="hidden" name="request_id" value="${encodedRequestId}"><button type="submit">Approve connection</button></form></main>`,
+        );
+    } catch (error: unknown) {
+      return oauthError(reply, error);
+    }
   }
 
   @Post("oauth/authorize")
@@ -94,63 +149,46 @@ export class OAuthController {
         .send("Sign in to StockControl before connecting ChatGPT.");
     }
 
-    const body = bodyOf(rawBody);
-    const clientId = requireText(body, "client_id", "a client");
-    const redirectUri = requireText(body, "redirect_uri", "a redirect URI");
-    if (
-      clientId !== this.configuration.clientId ||
-      redirectUri !== this.configuration.redirectUri
-    ) {
-      return reply.code(400).send({ error: "invalid_request" });
+    try {
+      const approval = await this.oauth.approveAuthorizationRequest(
+        oauthText(bodyOf(rawBody), "request_id"),
+        user.id,
+      );
+      const location = new URL(approval.redirectUri);
+      location.searchParams.set("code", approval.code);
+      if (approval.state !== null) location.searchParams.set("state", approval.state);
+      return reply.redirect(location.toString());
+    } catch (error: unknown) {
+      return oauthError(reply, error);
     }
-
-    const scopes = requireText(body, "scope", "a scope")
-      .split(/\s+/u)
-      .filter((scope): scope is McpScope => (MCP_SCOPES as readonly string[]).includes(scope));
-    const code = await this.oauth.createAuthorizationCode({
-      userId: user.id,
-      clientId,
-      redirectUri,
-      scopes,
-      codeChallenge: requireText(body, "code_challenge", "a PKCE challenge"),
-      codeChallengeMethod: requireText(body, "code_challenge_method", "a PKCE method"),
-    });
-    const location = new URL(redirectUri);
-    location.searchParams.set("code", code);
-    const state = optionalText(body, "state");
-    if (state !== null) {
-      location.searchParams.set("state", state);
-    }
-    return reply.redirect(location.toString());
   }
 
   @Post("oauth/token")
   @Public()
   @OriginExempt()
   public async token(@Body() rawBody: unknown, @Res() reply: FastifyReply): Promise<FastifyReply> {
-    const body = bodyOf(rawBody);
-    const grantType = requireText(body, "grant_type", "a grant type");
-    const clientId = requireText(body, "client_id", "a client");
     try {
-      const outcome =
-        grantType === "authorization_code"
-          ? await this.oauth.exchangeAuthorizationCode(
-              requireText(body, "code", "an authorization code"),
-              clientId,
-              requireText(body, "redirect_uri", "a redirect URI"),
-              requireText(body, "code_verifier", "a PKCE verifier"),
-            )
-          : grantType === "refresh_token"
-            ? await this.oauth.refresh(
-                requireText(body, "refresh_token", "a refresh token"),
-                clientId,
-              )
-            : (() => {
-                throw new OAuthTokenError(
-                  "unsupported_grant_type",
-                  "That grant type is not supported.",
-                );
-              })();
+      const body = bodyOf(rawBody);
+      const grantTypeValue = oauthText(body, "grant_type");
+      const clientId = oauthText(body, "client_id");
+      if (clientId !== this.configuration.clientId) {
+        throw new OAuthTokenError("invalid_client", "The OAuth client is not registered.");
+      }
+
+      let outcome;
+      if (grantTypeValue === "authorization_code") {
+        outcome = await this.oauth.exchangeAuthorizationCode(
+          oauthText(body, "code"),
+          clientId,
+          oauthText(body, "redirect_uri"),
+          oauthText(body, "code_verifier"),
+        );
+      } else if (grantTypeValue === "refresh_token") {
+        outcome = await this.oauth.refresh(oauthText(body, "refresh_token"), clientId);
+      } else {
+        throw new OAuthTokenError("unsupported_grant_type", "That grant type is not supported.");
+      }
+
       return reply.code(200).send({
         token_type: "Bearer",
         access_token: outcome.accessToken,
@@ -159,10 +197,7 @@ export class OAuthController {
         scope: outcome.scopes.join(" "),
       });
     } catch (error: unknown) {
-      if (error instanceof OAuthTokenError) {
-        return reply.code(400).send({ error: error.code, error_description: error.message });
-      }
-      throw error;
+      return oauthError(reply, error);
     }
   }
 
@@ -170,8 +205,11 @@ export class OAuthController {
   @Public()
   @OriginExempt()
   public async revoke(@Body() rawBody: unknown, @Res() reply: FastifyReply): Promise<FastifyReply> {
-    const body = bodyOf(rawBody);
-    await this.oauth.revoke(requireText(body, "token", "a token"));
-    return reply.code(200).send({});
+    try {
+      await this.oauth.revoke(oauthText(bodyOf(rawBody), "token"));
+      return reply.code(200).send({});
+    } catch (error: unknown) {
+      return oauthError(reply, error);
+    }
   }
 }

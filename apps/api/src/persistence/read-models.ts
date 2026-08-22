@@ -14,7 +14,7 @@ import type {
 import type { STOCKCONTROL_SCHEMA, StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
-import { locationPaths } from "../locations/location-paths";
+import { locationPaths, type PathRow } from "../locations/location-paths";
 import { calculateAvailability, type LocationBalance } from "../stock/availability";
 import {
   formatQuantity,
@@ -388,20 +388,64 @@ export async function findItemByCode(
     .executeTakeFirst();
 }
 
-export async function listLocations(database: Database): Promise<readonly LocationView[]> {
-  const rows = await database
+export async function listLocations(
+  database: Database,
+  query?: { readonly limit?: number; readonly offset?: number },
+): Promise<readonly LocationView[]> {
+  let selection = database
     .withSchema(SCHEMA)
     .selectFrom("locations")
     .select(["id", "code", "name", "kind", "job_id", "is_active", "derived_parent_id"])
     .orderBy("kind")
-    .orderBy("code")
-    .execute();
+    .orderBy("code");
+  if (query?.limit !== undefined) selection = selection.limit(query.limit);
+  if (query?.offset !== undefined) selection = selection.offset(query.offset);
+  const rows = await selection.execute();
+
+  /*
+   * A paged child may have its parent on a different page. Load only the
+   * ancestors needed for this page so the breadcrumb remains correct without
+   * turning the location endpoint back into an unbounded read.
+   */
+  const pathRows: PathRow[] = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    derived_parent_id: row.derived_parent_id,
+  }));
+  const knownIds = new Set(pathRows.map((row) => row.id));
+  let pendingIds = [
+    ...new Set(
+      pathRows
+        .map((row) => row.derived_parent_id)
+        .filter((parentId): parentId is string => parentId !== null),
+    ),
+  ];
+  let depth = 0;
+  while (pendingIds.length > 0 && depth < 100) {
+    const parents = await database
+      .withSchema(SCHEMA)
+      .selectFrom("locations")
+      .select(["id", "name", "derived_parent_id"])
+      .where("id", "in", pendingIds)
+      .execute();
+    const nextPending: string[] = [];
+    for (const parent of parents) {
+      if (knownIds.has(parent.id)) continue;
+      knownIds.add(parent.id);
+      pathRows.push(parent);
+      if (parent.derived_parent_id !== null && !knownIds.has(parent.derived_parent_id)) {
+        nextPending.push(parent.derived_parent_id);
+      }
+    }
+    pendingIds = [...new Set(nextPending)];
+    depth += 1;
+  }
 
   /*
    * The breadcrumb comes off the stored derived parent, so a picker reads as a
    * hierarchy — "Main Store › Aisle 3 › Shelf B" — without one being kept.
    */
-  const paths = locationPaths(rows);
+  const paths = locationPaths(pathRows);
 
   return rows.map((row) => ({
     id: row.id,

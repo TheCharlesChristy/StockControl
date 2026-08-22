@@ -21,6 +21,7 @@ import type { Kysely, Transaction } from "kysely";
 import type { McpConfiguration } from "./mcp-configuration";
 import { canonicalJson, safeJsonObject, safeString, sha256 } from "./mcp-utils";
 import { McpAuditService, type McpCallHandle, type McpEffectLinkInput } from "./mcp-audit.service";
+import type { McpRateLimiter } from "./mcp-rate-limiter";
 import type { McpPrincipal, McpScope, OAuthService } from "./oauth.service";
 
 const CONTRACT_VERSION = "1.0";
@@ -42,6 +43,7 @@ interface ToolSpec {
     | "reviewStockRequests";
   readonly description: string;
   readonly inputSchema: Readonly<Record<string, unknown>>;
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
   readonly project: (value: unknown) => Readonly<Record<string, unknown>>;
   readonly validate: (value: unknown) => Readonly<Record<string, unknown>>;
 }
@@ -50,6 +52,7 @@ export interface McpToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Readonly<Record<string, unknown>>;
+  readonly outputSchema: Readonly<Record<string, unknown>>;
   readonly annotations?: Readonly<Record<string, unknown>>;
 }
 
@@ -94,9 +97,12 @@ const id = (value: unknown, field: string): string => {
   return candidate;
 };
 
-const page = (value: unknown): { readonly limit: number; readonly offset: number } => {
-  const limit = value === undefined ? 50 : Number(value);
-  const offset = value === undefined ? 0 : Number(value);
+const page = (
+  limitValue: unknown,
+  offsetValue: unknown = undefined,
+): { readonly limit: number; readonly offset: number } => {
+  const limit = limitValue === undefined ? 50 : Number(limitValue);
+  const offset = offsetValue === undefined ? 0 : Number(offsetValue);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
     throw new ToolValidationError("limit", `Limit must be between 1 and ${String(MAX_LIMIT)}.`);
   }
@@ -139,7 +145,7 @@ const toolSpecs: readonly ToolSpec[] = [
     description:
       "Summarise operational inventory, job, reservation and request activity in your role scope.",
     inputSchema: { type: "object", additionalProperties: false, properties: {} },
-    project: () => ({}),
+    project: (value) => safeJsonObject(value),
     validate: () => ({}),
   },
   {
@@ -167,11 +173,8 @@ const toolSpecs: readonly ToolSpec[] = [
     },
     validate: (value) => {
       const input = record(value);
-      const paging = page(
-        input["limit"] === undefined && input["offset"] === undefined ? undefined : input["limit"],
-      );
-      const offset = input["offset"] === undefined ? 0 : page(input["offset"]).offset;
-      return { search: optionalText(input["search"], "search"), limit: paging.limit, offset };
+      const paging = page(input["limit"], input["offset"]);
+      return { search: optionalText(input["search"], "search"), ...paging };
     },
   },
   {
@@ -213,17 +216,13 @@ const toolSpecs: readonly ToolSpec[] = [
       const from = date(input["from"], "from");
       const to = date(input["to"], "to");
       validateRange(from, to);
-      const paging = page(input["limit"]);
-      const offset = input["offset"] === undefined ? 0 : Number(input["offset"]);
-      if (!Number.isInteger(offset) || offset < 0 || offset > MAX_OFFSET)
-        throw new ToolValidationError("offset", "Offset is outside the supported range.");
+      const paging = page(input["limit"], input["offset"]);
       return {
         itemId: input["itemId"] === undefined ? undefined : id(input["itemId"], "itemId"),
         jobId: input["jobId"] === undefined ? undefined : id(input["jobId"], "jobId"),
         from,
         to,
-        limit: paging.limit,
-        offset,
+        ...paging,
       };
     },
   },
@@ -239,6 +238,8 @@ const toolSpecs: readonly ToolSpec[] = [
       properties: {
         status: { type: "string", enum: ["Open", "Closed"] },
         search: { type: "string", maxLength: 200 },
+        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
+        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
       },
     },
     project: (value) => safeJsonObject(value),
@@ -247,7 +248,11 @@ const toolSpecs: readonly ToolSpec[] = [
       const status = input["status"];
       if (status !== undefined && status !== "Open" && status !== "Closed")
         throw new ToolValidationError("status", "Status must be Open or Closed.");
-      return { status, search: optionalText(input["search"], "search") };
+      return {
+        status,
+        search: optionalText(input["search"], "search"),
+        ...page(input["limit"], input["offset"]),
+      };
     },
   },
   {
@@ -293,16 +298,12 @@ const toolSpecs: readonly ToolSpec[] = [
           !["Pending", "Approved", "Rejected", "Cancelled"].includes(status))
       )
         throw new ToolValidationError("status", "That request status is not supported.");
-      const paging = page(input["limit"]);
-      const offset = input["offset"] === undefined ? 0 : Number(input["offset"]);
-      if (!Number.isInteger(offset) || offset < 0 || offset > MAX_OFFSET)
-        throw new ToolValidationError("offset", "Offset is outside the supported range.");
+      const paging = page(input["limit"], input["offset"]);
       return {
         status,
         itemId: input["itemId"] === undefined ? undefined : id(input["itemId"], "itemId"),
         jobId: input["jobId"] === undefined ? undefined : id(input["jobId"], "jobId"),
-        limit: paging.limit,
-        offset,
+        ...paging,
       };
     },
   },
@@ -312,9 +313,16 @@ const toolSpecs: readonly ToolSpec[] = [
     scopes: ["stock:read"],
     capability: "view",
     description: "List active stores and job sites with stable IDs.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
+        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
+      },
+    },
     project: () => ({}),
-    validate: () => ({}),
+    validate: (value) => page(record(value)["limit"], record(value)["offset"]),
   },
   {
     name: "request_stock",
@@ -526,7 +534,7 @@ const writeArguments = (
   requiredFields: Readonly<Record<string, boolean>>,
 ): Readonly<Record<string, unknown>> => {
   const input = record(value);
-  const output: Record<string, unknown> = {};
+  const output: [string, unknown][] = [];
   for (const [field, required] of Object.entries(requiredFields)) {
     const candidate = input[field];
     if (candidate === undefined || candidate === null || candidate === "") {
@@ -536,7 +544,7 @@ const writeArguments = (
       continue;
     }
     if (field.endsWith("Id")) {
-      output[field] = id(candidate, field);
+      output.push([field, id(candidate, field)]);
     } else if (field === "quantity") {
       const quantity = text(candidate, field, 40);
       if (!/^\d+(?:\.\d{1,3})?$/u.test(quantity) || Number(quantity) <= 0) {
@@ -545,14 +553,14 @@ const writeArguments = (
           "Enter a quantity greater than zero with at most three decimal places.",
         );
       }
-      output[field] = quantity;
+      output.push([field, quantity]);
     } else if (field === "note" || field === "decisionNote") {
-      output[field] = text(candidate, field, 500);
+      output.push([field, text(candidate, field, 500)]);
     }
   }
-  output["actionSummary"] = text(input["actionSummary"], "actionSummary", 300);
-  output["idempotencyKey"] = text(input["idempotencyKey"], "idempotencyKey", 200);
-  return output;
+  output.push(["actionSummary", text(input["actionSummary"], "actionSummary", 300)]);
+  output.push(["idempotencyKey", text(input["idempotencyKey"], "idempotencyKey", 200)]);
+  return Object.fromEntries(output);
 };
 
 export const mcpToolDefinitions = (configuration: McpConfiguration): readonly McpToolDefinition[] =>
@@ -564,12 +572,118 @@ export const mcpToolDefinitions = (configuration: McpConfiguration): readonly Mc
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      outputSchema: outputSchemaFor(tool.name),
       ...(tool.operation === "read"
         ? { annotations: { readOnlyHint: true } }
         : { annotations: { readOnlyHint: false } }),
     }));
 
+const pageSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    rows: { type: "array" },
+    total: { type: "integer" },
+    limit: { type: "integer" },
+    offset: { type: "integer" },
+  },
+  required: ["rows", "total", "limit", "offset"],
+} as const;
+
+const operationSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    item: { type: "object" },
+    transactionId: { type: "string" },
+    reservationId: { type: ["string", "null"] },
+  },
+  required: ["item", "transactionId", "reservationId"],
+} as const;
+
+const operationalSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    role: { type: "string", enum: ["Engineer", "Office", "Admin"] },
+    assignedJobCount: { type: "integer" },
+    openReservationCount: { type: "integer" },
+    requestCount: { type: "integer" },
+    counts: { type: "object" },
+    lowStockCount: { type: "integer" },
+    pendingRequestCount: { type: "integer" },
+    recentTransactionCount: { type: "integer" },
+  },
+  required: ["role"],
+} as const;
+
+const outputSchemaFor = (name: string): Readonly<Record<string, unknown>> => {
+  if (name === "search_items" || name === "list_transactions" || name === "list_stock_requests") {
+    return pageSchema;
+  }
+  if (name === "list_jobs")
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: { jobs: { type: "array" } },
+      required: ["jobs"],
+    };
+  if (name === "list_locations") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: { locations: { type: "array" } },
+      required: ["locations"],
+    };
+  }
+  if (name === "get_item")
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: { item: { type: "object" } },
+      required: ["item"],
+    };
+  if (name === "get_job")
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: { job: { type: "object" } },
+      required: ["job"],
+    };
+  if (name === "get_operational_summary") {
+    return operationalSummarySchema;
+  }
+  if (name === "request_stock" || name === "approve_stock_request") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requestId: { type: "string" },
+        itemId: { type: "string" },
+        jobId: { type: ["string", "null"] },
+        reservationId: { type: ["string", "null"] },
+      },
+      required: ["requestId", "itemId", "jobId", "reservationId"],
+    };
+  }
+  if (name === "reject_stock_request") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requestId: { type: "string" },
+        itemId: { type: "string" },
+        jobId: { type: ["string", "null"] },
+      },
+      required: ["requestId", "itemId", "jobId"],
+    };
+  }
+  return operationSchema;
+};
+
 export class McpToolExecutor {
+  private readonly activeCalls = new Set<string>();
+
   public constructor(
     private readonly database: Kysely<StockControlDatabase>,
     private readonly audit: McpAuditService,
@@ -582,10 +696,15 @@ export class McpToolExecutor {
     private readonly requests: StockRequestsService,
     private readonly correlation: CorrelationContext,
     private readonly logger: StructuredLogger,
+    private readonly rateLimiter?: McpRateLimiter,
   ) {}
 
   public tools(): readonly McpToolDefinition[] {
     return mcpToolDefinitions(this.configuration);
+  }
+
+  public isInFlight(callId: string): boolean {
+    return this.activeCalls.has(callId);
   }
 
   public async execute(
@@ -594,6 +713,16 @@ export class McpToolExecutor {
     rawArguments: unknown,
     clientRequestId: string | null,
   ): Promise<McpExecutionResponse> {
+    const authorization = request.headers.authorization;
+    if (typeof authorization !== "string" || !/^Bearer\s+\S+$/iu.test(authorization)) {
+      return {
+        error: {
+          code: "mcp.authentication_required",
+          message: "Authenticate with an OAuth bearer token.",
+        },
+        isError: true,
+      };
+    }
     const spec = toolSpecs.find((candidate) => candidate.name === toolName);
     let projected: Readonly<Record<string, unknown>>;
     try {
@@ -615,113 +744,128 @@ export class McpToolExecutor {
       actionSummary: safeString(record(rawArguments)["actionSummary"]),
       clientRequestId: clientRequestId?.slice(0, 200) ?? null,
     });
+    this.activeCalls.add(handle.callId);
 
-    let principal: McpPrincipal | null;
     try {
-      principal = await this.principalFrom(request);
-    } catch (error: unknown) {
-      const failure = this.audit.failureFrom(error);
-      await this.audit.event(handle.callId, "Failed", {
-        failureCode: failure.code,
-        durationMs: Date.now() - handle.receivedAt.getTime(),
-        resultSummary: { outcome: "failed" },
-      });
-      return {
-        error: { code: failure.code, message: "Authentication could not be completed." },
-        isError: true,
-      };
-    }
-    if (principal === null) {
-      return this.failure(
-        handle,
-        "Denied",
-        "mcp.authentication_required",
-        "Authenticate with an OAuth bearer token.",
-      );
-    }
-    if (!this.configuration.enabled) {
-      return this.failure(
-        handle,
-        "Denied",
-        "mcp.disabled",
-        "The MCP integration is not enabled.",
-        principal,
-      );
-    }
-    if (
-      spec === undefined ||
-      (spec.operation === "read" && !this.configuration.readToolsEnabled) ||
-      (spec.operation === "write" && !this.configuration.writeToolsEnabled)
-    ) {
-      return this.failure(
-        handle,
-        "Denied",
-        "mcp.tool_disabled",
-        "That tool is not enabled.",
-        principal,
-      );
-    }
+      let principal: McpPrincipal | null;
+      try {
+        principal = await this.principalFrom(request);
+      } catch (error: unknown) {
+        const failure = this.audit.failureFrom(error);
+        await this.audit.event(handle.callId, "Failed", {
+          failureCode: failure.code,
+          durationMs: Date.now() - handle.receivedAt.getTime(),
+          resultSummary: { outcome: "failed" },
+        });
+        return {
+          error: { code: failure.code, message: "Authentication could not be completed." },
+          isError: true,
+        };
+      }
+      if (principal === null) {
+        return this.failure(
+          handle,
+          "Denied",
+          "mcp.authentication_required",
+          "Authenticate with an OAuth bearer token.",
+        );
+      }
+      if (!this.configuration.enabled) {
+        return this.failure(
+          handle,
+          "Denied",
+          "mcp.disabled",
+          "The MCP integration is not enabled.",
+          principal,
+        );
+      }
+      if (
+        spec === undefined ||
+        (spec.operation === "read" && !this.configuration.readToolsEnabled) ||
+        (spec.operation === "write" && !this.configuration.writeToolsEnabled)
+      ) {
+        return this.failure(
+          handle,
+          "Denied",
+          "mcp.tool_disabled",
+          "That tool is not enabled.",
+          principal,
+        );
+      }
 
-    let argumentsValue: Readonly<Record<string, unknown>>;
-    try {
-      argumentsValue = spec.validate(rawArguments);
-    } catch (error: unknown) {
-      const message =
-        error instanceof ToolValidationError
-          ? error.message
-          : "The tool arguments were not accepted.";
-      return this.failure(handle, "Failed", "mcp.invalid_arguments", message, principal);
-    }
+      let argumentsValue: Readonly<Record<string, unknown>>;
+      try {
+        argumentsValue = spec.validate(rawArguments);
+      } catch (error: unknown) {
+        const message =
+          error instanceof ToolValidationError
+            ? error.message
+            : "The tool arguments were not accepted.";
+        return this.failure(handle, "Failed", "mcp.invalid_arguments", message, principal);
+      }
 
-    if (!this.authorised(principal, spec)) {
-      return this.failure(
-        handle,
-        "Denied",
-        "mcp.permission_denied",
-        "Your current StockControl role or granted scope cannot use this tool.",
-        principal,
-      );
-    }
-    try {
-      await this.audit.event(handle.callId, "Authorised", {
-        actorUserId: principal.user.id,
-        grantId: principal.grantId,
-      });
-      const value =
-        spec.operation === "write"
-          ? await this.runWrite(spec.name, argumentsValue, principal, handle)
-          : await this.runRead(spec.name, argumentsValue, principal);
-      if (spec.operation === "read") {
-        const summary = McpAuditService.resultSummary(value);
-        await this.audit.event(handle.callId, "Succeeded", {
-          ...summary,
+      if (!this.authorised(principal, spec)) {
+        return this.failure(
+          handle,
+          "Denied",
+          "mcp.permission_denied",
+          "Your current StockControl role or granted scope cannot use this tool.",
+          principal,
+        );
+      }
+      const rateLimit = this.rateLimiter?.check(principal.user.id, principal.grantId, spec.name);
+      if (rateLimit !== undefined && !rateLimit.allowed) {
+        return this.failure(
+          handle,
+          "Denied",
+          "mcp.rate_limited",
+          "This MCP connection is temporarily rate limited.",
+          principal,
+        );
+      }
+      try {
+        await this.audit.event(handle.callId, "Authorised", {
+          actorUserId: principal.user.id,
+          grantId: principal.grantId,
+        });
+        const value =
+          spec.operation === "write"
+            ? await this.runWrite(spec.name, argumentsValue, principal, handle)
+            : await this.runRead(spec.name, argumentsValue, principal);
+        if (spec.operation === "read") {
+          const summary = McpAuditService.resultSummary(value);
+          await this.audit.event(handle.callId, "Succeeded", {
+            ...summary,
+            durationMs: Date.now() - handle.receivedAt.getTime(),
+          });
+        }
+        this.logger.log({
+          event: "mcp.tool.succeeded",
+          tool: spec.name,
+          operation: spec.operation,
+          actorUserId: principal.user.id,
           durationMs: Date.now() - handle.receivedAt.getTime(),
         });
+        return { value, isError: false };
+      } catch (error: unknown) {
+        const failure = this.audit.failureFrom(error);
+        await this.audit.event(handle.callId, "Failed", {
+          actorUserId: principal.user.id,
+          grantId: principal.grantId,
+          failureCode: failure.code,
+          durationMs: Date.now() - handle.receivedAt.getTime(),
+          resultSummary: { outcome: "failed" },
+        });
+        this.logger.warn({
+          event: "mcp.tool.failed",
+          tool: spec.name,
+          failureCode: failure.code,
+          actorUserId: principal.user.id,
+        });
+        return { error: { code: failure.code, message: failure.detail }, isError: true };
       }
-      this.logger.log({
-        event: "mcp.tool.succeeded",
-        tool: spec.name,
-        operation: spec.operation,
-        actorUserId: principal.user.id,
-        durationMs: Date.now() - handle.receivedAt.getTime(),
-      });
-      return { value, isError: false };
-    } catch (error: unknown) {
-      const failure = this.audit.failureFrom(error);
-      await this.audit.event(handle.callId, "Failed", {
-        actorUserId: principal.user.id,
-        grantId: principal.grantId,
-        failureCode: failure.code,
-        durationMs: Date.now() - handle.receivedAt.getTime(),
-        resultSummary: { outcome: "failed" },
-      });
-      this.logger.warn({
-        event: "mcp.tool.failed",
-        tool: spec.name,
-        failureCode: failure.code,
-        actorUserId: principal.user.id,
-      });
-      return { error: { code: failure.code, message: failure.detail }, isError: true };
+    } finally {
+      this.activeCalls.delete(handle.callId);
     }
   }
 
@@ -783,6 +927,8 @@ export class McpToolExecutor {
           jobs: await this.jobs.list({
             status: input["status"] as "Open" | "Closed" | undefined,
             search: input["search"] as string | undefined,
+            limit: input["limit"] as number,
+            offset: input["offset"] as number,
             ...(roleHasCapability(principal.user.role, "viewAllActivity")
               ? {}
               : { assignedTo: principal.user.id }),
@@ -802,7 +948,12 @@ export class McpToolExecutor {
           offset: input["offset"] as number,
         });
       case "list_locations":
-        return { locations: await this.catalogue.listLocations() };
+        return {
+          locations: await this.catalogue.listLocations({
+            limit: input["limit"] as number,
+            offset: input["offset"] as number,
+          }),
+        };
       default:
         throw new Error("Unknown MCP tool.");
     }
@@ -817,6 +968,7 @@ export class McpToolExecutor {
     const idempotencyKey = input["idempotencyKey"] as string;
     const fingerprint = sha256(canonicalJson(input));
     return this.database.transaction().execute(async (tx) => {
+      await this.audit.lockIdempotency(tx, principal.user.id, name, idempotencyKey);
       const prior = await this.audit.findReceipt(tx, principal.user.id, name, idempotencyKey);
       if (prior !== null) {
         if (prior.requestFingerprint !== fingerprint) {
@@ -965,6 +1117,7 @@ export class McpToolExecutor {
       durationMs: Date.now() - handle.receivedAt.getTime(),
       resultSummary: { outcome: event.toLowerCase() },
     });
+    this.activeCalls.delete(handle.callId);
     return { error: { code, message }, isError: true };
   }
 }

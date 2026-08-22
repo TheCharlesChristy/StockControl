@@ -163,4 +163,21 @@ describe("system HTTP integration endpoints", () => {
       instance: "/api/v1/does-not-exist",
     });
   });
+
+  it("does not register MCP or OAuth routes while the integration is disabled", async () => {
+    const routes = [
+      ["GET", "/mcp"],
+      ["GET", "/.well-known/oauth-protected-resource"],
+      ["GET", "/.well-known/oauth-authorization-server"],
+      ["GET", "/oauth/authorize"],
+      ["POST", "/oauth/token"],
+      ["POST", "/oauth/revoke"],
+      ["GET", "/api/v1/mcp-activity"],
+    ] as const;
+    const responses = await Promise.all(
+      routes.map(([method, url]) => server.inject({ method, url })),
+    );
+
+    expect(responses.every((response) => response.statusCode === 404)).toBe(true);
+  });
 });

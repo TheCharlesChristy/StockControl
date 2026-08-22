@@ -20,4 +20,24 @@ describe("MCP feature configuration", () => {
       }),
     ).toThrow(/https/u);
   });
+
+  it("requires an explicit OAuth redirect URI when MCP is enabled", () => {
+    expect(() =>
+      loadMcpConfiguration({
+        NODE_ENV: "test",
+        MCP_ENABLED: "true",
+        MCP_PUBLIC_BASE_URL: "https://stockcontrol.example",
+      }),
+    ).toThrow(/MCP_REDIRECT_URI/u);
+  });
+
+  it("uses the explicit abandoned-call grace over the legacy timeout", () => {
+    const configuration = loadMcpConfiguration({
+      NODE_ENV: "test",
+      MCP_ABANDONED_CALL_SECONDS: "300",
+      MCP_MAX_TOOL_SECONDS: "not-used",
+    });
+
+    expect(configuration.abandonedCallSeconds).toBe(300);
+  });
 });

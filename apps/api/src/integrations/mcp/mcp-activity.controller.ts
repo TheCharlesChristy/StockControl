@@ -1,4 +1,13 @@
-import { Controller, Get, Inject, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import type {
   McpActivityQuery,
@@ -8,7 +17,7 @@ import type {
 
 import { API_TOKENS } from "../../api.tokens";
 import { requireCapability } from "../../auth/request-context";
-import { parseTimestamp } from "../../inventory/request-parsing";
+import { parseTimestamp, requireUuidParameter } from "../../inventory/request-parsing";
 import type { McpActivityService } from "./mcp-activity.service";
 import type { OAuthService } from "./oauth.service";
 
@@ -40,7 +49,7 @@ export class McpActivityController {
     const query: McpActivityQuery = {
       ...(fromTimestamp === undefined ? {} : { from: fromTimestamp }),
       ...(toTimestamp === undefined ? {} : { to: toTimestamp }),
-      ...(userId === undefined ? {} : { userId }),
+      ...(userId === undefined ? {} : { userId: requireUuidParameter(userId, "user") }),
       ...(tool === undefined ? {} : { tool }),
       ...(outcome === "Succeeded" ||
       outcome === "Denied" ||
@@ -66,9 +75,14 @@ export class McpActivityController {
   public async revoke(
     @Req() request: FastifyRequest,
     @Param("grantId") grantId: string,
-  ): Promise<{ readonly revoked: true }> {
+  ): Promise<{ readonly revoked: boolean }> {
     const user = requireCapability(request, "view");
-    await this.oauth.revokeGrant(grantId, user.id, user.role === "Admin");
-    return { revoked: true };
+    const outcome = await this.oauth.revokeGrant(
+      requireUuidParameter(grantId, "grant"),
+      user.id,
+      user.role === "Admin",
+    );
+    if (outcome === "not-found") throw new NotFoundException("Connection not found.");
+    return { revoked: outcome === "revoked" };
   }
 }

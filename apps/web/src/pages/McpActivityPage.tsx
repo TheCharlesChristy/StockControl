@@ -3,6 +3,7 @@ import {
   Button,
   Chip,
   MenuItem,
+  Pagination,
   Paper,
   Stack,
   Table,
@@ -42,6 +43,10 @@ export function McpActivityPage(): ReactElement {
   const tool = params.get("tool") ?? "";
   const outcome = params.get("outcome") ?? "";
   const operation = params.get("operation") ?? "";
+  const userId = params.get("userId") ?? "";
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
+  const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
 
   const setFilter = (key: string, value: string): void => {
     setParams(
@@ -49,6 +54,7 @@ export function McpActivityPage(): ReactElement {
         const next = new URLSearchParams(current);
         if (value.length === 0) next.delete(key);
         else next.set(key, value);
+        if (key !== "page") next.delete("page");
         return next;
       },
       { replace: true },
@@ -62,10 +68,13 @@ export function McpActivityPage(): ReactElement {
         ? { outcome: outcome as McpToolCallOutcome | "Incomplete" }
         : {}),
       ...(operation === "read" || operation === "write" ? { operation } : {}),
+      ...(userId.length > 0 ? { userId } : {}),
+      ...(from.length > 0 ? { from } : {}),
+      ...(to.length > 0 ? { to: `${to}T23:59:59.999Z` } : {}),
       limit: PAGE_SIZE,
-      offset: 0,
+      offset: (page - 1) * PAGE_SIZE,
     }),
-    [operation, outcome, tool],
+    [from, operation, outcome, page, to, tool, userId],
   );
   const activity = useResource((signal) => api.listMcpActivity(query(), signal));
   const connections = useResource((signal) => api.listMcpConnections(signal));
@@ -114,6 +123,30 @@ export function McpActivityPage(): ReactElement {
             <MenuItem value="read">Read</MenuItem>
             <MenuItem value="write">Write</MenuItem>
           </TextField>
+          <TextField
+            label="User ID"
+            value={userId}
+            onChange={(event) => setFilter("userId", event.target.value)}
+            size="small"
+            placeholder="Admin/Office filter"
+            sx={{ minWidth: 220 }}
+          />
+          <TextField
+            label="From"
+            type="date"
+            value={from}
+            onChange={(event) => setFilter("from", event.target.value)}
+            size="small"
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            label="To"
+            type="date"
+            value={to}
+            onChange={(event) => setFilter("to", event.target.value)}
+            size="small"
+            InputLabelProps={{ shrink: true }}
+          />
         </Stack>
       </Paper>
       {activity.status === "error" && activity.error !== undefined && (
@@ -197,6 +230,16 @@ export function McpActivityPage(): ReactElement {
             </Table>
           </TableContainer>
         </Paper>
+      )}
+      {activity.data !== undefined && activity.data.total > PAGE_SIZE && (
+        <Stack alignItems="center" sx={{ py: 2 }}>
+          <Pagination
+            page={page}
+            count={Math.ceil(activity.data.total / PAGE_SIZE)}
+            onChange={(_event, nextPage) => setFilter("page", String(nextPage))}
+            color="primary"
+          />
+        </Stack>
       )}
       <Paper variant="outlined" sx={{ mt: 2.5, p: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 800 }}>

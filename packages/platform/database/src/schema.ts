@@ -99,6 +99,22 @@ export interface OAuthGrantEventsTable {
   readonly occurred_at: GeneratedImmutableColumn<Date>;
 }
 
+export interface OAuthAuthorizationRequestsTable {
+  readonly id: ImmutableColumn<string>;
+  readonly user_id: ImmutableColumn<string>;
+  readonly client_id: ImmutableColumn<string>;
+  readonly redirect_uri: ImmutableColumn<string>;
+  readonly state: string | null;
+  readonly requested_scopes: JsonArrayColumn;
+  readonly code_challenge: ImmutableColumn<string>;
+  readonly code_challenge_method: ImmutableColumn<string>;
+  readonly authorization_code_hash: string | null;
+  readonly expires_at: ImmutableColumn<Date>;
+  readonly approved_at: Date | null;
+  readonly consumed_at: Date | null;
+  readonly created_at: GeneratedImmutableColumn<Date>;
+}
+
 export type McpOperation = "read" | "write";
 export type McpToolCallEventType =
   "Received" | "Authorised" | "Denied" | "Succeeded" | "Failed" | "Interrupted";
@@ -502,6 +518,7 @@ export interface StockControlDatabase {
   readonly mcp_tool_call_events: McpToolCallEventsTable;
   readonly mcp_tool_calls: McpToolCallsTable;
   readonly oauth_grant_events: OAuthGrantEventsTable;
+  readonly oauth_authorization_requests: OAuthAuthorizationRequestsTable;
   readonly oauth_grants: OAuthGrantsTable;
   readonly recognition_feedback: RecognitionFeedbackTable;
   readonly reservations: ReservationsTable;

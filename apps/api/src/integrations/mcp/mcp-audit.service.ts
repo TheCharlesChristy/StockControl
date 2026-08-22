@@ -11,7 +11,7 @@ import {
   type ApplicationFailure,
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { canonicalJson, safeJsonObject, sha256 } from "./mcp-utils";
 
@@ -19,6 +19,12 @@ const SCHEMA = "stockcontrol" as const;
 const databaseFor = (
   database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
 ): Kysely<StockControlDatabase> | Transaction<StockControlDatabase> => database.withSchema(SCHEMA);
+
+const isTerminalEvent = (eventType: McpToolCallEventType): boolean =>
+  eventType === "Denied" ||
+  eventType === "Succeeded" ||
+  eventType === "Failed" ||
+  eventType === "Interrupted";
 
 export interface StartMcpCallInput {
   readonly callId: string;
@@ -93,13 +99,24 @@ export class McpAuditService {
     return { ...input, receivedAt, argumentFingerprint };
   }
 
-  public event(
+  public async event(
     callId: string,
     eventType: McpToolCallEventType,
     result: McpEventResult,
     database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase> = this.database,
   ): Promise<void> {
-    return databaseFor(database)
+    if (isTerminalEvent(eventType)) {
+      if (database === this.database) {
+        await this.database
+          .transaction()
+          .execute((tx) => this.insertTerminalEvent(tx, callId, eventType, result));
+        return;
+      }
+      await this.insertTerminalEvent(database, callId, eventType, result);
+      return;
+    }
+
+    await databaseFor(database)
       .insertInto("mcp_tool_call_events")
       .values({
         id: randomUUID(),
@@ -117,6 +134,55 @@ export class McpAuditService {
       })
       .execute()
       .then(() => undefined);
+  }
+
+  private async insertTerminalEvent(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    callId: string,
+    eventType: McpToolCallEventType,
+    result: McpEventResult,
+  ): Promise<void> {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${callId}, 0))`.execute(database);
+    const existing = await databaseFor(database)
+      .selectFrom("mcp_tool_call_events")
+      .select("id")
+      .where("call_id", "=", callId)
+      .where("event_type", "in", ["Denied", "Succeeded", "Failed", "Interrupted"])
+      .executeTakeFirst();
+    if (existing !== undefined) return;
+    await databaseFor(database)
+      .insertInto("mcp_tool_call_events")
+      .values({
+        id: randomUUID(),
+        call_id: callId,
+        actor_user_id: result.actorUserId ?? null,
+        oauth_grant_id: result.grantId ?? null,
+        event_type: eventType,
+        occurred_at: this.now(),
+        failure_code: result.failureCode ?? null,
+        duration_ms: result.durationMs ?? null,
+        result_summary: JSON.stringify(safeJsonObject(result.resultSummary ?? {})),
+        record_count: result.recordCount ?? null,
+        record_types: JSON.stringify((result.recordTypes ?? []).slice(0, 50)),
+        response_digest: result.responseDigest ?? null,
+      })
+      .execute();
+  }
+
+  public async eventIfIncomplete(callId: string, result: McpEventResult): Promise<boolean> {
+    return this.database.transaction().execute(async (tx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${callId}, 0))`.execute(tx);
+      const existing = await tx
+        .withSchema(SCHEMA)
+        .selectFrom("mcp_tool_call_events")
+        .select("id")
+        .where("call_id", "=", callId)
+        .where("event_type", "in", ["Denied", "Succeeded", "Failed", "Interrupted"])
+        .executeTakeFirst();
+      if (existing !== undefined) return false;
+      await this.event(callId, "Interrupted", result, tx);
+      return true;
+    });
   }
 
   public async fail(
@@ -168,10 +234,10 @@ export class McpAuditService {
 
   public static compactWriteResult(value: unknown): Readonly<Record<string, unknown>> {
     const safe = safeJsonObject(value);
-    const compact: Record<string, unknown> = {};
+    const entries: [string, string][] = [];
     for (const key of ["transactionId", "reservationId", "requestId", "itemId", "jobId", "id"]) {
       if (typeof safe[key] === "string") {
-        compact[key] = safe[key];
+        entries.push([key, safe[key]]);
       }
     }
     for (const [container, idKey] of [
@@ -182,11 +248,11 @@ export class McpAuditService {
       if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
         const nestedId = (nested as Readonly<Record<string, unknown>>)["id"];
         if (typeof nestedId === "string") {
-          compact[idKey] = nestedId;
+          entries.push([idKey, nestedId]);
         }
       }
     }
-    return compact;
+    return Object.fromEntries(entries);
   }
 
   public async findReceipt(
@@ -210,6 +276,16 @@ export class McpAuditService {
           requestFingerprint: row.request_fingerprint,
           result: row.result,
         };
+  }
+
+  public async lockIdempotency(
+    database: Transaction<StockControlDatabase>,
+    actorUserId: string,
+    toolName: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    const lockKey = `${actorUserId}\0${toolName}\0${idempotencyKey}`;
+    await sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`.execute(database);
   }
 
   public async insertReceipt(

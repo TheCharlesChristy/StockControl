@@ -28,6 +28,7 @@ export class McpActivityService {
       select event_type
       from stockcontrol.mcp_tool_call_events latest_event
       where latest_event.call_id = mcp_tool_calls.id
+        and latest_event.event_type in ('Denied', 'Succeeded', 'Failed', 'Interrupted')
       order by latest_event.occurred_at desc, latest_event.id desc
       limit 1
     )`;
@@ -147,6 +148,7 @@ export class McpActivityService {
       .executeTakeFirst();
     const rows = await selection
       .orderBy("mcp_tool_calls.received_at", "desc")
+      .orderBy("mcp_tool_calls.id", "desc")
       .limit(query.limit ?? 50)
       .offset(query.offset ?? 0)
       .execute();

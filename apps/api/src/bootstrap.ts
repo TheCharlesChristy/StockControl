@@ -2,6 +2,7 @@ import "reflect-metadata";
 
 import fastifyCookie from "@fastify/cookie";
 import { NestFactory } from "@nestjs/core";
+import { parse as parseFormBody } from "node:querystring";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { RequestMethod } from "@nestjs/common";
 import type { FastifyInstance } from "fastify";
@@ -96,11 +97,6 @@ export const createApiApplication = async (
   const fastify: FastifyInstance = app.getHttpAdapter().getInstance();
 
   await fastify.register(fastifyCookie);
-  fastify.addContentTypeParser(
-    /^image\/(?:jpeg|webp)(?:\s*;.*)?$/iu,
-    { parseAs: "buffer" },
-    (_request, body, done) => done(null, body),
-  );
   registerCorrelationIdHook(fastify, context);
   registerSecurityHeadersHook(fastify);
   app.setGlobalPrefix(API_V1_PREFIX, {
@@ -114,8 +110,24 @@ export const createApiApplication = async (
   app.useGlobalFilters(new ProblemDetailsExceptionFilter(context, logger));
 
   await app.init();
+  registerApiContentTypeParsers(fastify);
   await fastify.ready();
   return app;
+};
+
+export const registerApiContentTypeParsers = (fastify: FastifyInstance): void => {
+  fastify.addContentTypeParser(
+    /^image\/(?:jpeg|webp)(?:\s*;.*)?$/iu,
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
+  if (!fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
+    fastify.addContentTypeParser(
+      "application/x-www-form-urlencoded",
+      { parseAs: "string" },
+      (_request, body, done) => done(null, parseFormBody(String(body))),
+    );
+  }
 };
 
 export const startApi = async (

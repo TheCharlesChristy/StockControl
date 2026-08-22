@@ -88,6 +88,7 @@ RUNTIME_TARGET=web
 PORT=8080
 API_HOST=${{api.RAILWAY_PRIVATE_DOMAIN}}
 API_PORT=3000
+MCP_ENABLED=false
 ```
 
 The browser uses relative `/api/*` URLs. Nginx resolves `API_HOST` using the

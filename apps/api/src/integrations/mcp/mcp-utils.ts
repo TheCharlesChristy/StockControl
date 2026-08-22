@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 export type SafeJson =
   string | number | boolean | null | SafeJson[] | { readonly [key: string]: SafeJson };
 
-const SECRET_KEY = /authorization|cookie|password|secret|token|credential|prompt|stack/iu;
+const SECRET_KEY =
+  /authorization|cookie|password|secret|token|credential|prompt|stack|api[-_]?key|private[-_]?key|bearer|jwt|code[-_]?verifier|code[-_]?challenge/iu;
 
 export const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -35,11 +36,12 @@ const safeValue = (value: unknown, depth: number): SafeJson => {
     return value.slice(0, 50).map((entry) => safeValue(entry, depth + 1));
   }
   if (typeof value === "object") {
-    const output: Record<string, SafeJson> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      output[key] = SECRET_KEY.test(key) ? "[REDACTED]" : safeValue(entry, depth + 1);
-    }
-    return output;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        SECRET_KEY.test(key) ? "[REDACTED]" : safeValue(entry, depth + 1),
+      ]),
+    );
   }
   return "[UNSUPPORTED]";
 };

@@ -25,8 +25,13 @@ OAuth scope and the user's live role capability, reloaded for every tool call.
 Disabling a user, changing their role, or revoking a grant takes effect on the
 next call.
 
-OAuth grant state is mutable only through its dedicated service. MCP tool-call
-records, lifecycle events, effect links and command receipts are append-only.
+OAuth grant state is mutable only through its dedicated service. Browser consent
+stores a short-lived, single-use authorization request in PostgreSQL and only
+reflects its opaque handle; client, redirect, scope and PKCE values never come
+from HTML. Reauthorization revokes the previous active grant in the same
+transaction that consumes the authorization code and issues the replacement
+tokens. MCP tool-call records, lifecycle events, effect links and command
+receipts are append-only.
 Every call fails closed if its initial `Received` record cannot be written.
 Successful writes append their success event, receipt and effect links in the
 same PostgreSQL transaction as the business effect. Retryable commands use a
@@ -39,14 +44,18 @@ authorization headers, exception stacks or unrestricted response bodies.
 
 ## Consequences
 
-- The public edge exposes only `/mcp`, required OAuth metadata and OAuth
-  endpoints; normal browser routes continue to use the existing origin guard.
+- The public edge exposes only the exact `/mcp`, OAuth metadata and OAuth
+  endpoints when `MCP_ENABLED=true`; normal browser routes continue to use the
+  existing origin guard. The OAuth endpoints have separate edge throttling in
+  addition to the MCP call throttle.
 - Read tools can be enabled independently of write tools and are bounded by
   existing activity scoping and explicit page/date limits.
 - The activity screen can reconstruct successful, denied, invalid, failed and
   incomplete calls without replaying the model conversation.
 - A small reconciliation job must append `Interrupted` for calls left without
-  a terminal event after the maximum tool timeout.
+  a terminal event after the explicit abandoned-call grace period. Active
+  calls are tracked in-process, and terminal-event insertion is serialized with
+  reconciliation by a PostgreSQL advisory transaction lock.
 - Initial audit data is retained for twelve months; linked business ledger
   records follow their existing retention policy.
 

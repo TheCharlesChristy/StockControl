@@ -7,7 +7,7 @@ export interface McpConfiguration {
   readonly redirectUri: string;
   readonly accessTokenMinutes: number;
   readonly refreshTokenDays: number;
-  readonly maximumToolSeconds: number;
+  readonly abandonedCallSeconds: number;
 }
 
 export interface McpEnvironment {
@@ -21,6 +21,7 @@ export interface McpEnvironment {
   readonly MCP_ACCESS_TOKEN_MINUTES?: string;
   readonly MCP_REFRESH_TOKEN_DAYS?: string;
   readonly MCP_MAX_TOOL_SECONDS?: string;
+  readonly MCP_ABANDONED_CALL_SECONDS?: string;
   readonly PUBLIC_APP_ORIGIN?: string;
 }
 
@@ -80,14 +81,28 @@ export const loadMcpConfiguration = (
     production,
   );
   const clientId = environment.MCP_CLIENT_ID?.trim() || "stockcontrol-chatgpt";
+  const redirectUriValue = environment.MCP_REDIRECT_URI?.trim();
+  if (
+    enabled(environment.MCP_ENABLED) &&
+    (redirectUriValue === undefined || redirectUriValue.length === 0)
+  ) {
+    throw new Error("MCP_REDIRECT_URI must be set when MCP is enabled.");
+  }
   const redirectUri = absoluteUrl(
-    environment.MCP_REDIRECT_URI?.trim() || `${publicBaseUrl}/oauth/callback`,
+    redirectUriValue || `${publicBaseUrl}/oauth/callback`,
     "MCP_REDIRECT_URI",
     production,
   );
 
   if (clientId.length > 160) {
     throw new Error("MCP_CLIENT_ID must be 160 characters or fewer.");
+  }
+
+  let abandonedCallSeconds = 300;
+  if (environment.MCP_ABANDONED_CALL_SECONDS?.trim().length) {
+    abandonedCallSeconds = boundedInteger(environment, "MCP_ABANDONED_CALL_SECONDS", 300, 60, 900);
+  } else if (environment.MCP_MAX_TOOL_SECONDS?.trim().length) {
+    abandonedCallSeconds = boundedInteger(environment, "MCP_MAX_TOOL_SECONDS", 30, 5, 120) * 4;
   }
 
   return {
@@ -99,6 +114,6 @@ export const loadMcpConfiguration = (
     redirectUri,
     accessTokenMinutes: boundedInteger(environment, "MCP_ACCESS_TOKEN_MINUTES", 15, 5, 60),
     refreshTokenDays: boundedInteger(environment, "MCP_REFRESH_TOKEN_DAYS", 30, 1, 90),
-    maximumToolSeconds: boundedInteger(environment, "MCP_MAX_TOOL_SECONDS", 30, 5, 120),
+    abandonedCallSeconds,
   };
 };
