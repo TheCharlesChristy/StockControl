@@ -1,7 +1,7 @@
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, type ReactElement, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { FullPageLoading } from "../components/RouteStates";
-import { getRedirectPath, signInPathFor } from "../pages/SignInPage";
+import { getRedirectPath, requiresDocumentNavigation, signInPathFor } from "../pages/SignInPage";
 import { useAuth } from "./AuthContext";
 
 interface SignedOutOnlyProps {
@@ -9,6 +9,19 @@ interface SignedOutOnlyProps {
 }
 
 export const CHANGE_PASSWORD_PATH = "/change-password";
+
+interface DocumentNavigationProps {
+  readonly destination: string;
+}
+
+/* React Router cannot serve an API-owned route; reload it through Nginx instead. */
+function DocumentNavigation({ destination }: DocumentNavigationProps): ReactElement {
+  useEffect(() => {
+    window.location.assign(destination);
+  }, [destination]);
+
+  return <FullPageLoading />;
+}
 
 export function RequireAuthentication(): ReactElement {
   const { status, user } = useAuth();
@@ -57,7 +70,12 @@ export function SignedOutOnly({ children }: SignedOutOnlyProps): ReactElement {
    * intermittently, depending on which navigation landed last.
    */
   if (status === "authenticated") {
-    return <Navigate to={getRedirectPath(location.state, location.search)} replace />;
+    const destination = getRedirectPath(location.state, location.search);
+    if (requiresDocumentNavigation(destination)) {
+      return <DocumentNavigation destination={destination} />;
+    }
+
+    return <Navigate to={destination} replace />;
   }
 
   return <>{children}</>;

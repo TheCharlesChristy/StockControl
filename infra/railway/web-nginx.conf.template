@@ -65,6 +65,20 @@ server {
         proxy_send_timeout 60s;
     }
 
+    # OAuth sign-in starts in ChatGPT. This is the sole browser-app document
+    # that may be embedded there; all other StockControl pages stay protected
+    # by the server-level frame deny policy above.
+    location = /sign-in {
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://*.storageapi.dev https://storageapi.dev; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors https://chatgpt.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:" always;
+        add_header Permissions-Policy "camera=(self), geolocation=(), microphone=()" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        # Keep the request in this location so its ChatGPT frame policy is not
+        # replaced by the deny-by-default policy on the general SPA location.
+        try_files /index.html =404;
+    }
+
     # The MCP streamable HTTP endpoint is the only public path that can carry
     # bearer-authenticated tool calls. Keep the API private and disable proxy
     # buffering so JSON-RPC responses are delivered promptly.
@@ -129,6 +143,19 @@ server {
         if ($stockcontrol_mcp_enabled != true) { return 404; }
         set $api_upstream http://${API_HOST}:${API_PORT};
         limit_req zone=stockcontrol_oauth_by_ip burst=10 nodelay;
+        # The API's default CSP is intentionally sandboxed because it normally
+        # only serves data. The consent page is a script-free browser document
+        # that ChatGPT must be able to frame, so replace that one upstream
+        # policy with this narrow allowlist. Do not add X-Frame-Options: DENY,
+        # as it would override the CSP allowance in older user agents.
+        proxy_hide_header Content-Security-Policy;
+        proxy_hide_header Referrer-Policy;
+        proxy_hide_header X-Content-Type-Options;
+        add_header Content-Security-Policy "default-src 'none'; base-uri 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=()" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
         proxy_pass $api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

@@ -37,6 +37,8 @@ const DEEP_LINK_PATTERNS: readonly RegExp[] = [
   /^\/requests\/[^/]+$/u,
 ];
 
+const OAUTH_AUTHORIZE_PATH = "/oauth/authorize";
+
 export const DEFAULT_SIGNED_IN_PATH = "/dashboard";
 
 /** The query parameter carrying the page a signed-out visitor was trying to reach. */
@@ -60,7 +62,10 @@ function safeDeepLink(candidate: unknown): string | null {
     return null;
   }
 
-  if (!DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname))) {
+  const isRecordDeepLink = DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname));
+  const isOAuthAuthorization = resolvedUrl.pathname === OAUTH_AUTHORIZE_PATH;
+
+  if (!isRecordDeepLink && !isOAuthAuthorization) {
     return null;
   }
 
@@ -89,6 +94,11 @@ export function signInPathFor(attemptedPath: string): string {
   return safeDeepLink(attemptedPath) === null
     ? "/sign-in"
     : `/sign-in?${REDIRECT_QUERY_KEY}=${encodeURIComponent(attemptedPath)}`;
+}
+
+/** OAuth is served by the API, so the SPA must hand it back to the server. */
+export function requiresDocumentNavigation(destination: string): boolean {
+  return new URL(destination, window.location.origin).pathname === OAUTH_AUTHORIZE_PATH;
 }
 
 export function SignInPage(): ReactElement {
@@ -122,7 +132,12 @@ export function SignInPage(): ReactElement {
 
     void signIn(normalizedUsername, password)
       .then(() => {
-        void navigate(getRedirectPath(location.state, location.search), { replace: true });
+        const destination = getRedirectPath(location.state, location.search);
+        if (requiresDocumentNavigation(destination)) {
+          window.location.assign(destination);
+          return;
+        }
+        void navigate(destination, { replace: true });
       })
       .catch(() => {
         setErrorMessage("We could not sign you in. Check your details and try again.");
