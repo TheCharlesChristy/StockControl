@@ -268,6 +268,13 @@ export class OAuthController {
 
   @Post("oauth/authorize")
   @Public()
+  /*
+   * ChatGPT submits this same-origin form from an embedded OAuth document.
+   * Browser framing can omit the app Origin header or classify the submission
+   * as cross-site. The single-use request id and the matching authenticated
+   * session are the CSRF binding for this protocol endpoint.
+   */
+  @OriginExempt()
   public async authorize(
     @Req() request: FastifyRequest,
     @Body() rawBody: unknown,
