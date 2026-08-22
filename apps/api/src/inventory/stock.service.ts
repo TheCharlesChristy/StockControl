@@ -286,50 +286,60 @@ export class StockService {
 
   /** Closes a job, releasing every uncollected reservation on it. */
   public async closeJob(actorUserId: string, jobId: string): Promise<void> {
-    await this.database.transaction().execute(async (tx) => {
-      const job = await requireJob(tx, jobId);
-      const open = await tx
-        .withSchema("stockcontrol")
-        .selectFrom("reservations")
-        .select("id")
-        .where("job_id", "=", jobId)
-        .where("status", "=", "Open")
-        .orderBy("id")
-        .forUpdate()
-        .execute();
+    await this.database
+      .transaction()
+      .execute((tx) => this.closeJobInTransaction(tx, actorUserId, jobId));
+  }
 
-      const openReservations = [];
+  public async closeJobInTransaction(
+    tx: StockTransaction,
+    actorUserId: string,
+    jobId: string,
+  ): Promise<{ readonly jobId: string; readonly releasedReservationCount: number }> {
+    const job = await requireJob(tx, jobId);
+    const open = await tx
+      .withSchema("stockcontrol")
+      .selectFrom("reservations")
+      .select("id")
+      .where("job_id", "=", jobId)
+      .where("status", "=", "Open")
+      .orderBy("id")
+      .forUpdate()
+      .execute();
 
-      for (const { id } of open) {
-        const reservation = await lockReservation(tx, id);
+    const openReservations = [];
 
-        if (reservation !== undefined) {
-          openReservations.push({
-            reservation,
-            item: await requireItem(tx, reservation.itemId),
-          });
-        }
+    for (const { id } of open) {
+      const reservation = await lockReservation(tx, id);
+
+      if (reservation !== undefined) {
+        openReservations.push({
+          reservation,
+          item: await requireItem(tx, reservation.itemId),
+        });
       }
+    }
 
-      const decision = closeJob({ job, openReservations, actorUserId });
+    const decision = closeJob({ job, openReservations, actorUserId });
 
-      if (!decision.ok) {
-        throw stockFailure(decision.error);
-      }
+    if (!decision.ok) {
+      throw stockFailure(decision.error);
+    }
 
-      const now = this.now();
+    const now = this.now();
 
-      for (const effect of decision.releases) {
-        await applyEffect(tx, effect, now);
-      }
+    for (const effect of decision.releases) {
+      await applyEffect(tx, effect, now);
+    }
 
-      await tx
-        .withSchema("stockcontrol")
-        .updateTable("jobs")
-        .set({ status: "Closed", closed_at: now, updated_at: now })
-        .where("id", "=", jobId)
-        .execute();
-    });
+    await tx
+      .withSchema("stockcontrol")
+      .updateTable("jobs")
+      .set({ status: "Closed", closed_at: now, updated_at: now })
+      .where("id", "=", jobId)
+      .execute();
+
+    return { jobId, releasedReservationCount: decision.releases.length };
   }
 
   public async itemDetail(itemId: string, viewer: ItemDetailOptions): Promise<ItemDetailView> {

@@ -56,7 +56,16 @@ export interface McpEventResult {
 }
 
 export interface McpEffectLinkInput {
-  readonly type: "transaction" | "reservation" | "request" | "job" | "item" | "location";
+  readonly type:
+    | "transaction"
+    | "reservation"
+    | "request"
+    | "job"
+    | "item"
+    | "location"
+    | "map"
+    | "user"
+    | "photo";
   readonly id: string;
 }
 
@@ -235,7 +244,19 @@ export class McpAuditService {
   public static compactWriteResult(value: unknown): Readonly<Record<string, unknown>> {
     const safe = safeJsonObject(value);
     const entries: [string, unknown][] = [];
-    for (const key of ["transactionId", "reservationId", "requestId", "itemId", "jobId", "id"]) {
+    for (const key of [
+      "transactionId",
+      "reservationId",
+      "requestId",
+      "itemId",
+      "jobId",
+      "locationId",
+      "mapId",
+      "userId",
+      "photoId",
+      "releasedReservationCount",
+      "id",
+    ]) {
       if (Object.prototype.hasOwnProperty.call(safe, key)) {
         entries.push([key, safe[key] ?? null]);
       }

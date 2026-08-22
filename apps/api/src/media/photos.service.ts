@@ -6,6 +6,7 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
+import { withTransaction } from "../persistence/transaction";
 import { decodeImage, digestFor, type DecodedImage } from "./image-validation";
 import { S3PrivateObjectStorage, type PrivateObjectStorage } from "./media-storage";
 
@@ -225,42 +226,50 @@ export class PhotosService {
   }
 
   public async setCover(itemId: string, photoId: string): Promise<void> {
-    const row = await this.photoRow(itemId, photoId);
+    await withTransaction(this.database, undefined, (tx) =>
+      this.setCoverInTransaction(tx, itemId, photoId),
+    );
+  }
+
+  public async setCoverInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    itemId: string,
+    photoId: string,
+  ): Promise<void> {
+    const row = await this.photoRow(itemId, photoId, tx);
     if (row.display_order === 0) return;
-    await this.database.transaction().execute(async (tx) => {
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("item_photos")
+      .set({ display_order: sql`display_order + 100` })
+      .where("item_id", "=", itemId)
+      .execute();
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("item_photos")
+      .set({ display_order: 0 })
+      .where("item_id", "=", itemId)
+      .where("id", "=", photoId)
+      .execute();
+    const rows = await tx
+      .withSchema(SCHEMA)
+      .selectFrom("item_photos")
+      .select(["id", "display_order"])
+      .where("item_id", "=", itemId)
+      .where("id", "!=", photoId)
+      .execute();
+    for (const other of rows) {
+      const originalOrder = other.display_order - 100;
       await tx
         .withSchema(SCHEMA)
         .updateTable("item_photos")
-        .set({ display_order: sql`display_order + 100` })
-        .where("item_id", "=", itemId)
+        .set({
+          display_order: originalOrder < row.display_order ? originalOrder + 1 : originalOrder,
+        })
+        .where("id", "=", other.id)
         .execute();
-      await tx
-        .withSchema(SCHEMA)
-        .updateTable("item_photos")
-        .set({ display_order: 0 })
-        .where("item_id", "=", itemId)
-        .where("id", "=", photoId)
-        .execute();
-      const rows = await tx
-        .withSchema(SCHEMA)
-        .selectFrom("item_photos")
-        .select(["id", "display_order"])
-        .where("item_id", "=", itemId)
-        .where("id", "!=", photoId)
-        .execute();
-      for (const other of rows) {
-        const originalOrder = other.display_order - 100;
-        await tx
-          .withSchema(SCHEMA)
-          .updateTable("item_photos")
-          .set({
-            display_order: originalOrder < row.display_order ? originalOrder + 1 : originalOrder,
-          })
-          .where("id", "=", other.id)
-          .execute();
-      }
-      await this.normaliseOrders(tx, itemId);
-    });
+    }
+    await this.normaliseOrders(tx, itemId);
   }
 
   private decode(input: ImageUploadRequest): DecodedImage {
@@ -297,8 +306,12 @@ export class PhotosService {
     }
   }
 
-  private async photoRow(itemId: string, photoId: string): Promise<ItemPhotoRow> {
-    const row = await this.database
+  private async photoRow(
+    itemId: string,
+    photoId: string,
+    database: Database = this.database,
+  ): Promise<ItemPhotoRow> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("item_photos")
       .select([

@@ -17,7 +17,7 @@ import {
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { hashPassword } from "../auth/password";
 import type { SessionService } from "../auth/session-service";
@@ -27,6 +27,7 @@ import {
   listStockRequests,
   listTransactions,
 } from "../persistence/read-models";
+import type { DatabaseExecutor } from "../persistence/transaction";
 
 const SCHEMA = "stockcontrol" as const;
 
@@ -184,7 +185,29 @@ export class UsersService {
   }
 
   public async update(userId: string, input: UserChanges): Promise<UserView> {
-    const existing = await this.require(userId);
+    return this.updateOn(this.database, userId, input);
+  }
+
+  /**
+   * Session revocation reaches the sessions table on its own connection, so a
+   * caller's transaction that later rolls back leaves a deactivated user's
+   * sessions ended. That direction is the safe one: ending a session too
+   * eagerly costs a sign-in, leaving one alive would outlive the account.
+   */
+  public updateInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    userId: string,
+    input: UserChanges,
+  ): Promise<UserView> {
+    return this.updateOn(tx, userId, input);
+  }
+
+  private async updateOn(
+    database: DatabaseExecutor,
+    userId: string,
+    input: UserChanges,
+  ): Promise<UserView> {
+    const existing = await this.require(userId, database);
     const displayName = input.displayName;
     const { role, isActive } = input;
     const username = input.username === undefined ? undefined : normaliseUsername(input.username);
@@ -217,7 +240,7 @@ export class UsersService {
       existing.isActive &&
       ((role !== undefined && role !== "Admin") || isActive === false);
 
-    if (losingLastAdmin && (await this.activeAdminCount()) <= 1) {
+    if (losingLastAdmin && (await this.activeAdminCount(database)) <= 1) {
       throw new ApplicationFailureException(
         validationFailed({
           role: ["This is the only active Admin. Promote another Admin first."],
@@ -226,7 +249,7 @@ export class UsersService {
     }
 
     try {
-      await this.database
+      await database
         .withSchema(SCHEMA)
         .updateTable("users")
         .set({
@@ -254,7 +277,7 @@ export class UsersService {
       await this.sessions.revokeAllForUser(userId);
     }
 
-    return this.require(userId);
+    return this.require(userId, database);
   }
 
   /**
@@ -366,8 +389,8 @@ export class UsersService {
     );
   }
 
-  private async activeAdminCount(): Promise<number> {
-    const row = await this.database
+  private async activeAdminCount(database: DatabaseExecutor = this.database): Promise<number> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .select((builder) => builder.fn.countAll<string>().as("total"))
@@ -378,8 +401,11 @@ export class UsersService {
     return Number(row?.total ?? 0);
   }
 
-  private async require(userId: string): Promise<UserView> {
-    const row = await this.database
+  private async require(
+    userId: string,
+    database: DatabaseExecutor = this.database,
+  ): Promise<UserView> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .select(["id", "username", "email", "display_name", "role", "is_active", "created_at"])

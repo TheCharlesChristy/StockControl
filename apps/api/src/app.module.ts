@@ -314,11 +314,13 @@ const mcpProviders: Provider[] = mcpEnabled
           stock: StockService,
           jobs: JobsService,
           requests: StockRequestsService,
+          locations: LocationsService,
+          users: UsersService,
           correlation: CorrelationContext,
           logger: StructuredLogger,
           rateLimiter: McpRateLimiter,
         ) =>
-          new McpToolExecutor(
+          new McpToolExecutor({
             database,
             audit,
             oauth,
@@ -328,10 +330,12 @@ const mcpProviders: Provider[] = mcpEnabled
             stock,
             jobs,
             requests,
+            locations,
+            users,
             correlation,
             logger,
             rateLimiter,
-          ),
+          }),
         inject: [
           SYSTEM_TOKENS.database,
           API_TOKENS.mcpAuditService,
@@ -342,6 +346,8 @@ const mcpProviders: Provider[] = mcpEnabled
           API_TOKENS.stockService,
           API_TOKENS.jobsService,
           API_TOKENS.stockRequestsService,
+          API_TOKENS.locationsService,
+          API_TOKENS.usersService,
           SYSTEM_TOKENS.correlationContext,
           SYSTEM_TOKENS.logger,
           API_TOKENS.mcpRateLimiter,

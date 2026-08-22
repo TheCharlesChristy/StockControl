@@ -185,7 +185,15 @@ export class StockRequestsService {
 
   /** Only the person who raised a request may withdraw it, and only while it waits. */
   public async cancel(requestId: string, actorUserId: string): Promise<StockRequestView> {
-    const request = await this.requirePending(this.database, requestId);
+    return this.cancelInTransaction(this.database, requestId, actorUserId);
+  }
+
+  public async cancelInTransaction(
+    database: Kysely<StockControlDatabase> | Transaction<StockControlDatabase>,
+    requestId: string,
+    actorUserId: string,
+  ): Promise<StockRequestView> {
+    const request = await this.requirePending(database, requestId);
 
     if (request.requested_by_user_id !== actorUserId) {
       throw new ApplicationFailureException(
@@ -193,7 +201,7 @@ export class StockRequestsService {
       );
     }
 
-    await this.database
+    await database
       .withSchema(SCHEMA)
       .updateTable("stock_requests")
       .set({
@@ -205,7 +213,7 @@ export class StockRequestsService {
       .where("id", "=", requestId)
       .execute();
 
-    return this.requireView(this.database, requestId);
+    return this.requireView(database, requestId);
   }
 
   private async reserveFor(

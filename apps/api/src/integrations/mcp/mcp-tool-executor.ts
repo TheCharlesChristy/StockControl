@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  capabilitiesForRole,
   roleHasCapability,
   idempotencyConflict,
+  resourceUnavailable,
   type DashboardResponse,
-  type McpOperation,
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
@@ -13,48 +14,30 @@ import type { CatalogueService } from "../../inventory/catalogue.service";
 import { requireQuantity, type StockService } from "../../inventory/stock.service";
 import type { DashboardService } from "../../dashboard/dashboard.service";
 import type { JobsService } from "../../jobs/jobs.service";
+import type { LocationsService } from "../../locations/locations.service";
+import { listOpenReservations } from "../../persistence/read-models";
 import type { StockRequestsService } from "../../requests/requests.service";
+import type { UsersService } from "../../users/users.service";
 import type { CorrelationContext, StructuredLogger } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely, Transaction } from "kysely";
 
 import type { McpConfiguration } from "./mcp-configuration";
+import {
+  CONTRACT_VERSION,
+  findToolSpec,
+  mcpToolDefinitions,
+  ToolValidationError,
+  type McpToolDefinition,
+  type ToolSpec,
+} from "./mcp-tool-catalogue";
 import { canonicalJson, safeJsonObject, safeString, sha256 } from "./mcp-utils";
 import { McpAuditService, type McpCallHandle, type McpEffectLinkInput } from "./mcp-audit.service";
 import type { McpRateLimiter } from "./mcp-rate-limiter";
-import type { McpPrincipal, McpScope, OAuthService } from "./oauth.service";
+import type { McpPrincipal, OAuthService } from "./oauth.service";
 
-const CONTRACT_VERSION = "1.1";
-const MAX_LIMIT = 100;
-const MAX_OFFSET = 10_000;
-const MAX_DATE_RANGE_MS = 31 * 86_400_000;
-
-interface ToolSpec {
-  readonly name: string;
-  readonly operation: McpOperation;
-  readonly scopes: readonly McpScope[];
-  readonly capability:
-    | "view"
-    | "requestStock"
-    | "manageStock"
-    | "issue"
-    | "reserve"
-    | "collect"
-    | "reviewStockRequests";
-  readonly description: string;
-  readonly inputSchema: Readonly<Record<string, unknown>>;
-  readonly outputSchema?: Readonly<Record<string, unknown>>;
-  readonly project: (value: unknown) => Readonly<Record<string, unknown>>;
-  readonly validate: (value: unknown) => Readonly<Record<string, unknown>>;
-}
-
-export interface McpToolDefinition {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: Readonly<Record<string, unknown>>;
-  readonly outputSchema: Readonly<Record<string, unknown>>;
-  readonly annotations?: Readonly<Record<string, unknown>>;
-}
+export { mcpToolDefinitions, ToolValidationError };
+export type { McpToolDefinition };
 
 export interface McpExecutionResponse {
   readonly value?: unknown;
@@ -62,955 +45,53 @@ export interface McpExecutionResponse {
   readonly isError: boolean;
 }
 
+/**
+ * Everything a tool can reach. Passing one object rather than a positional
+ * list keeps a new tool's dependency from silently landing in the wrong
+ * constructor slot.
+ */
+export interface McpToolServices {
+  readonly database: Kysely<StockControlDatabase>;
+  readonly audit: McpAuditService;
+  readonly oauth: OAuthService;
+  readonly configuration: McpConfiguration;
+  readonly dashboard: DashboardService;
+  readonly catalogue: CatalogueService;
+  readonly stock: StockService;
+  readonly jobs: JobsService;
+  readonly requests: StockRequestsService;
+  readonly locations: LocationsService;
+  readonly users: UsersService;
+  readonly correlation: CorrelationContext;
+  readonly logger: StructuredLogger;
+  readonly rateLimiter?: McpRateLimiter | undefined;
+}
+
 const record = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : {};
 
-const text = (value: unknown, field: string, maximum = 200): string => {
-  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximum) {
-    throw new ToolValidationError(field, `Enter ${field}.`);
-  }
-  return value.trim();
-};
+const asString = (value: unknown): string => value as string;
+const asOptionalString = (value: unknown): string | undefined => value as string | undefined;
+const asNumber = (value: unknown): number => value as number;
 
-const optionalText = (value: unknown, field: string, maximum = 200): string | undefined => {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-  return text(value, field, maximum);
-};
-
-/**
- * Audit projection is deliberately non-validating. Invalid input still needs
- * a durable Received record; validation happens only after authentication and
- * the audit row has been written.
- */
-const projectedOptionalText = (value: unknown, maximum = 200): string | undefined =>
-  typeof value === "string" ? value.trim().slice(0, maximum) : undefined;
-
-const id = (value: unknown, field: string): string => {
-  const candidate = text(value, field, 80);
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(candidate)
-  ) {
-    throw new ToolValidationError(field, `Enter a valid ${field}.`);
-  }
-  return candidate;
-};
-
-const page = (
-  limitValue: unknown,
-  offsetValue: unknown = undefined,
-): { readonly limit: number; readonly offset: number } => {
-  const limit = limitValue === undefined ? 50 : Number(limitValue);
-  const offset = offsetValue === undefined ? 0 : Number(offsetValue);
-  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
-    throw new ToolValidationError("limit", `Limit must be between 1 and ${String(MAX_LIMIT)}.`);
-  }
-  if (!Number.isInteger(offset) || offset < 0 || offset > MAX_OFFSET) {
-    throw new ToolValidationError("offset", "Offset is outside the supported range.");
-  }
-  return { limit, offset };
-};
-
-const date = (value: unknown, field: string): string | undefined => {
-  const candidate = optionalText(value, field, 40);
-  if (candidate === undefined) {
-    return undefined;
-  }
-  const parsed = new Date(candidate);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new ToolValidationError(field, `Enter a valid ${field} timestamp.`);
-  }
-  return parsed.toISOString();
-};
-
-const validateRange = (from: string | undefined, to: string | undefined): void => {
-  if (from === undefined || to === undefined) {
-    return;
-  }
-  if (new Date(to).getTime() < new Date(from).getTime()) {
-    throw new ToolValidationError("to", "The end of the date range must be after its start.");
-  }
-  if (new Date(to).getTime() - new Date(from).getTime() > MAX_DATE_RANGE_MS) {
-    throw new ToolValidationError("to", "Date ranges are limited to 31 days.");
-  }
-};
-
-const toolSpecs: readonly ToolSpec[] = [
-  {
-    name: "get_operational_summary",
-    operation: "read",
-    scopes: ["activity:read"],
-    capability: "view",
-    description:
-      "Summarise operational inventory, job, reservation and request activity in your role scope.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
-    project: (value) => safeJsonObject(value),
-    validate: () => ({}),
-  },
-  {
-    name: "search_items",
-    operation: "read",
-    scopes: ["stock:read"],
-    capability: "view",
-    description: "Search active StockControl items and their current availability.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        search: { type: "string", maxLength: 200 },
-        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
-        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
-      },
-    },
-    project: (value) => {
-      const input = record(value);
-      return {
-        search: projectedOptionalText(input["search"]),
-        limit: input["limit"],
-        offset: input["offset"],
-      };
-    },
-    validate: (value) => {
-      const input = record(value);
-      const paging = page(input["limit"], input["offset"]);
-      return { search: optionalText(input["search"], "search"), ...paging };
-    },
-  },
-  {
-    name: "get_item",
-    operation: "read",
-    scopes: ["stock:read"],
-    capability: "view",
-    description: "Get one item, its balances and role-scoped recent activity.",
-    inputSchema: {
-      type: "object",
-      required: ["itemId"],
-      additionalProperties: false,
-      properties: { itemId: { type: "string" } },
-    },
-    project: (value) => ({ itemId: record(value)["itemId"] }),
-    validate: (value) => ({ itemId: id(record(value)["itemId"], "itemId") }),
-  },
-  {
-    name: "list_transactions",
-    operation: "read",
-    scopes: ["activity:read"],
-    capability: "view",
-    description: "List stock transactions in the caller's permitted activity scope.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        itemId: { type: "string" },
-        jobId: { type: "string" },
-        from: { type: "string", format: "date-time" },
-        to: { type: "string", format: "date-time" },
-        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
-        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => {
-      const input = record(value);
-      const from = date(input["from"], "from");
-      const to = date(input["to"], "to");
-      validateRange(from, to);
-      const paging = page(input["limit"], input["offset"]);
-      return {
-        itemId: input["itemId"] === undefined ? undefined : id(input["itemId"], "itemId"),
-        jobId: input["jobId"] === undefined ? undefined : id(input["jobId"], "jobId"),
-        from,
-        to,
-        ...paging,
-      };
-    },
-  },
-  {
-    name: "list_jobs",
-    operation: "read",
-    scopes: ["activity:read"],
-    capability: "view",
-    description: "List open or closed jobs visible to the caller.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        status: { type: "string", enum: ["Open", "Closed"] },
-        search: { type: "string", maxLength: 200 },
-        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
-        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => {
-      const input = record(value);
-      const status = input["status"];
-      if (status !== undefined && status !== "Open" && status !== "Closed")
-        throw new ToolValidationError("status", "Status must be Open or Closed.");
-      return {
-        status,
-        search: optionalText(input["search"], "search"),
-        ...page(input["limit"], input["offset"]),
-      };
-    },
-  },
-  {
-    name: "get_job",
-    operation: "read",
-    scopes: ["activity:read"],
-    capability: "view",
-    description: "Get one job, reservations, site stock and permitted recent activity.",
-    inputSchema: {
-      type: "object",
-      required: ["jobId"],
-      additionalProperties: false,
-      properties: { jobId: { type: "string" } },
-    },
-    project: (value) => ({ jobId: record(value)["jobId"] }),
-    validate: (value) => ({ jobId: id(record(value)["jobId"], "jobId") }),
-  },
-  {
-    name: "list_stock_requests",
-    operation: "read",
-    scopes: ["activity:read"],
-    capability: "view",
-    description:
-      "List stock requests, narrowed to your own requests unless your role can review the queue.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        status: { type: "string", enum: ["Pending", "Approved", "Rejected", "Cancelled"] },
-        itemId: { type: "string" },
-        jobId: { type: "string" },
-        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
-        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => {
-      const input = record(value);
-      const status = input["status"];
-      if (
-        status !== undefined &&
-        (typeof status !== "string" ||
-          !["Pending", "Approved", "Rejected", "Cancelled"].includes(status))
-      )
-        throw new ToolValidationError("status", "That request status is not supported.");
-      const paging = page(input["limit"], input["offset"]);
-      return {
-        status,
-        itemId: input["itemId"] === undefined ? undefined : id(input["itemId"], "itemId"),
-        jobId: input["jobId"] === undefined ? undefined : id(input["jobId"], "jobId"),
-        ...paging,
-      };
-    },
-  },
-  {
-    name: "list_locations",
-    operation: "read",
-    scopes: ["stock:read"],
-    capability: "view",
-    description: "List active stores and job sites with stable IDs.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
-        offset: { type: "integer", minimum: 0, maximum: MAX_OFFSET },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => page(record(value)["limit"], record(value)["offset"]),
-  },
-  {
-    name: "request_stock",
-    operation: "write",
-    scopes: ["stock:request"],
-    capability: "requestStock",
-    description: "Create a stock request for a specific item, optionally for a job.",
-    inputSchema: {
-      type: "object",
-      required: ["itemId", "quantity", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        itemId: { type: "string" },
-        quantity: { type: "string" },
-        jobId: { type: "string" },
-        note: { type: "string", maxLength: 500 },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) =>
-      writeArguments(value, { itemId: true, quantity: true, jobId: false, note: false }),
-  },
-  {
-    name: "reserve_stock",
-    operation: "write",
-    scopes: ["stock:write"],
-    capability: "reserve",
-    description: "Reserve a precise quantity of an item for an open job.",
-    inputSchema: {
-      type: "object",
-      required: ["jobId", "itemId", "quantity", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        jobId: { type: "string" },
-        itemId: { type: "string" },
-        quantity: { type: "string" },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => writeArguments(value, { jobId: true, itemId: true, quantity: true }),
-  },
-  {
-    name: "receive_stock",
-    operation: "write",
-    scopes: ["stock:write"],
-    capability: "manageStock",
-    description: "Receive a precise quantity of an item into a store location.",
-    inputSchema: {
-      type: "object",
-      required: ["itemId", "locationId", "quantity", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        itemId: { type: "string" },
-        locationId: { type: "string" },
-        quantity: { type: "string" },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => writeArguments(value, { itemId: true, locationId: true, quantity: true }),
-  },
-  {
-    name: "issue_stock",
-    operation: "write",
-    scopes: ["stock:write"],
-    capability: "issue",
-    description: "Issue a precise quantity of an item from a store location, optionally to a job.",
-    inputSchema: {
-      type: "object",
-      required: ["itemId", "locationId", "quantity", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        itemId: { type: "string" },
-        locationId: { type: "string" },
-        quantity: { type: "string" },
-        jobId: { type: "string" },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) =>
-      writeArguments(value, { itemId: true, locationId: true, quantity: true, jobId: false }),
-  },
-  {
-    name: "transfer_stock",
-    operation: "write",
-    scopes: ["stock:write"],
-    capability: "manageStock",
-    description: "Transfer a precise quantity between two explicit store locations.",
-    inputSchema: {
-      type: "object",
-      required: [
-        "itemId",
-        "fromLocationId",
-        "toLocationId",
-        "quantity",
-        "actionSummary",
-        "idempotencyKey",
-      ],
-      additionalProperties: false,
-      properties: {
-        itemId: { type: "string" },
-        fromLocationId: { type: "string" },
-        toLocationId: { type: "string" },
-        quantity: { type: "string" },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) =>
-      writeArguments(value, {
-        itemId: true,
-        fromLocationId: true,
-        toLocationId: true,
-        quantity: true,
-      }),
-  },
-  {
-    name: "collect_reserved_stock",
-    operation: "write",
-    scopes: ["stock:write"],
-    capability: "collect",
-    description: "Collect a precise quantity from an explicit reservation and store location.",
-    inputSchema: {
-      type: "object",
-      required: [
-        "reservationId",
-        "sourceLocationId",
-        "quantity",
-        "actionSummary",
-        "idempotencyKey",
-      ],
-      additionalProperties: false,
-      properties: {
-        reservationId: { type: "string" },
-        sourceLocationId: { type: "string" },
-        quantity: { type: "string" },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) =>
-      writeArguments(value, { reservationId: true, sourceLocationId: true, quantity: true }),
-  },
-  {
-    name: "approve_stock_request",
-    operation: "write",
-    scopes: ["requests:review"],
-    capability: "reviewStockRequests",
-    description: "Approve one explicit pending stock request, optionally amending quantity.",
-    inputSchema: {
-      type: "object",
-      required: ["requestId", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        requestId: { type: "string" },
-        quantity: { type: "string" },
-        decisionNote: { type: "string", maxLength: 500 },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) =>
-      writeArguments(value, { requestId: true, quantity: false, decisionNote: false }),
-  },
-  {
-    name: "reject_stock_request",
-    operation: "write",
-    scopes: ["requests:review"],
-    capability: "reviewStockRequests",
-    description: "Reject one explicit pending stock request with a reason.",
-    inputSchema: {
-      type: "object",
-      required: ["requestId", "decisionNote", "actionSummary", "idempotencyKey"],
-      additionalProperties: false,
-      properties: {
-        requestId: { type: "string" },
-        decisionNote: { type: "string", maxLength: 500 },
-        actionSummary: { type: "string", maxLength: 300 },
-        idempotencyKey: { type: "string", maxLength: 200 },
-      },
-    },
-    project: (value) => safeJsonObject(value),
-    validate: (value) => writeArguments(value, { requestId: true, decisionNote: true }),
-  },
-];
-
-export class ToolValidationError extends Error {
-  public constructor(
-    public readonly field: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ToolValidationError";
-  }
-}
-
-const writeArguments = (
-  value: unknown,
-  requiredFields: Readonly<Record<string, boolean>>,
-): Readonly<Record<string, unknown>> => {
-  const input = record(value);
-  const output: [string, unknown][] = [];
-  for (const [field, required] of Object.entries(requiredFields)) {
-    const candidate = input[field];
-    if (candidate === undefined || candidate === null || candidate === "") {
-      if (required) {
-        throw new ToolValidationError(field, `Enter ${field}.`);
-      }
-      continue;
-    }
-    if (field.endsWith("Id")) {
-      output.push([field, id(candidate, field)]);
-    } else if (field === "quantity") {
-      const quantity = text(candidate, field, 40);
-      if (!/^\d+(?:\.\d{1,3})?$/u.test(quantity) || Number(quantity) <= 0) {
-        throw new ToolValidationError(
-          field,
-          "Enter a quantity greater than zero with at most three decimal places.",
-        );
-      }
-      output.push([field, quantity]);
-    } else if (field === "note" || field === "decisionNote") {
-      output.push([field, text(candidate, field, 500)]);
-    }
-  }
-  output.push(["actionSummary", text(input["actionSummary"], "actionSummary", 300)]);
-  output.push(["idempotencyKey", text(input["idempotencyKey"], "idempotencyKey", 200)]);
-  return Object.fromEntries(output);
-};
-
-export const mcpToolDefinitions = (configuration: McpConfiguration): readonly McpToolDefinition[] =>
-  toolSpecs
-    .filter((tool) =>
-      tool.operation === "read" ? configuration.readToolsEnabled : configuration.writeToolsEnabled,
-    )
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      outputSchema: outputSchemaFor(tool.name),
-      ...(tool.operation === "read"
-        ? { annotations: { readOnlyHint: true, openWorldHint: false } }
-        : {
-            annotations: {
-              readOnlyHint: false,
-              destructiveHint: false,
-              idempotentHint: true,
-              openWorldHint: false,
-            },
-          }),
-    }));
-
-const idSchema = { type: "string", format: "uuid" } as const;
-const nullableIdSchema = { type: ["string", "null"], format: "uuid" } as const;
-
-const itemSummarySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    reference: { type: "string" },
-    name: { type: "string" },
-    unit: { type: "string" },
-    barcode: { type: ["string", "null"] },
-    partNumber: { type: ["string", "null"] },
-    lowStockThreshold: { type: ["string", "null"] },
-    isActive: { type: "boolean" },
-    onHand: { type: "string" },
-    inStores: { type: "string" },
-    atJobSites: { type: "string" },
-    reserved: { type: "string" },
-    reservedForYou: { type: "string" },
-    available: { type: "string" },
-    belowThreshold: { type: "boolean" },
-    coverPhotoUrl: { type: ["string", "null"] },
-  },
-  required: [
-    "id",
-    "reference",
-    "name",
-    "unit",
-    "barcode",
-    "partNumber",
-    "lowStockThreshold",
-    "isActive",
-    "onHand",
-    "inStores",
-    "atJobSites",
-    "reserved",
-    "reservedForYou",
-    "available",
-    "belowThreshold",
-    "coverPhotoUrl",
-  ],
-} as const;
-
-const locationBalanceSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    locationId: idSchema,
-    locationCode: { type: "string" },
-    locationName: { type: "string" },
-    kind: { type: "string", enum: ["Store", "JobSite"] },
-    quantity: { type: "string" },
-    unit: { type: "string" },
-  },
-  required: ["locationId", "locationCode", "locationName", "kind", "quantity"],
-} as const;
-
-const itemPhotoSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    url: { type: "string", format: "uri-reference" },
-    originalFileName: { type: "string" },
-    isCover: { type: "boolean" },
-  },
-  required: ["id", "url", "originalFileName", "isCover"],
-} as const;
-
-const transactionSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    kind: {
-      type: "string",
-      enum: ["Receive", "Issue", "Transfer", "Adjust", "Reserve", "Collect", "Release"],
-    },
-    itemId: idSchema,
-    itemReference: { type: "string" },
-    itemName: { type: "string" },
-    itemPhotoUrl: { type: ["string", "null"] },
-    unit: { type: "string" },
-    quantity: { type: "string" },
-    fromLocationCode: { type: ["string", "null"] },
-    toLocationCode: { type: ["string", "null"] },
-    jobNumber: { type: ["string", "null"] },
-    reason: { type: ["string", "null"] },
-    actorUserId: idSchema,
-    actorName: { type: "string" },
-    occurredAt: { type: "string", format: "date-time" },
-  },
-  required: [
-    "id",
-    "kind",
-    "itemId",
-    "itemReference",
-    "itemName",
-    "itemPhotoUrl",
-    "unit",
-    "quantity",
-    "fromLocationCode",
-    "toLocationCode",
-    "jobNumber",
-    "reason",
-    "actorUserId",
-    "actorName",
-    "occurredAt",
-  ],
-} as const;
-
-const itemDetailSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    ...itemSummarySchema.properties,
-    balances: { type: "array", items: locationBalanceSchema },
-    recentTransactions: { type: "array", items: transactionSchema },
-    photos: { type: "array", items: itemPhotoSchema },
-  },
-  required: [...itemSummarySchema.required, "balances", "recentTransactions", "photos"],
-} as const;
-
-const locationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    code: { type: "string" },
-    name: { type: "string" },
-    kind: { type: "string", enum: ["Store", "JobSite"] },
-    jobId: nullableIdSchema,
-    isActive: { type: "boolean" },
-    path: { type: "string" },
-  },
-  required: ["id", "code", "name", "kind", "jobId", "isActive", "path"],
-} as const;
-
-const jobAssigneeSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    userId: idSchema,
-    displayName: { type: "string" },
-    role: { type: "string", enum: ["Engineer", "Office", "Admin"] },
-  },
-  required: ["userId", "displayName", "role"],
-} as const;
-
-const jobSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    number: { type: "string" },
-    name: { type: "string" },
-    customer: { type: "string" },
-    status: { type: "string", enum: ["Open", "Closed"] },
-    jobSiteLocationId: idSchema,
-    openReservationCount: { type: "integer" },
-    assignees: { type: "array", items: jobAssigneeSchema },
-    createdAt: { type: "string", format: "date-time" },
-    closedAt: { type: ["string", "null"], format: "date-time" },
-  },
-  required: [
-    "id",
-    "number",
-    "name",
-    "customer",
-    "status",
-    "jobSiteLocationId",
-    "openReservationCount",
-    "assignees",
-    "createdAt",
-    "closedAt",
-  ],
-} as const;
-
-const reservationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    itemId: idSchema,
-    itemReference: { type: "string" },
-    itemName: { type: "string" },
-    itemPhotoUrl: { type: ["string", "null"] },
-    unit: { type: "string" },
-    quantityReserved: { type: "string" },
-    quantityCollected: { type: "string" },
-    quantityOutstanding: { type: "string" },
-    status: { type: "string", enum: ["Open", "Fulfilled", "Released"] },
-    createdById: idSchema,
-    createdByName: { type: "string" },
-    createdAt: { type: "string", format: "date-time" },
-  },
-  required: [
-    "id",
-    "itemId",
-    "itemReference",
-    "itemName",
-    "itemPhotoUrl",
-    "unit",
-    "quantityReserved",
-    "quantityCollected",
-    "quantityOutstanding",
-    "status",
-    "createdById",
-    "createdByName",
-    "createdAt",
-  ],
-} as const;
-
-const jobDetailSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    ...jobSchema.properties,
-    reservations: { type: "array", items: reservationSchema },
-    jobSiteStock: { type: "array", items: locationBalanceSchema },
-    recentTransactions: { type: "array", items: transactionSchema },
-  },
-  required: [...jobSchema.required, "reservations", "jobSiteStock", "recentTransactions"],
-} as const;
-
-const stockRequestSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: idSchema,
-    reference: { type: "string" },
-    itemId: idSchema,
-    itemReference: { type: "string" },
-    itemName: { type: "string" },
-    itemPhotoUrl: { type: ["string", "null"] },
-    unit: { type: "string" },
-    jobId: nullableIdSchema,
-    jobNumber: { type: ["string", "null"] },
-    jobName: { type: ["string", "null"] },
-    quantity: { type: "string" },
-    note: { type: ["string", "null"] },
-    status: { type: "string", enum: ["Pending", "Approved", "Rejected", "Cancelled"] },
-    requestedById: idSchema,
-    requestedByName: { type: "string" },
-    decidedByName: { type: ["string", "null"] },
-    decisionNote: { type: ["string", "null"] },
-    reservationId: nullableIdSchema,
-    createdAt: { type: "string", format: "date-time" },
-    decidedAt: { type: ["string", "null"], format: "date-time" },
-  },
-  required: [
-    "id",
-    "reference",
-    "itemId",
-    "itemReference",
-    "itemName",
-    "itemPhotoUrl",
-    "unit",
-    "jobId",
-    "jobNumber",
-    "jobName",
-    "quantity",
-    "note",
-    "status",
-    "requestedById",
-    "requestedByName",
-    "decidedByName",
-    "decisionNote",
-    "reservationId",
-    "createdAt",
-    "decidedAt",
-  ],
-} as const;
-
-const pageSchema = (
-  items: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> => ({
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    rows: { type: "array", items },
-    total: { type: "integer" },
-    limit: { type: "integer" },
-    offset: { type: "integer" },
-    hasMore: { type: "boolean" },
-  },
-  required: ["rows", "total", "limit", "offset", "hasMore"],
-});
-
-const stockOperationSchema = (reservationNullable: boolean): Readonly<Record<string, unknown>> => ({
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    itemId: idSchema,
-    transactionId: idSchema,
-    reservationId: reservationNullable ? nullableIdSchema : idSchema,
-  },
-  required: ["itemId", "transactionId", "reservationId"],
-});
-
-const operationalSummarySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    role: { type: "string", enum: ["Engineer", "Office", "Admin"] },
-    assignedJobCount: { type: "integer" },
-    openReservationCount: { type: "integer" },
-    requestCount: { type: "integer" },
-    counts: { type: "object" },
-    lowStockCount: { type: "integer" },
-    pendingRequestCount: { type: "integer" },
-    recentTransactionCount: { type: "integer" },
-  },
-  required: ["role"],
-} as const;
-
-const outputSchemaFor = (name: string): Readonly<Record<string, unknown>> => {
-  if (name === "search_items") {
-    return pageSchema(itemSummarySchema);
-  }
-  if (name === "list_transactions") {
-    return pageSchema(transactionSchema);
-  }
-  if (name === "list_stock_requests") {
-    return pageSchema(stockRequestSchema);
-  }
-  if (name === "list_jobs")
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        jobs: { type: "array", items: jobSchema },
-        limit: { type: "integer" },
-        offset: { type: "integer" },
-        hasMore: { type: "boolean" },
-      },
-      required: ["jobs", "limit", "offset", "hasMore"],
-    };
-  if (name === "list_locations") {
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        locations: { type: "array", items: locationSchema },
-        limit: { type: "integer" },
-        offset: { type: "integer" },
-        hasMore: { type: "boolean" },
-      },
-      required: ["locations", "limit", "offset", "hasMore"],
-    };
-  }
-  if (name === "get_item")
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        item: itemDetailSchema,
-      },
-      required: ["item"],
-    };
-  if (name === "get_job")
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        job: jobDetailSchema,
-      },
-      required: ["job"],
-    };
-  if (name === "get_operational_summary") {
-    return operationalSummarySchema;
-  }
-  if (name === "request_stock" || name === "approve_stock_request") {
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        requestId: { type: "string" },
-        itemId: { type: "string" },
-        jobId: { type: ["string", "null"] },
-        reservationId: { type: ["string", "null"] },
-      },
-      required: ["requestId", "itemId", "jobId", "reservationId"],
-    };
-  }
-  if (name === "reject_stock_request") {
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        requestId: { type: "string" },
-        itemId: { type: "string" },
-        jobId: { type: ["string", "null"] },
-      },
-      required: ["requestId", "itemId", "jobId"],
-    };
-  }
-  if (["reserve_stock", "collect_reserved_stock"].includes(name)) {
-    return stockOperationSchema(false);
-  }
-  return stockOperationSchema(true);
-};
+/** `undefined` leaves a field alone; `null` clears it. */
+const optionalField = <T>(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+): Readonly<Record<string, T>> =>
+  Object.prototype.hasOwnProperty.call(input, field) && input[field] !== undefined
+    ? ({ [field]: input[field] } as Readonly<Record<string, T>>)
+    : {};
 
 export class McpToolExecutor {
   private readonly activeCalls = new Set<string>();
 
-  public constructor(
-    private readonly database: Kysely<StockControlDatabase>,
-    private readonly audit: McpAuditService,
-    private readonly oauth: OAuthService,
-    private readonly configuration: McpConfiguration,
-    private readonly dashboard: DashboardService,
-    private readonly catalogue: CatalogueService,
-    private readonly stock: StockService,
-    private readonly jobs: JobsService,
-    private readonly requests: StockRequestsService,
-    private readonly correlation: CorrelationContext,
-    private readonly logger: StructuredLogger,
-    private readonly rateLimiter?: McpRateLimiter,
-  ) {}
+  public constructor(private readonly services: McpToolServices) {}
 
   public tools(): readonly McpToolDefinition[] {
-    return mcpToolDefinitions(this.configuration);
+    return mcpToolDefinitions(this.services.configuration);
   }
 
   public isInFlight(callId: string): boolean {
@@ -1027,6 +108,7 @@ export class McpToolExecutor {
     rawArguments: unknown,
     clientRequestId: string | null,
   ): Promise<McpExecutionResponse> {
+    const { audit, configuration, correlation, logger, rateLimiter } = this.services;
     const authorization = request.headers.authorization;
     if (typeof authorization !== "string" || !/^Bearer\s+\S+$/iu.test(authorization)) {
       return {
@@ -1037,7 +119,7 @@ export class McpToolExecutor {
         isError: true,
       };
     }
-    const spec = toolSpecs.find((candidate) => candidate.name === toolName);
+    const spec = findToolSpec(toolName);
     let projected: Readonly<Record<string, unknown>>;
     try {
       projected = spec?.project(rawArguments) ?? {};
@@ -1046,9 +128,9 @@ export class McpToolExecutor {
       // before the immutable Received record exists.
       projected = safeJsonObject(rawArguments);
     }
-    const handle = await this.audit.start({
+    const handle = await audit.start({
       callId: randomUUID(),
-      correlationId: this.correlation.normalize(request.headers["x-request-id"]),
+      correlationId: correlation.normalize(request.headers["x-request-id"]),
       actorUserId: null,
       grantId: null,
       toolName: toolName.slice(0, 120),
@@ -1065,8 +147,8 @@ export class McpToolExecutor {
       try {
         principal = await this.principalFrom(request);
       } catch (error: unknown) {
-        const failure = this.audit.failureFrom(error);
-        await this.audit.event(handle.callId, "Failed", {
+        const failure = audit.failureFrom(error);
+        await audit.event(handle.callId, "Failed", {
           failureCode: failure.code,
           durationMs: Date.now() - handle.receivedAt.getTime(),
           resultSummary: { outcome: "failed" },
@@ -1084,7 +166,7 @@ export class McpToolExecutor {
           "Authenticate with an OAuth bearer token.",
         );
       }
-      if (!this.configuration.enabled) {
+      if (!configuration.enabled) {
         return this.failure(
           handle,
           "Denied",
@@ -1095,8 +177,8 @@ export class McpToolExecutor {
       }
       if (
         spec === undefined ||
-        (spec.operation === "read" && !this.configuration.readToolsEnabled) ||
-        (spec.operation === "write" && !this.configuration.writeToolsEnabled)
+        (spec.operation === "read" && !configuration.readToolsEnabled) ||
+        (spec.operation === "write" && !configuration.writeToolsEnabled)
       ) {
         return this.failure(
           handle,
@@ -1127,7 +209,7 @@ export class McpToolExecutor {
           principal,
         );
       }
-      const rateLimit = this.rateLimiter?.check(principal.user.id, principal.grantId, spec.name);
+      const rateLimit = rateLimiter?.check(principal.user.id, principal.grantId, spec.name);
       if (rateLimit !== undefined && !rateLimit.allowed) {
         return this.failure(
           handle,
@@ -1138,7 +220,7 @@ export class McpToolExecutor {
         );
       }
       try {
-        await this.audit.event(handle.callId, "Authorised", {
+        await audit.event(handle.callId, "Authorised", {
           actorUserId: principal.user.id,
           grantId: principal.grantId,
         });
@@ -1148,12 +230,12 @@ export class McpToolExecutor {
             : await this.runRead(spec.name, argumentsValue, principal);
         if (spec.operation === "read") {
           const summary = McpAuditService.resultSummary(value);
-          await this.audit.event(handle.callId, "Succeeded", {
+          await audit.event(handle.callId, "Succeeded", {
             ...summary,
             durationMs: Date.now() - handle.receivedAt.getTime(),
           });
         }
-        this.logger.log({
+        logger.log({
           event: "mcp.tool.succeeded",
           tool: spec.name,
           operation: spec.operation,
@@ -1162,15 +244,15 @@ export class McpToolExecutor {
         });
         return { value, isError: false };
       } catch (error: unknown) {
-        const failure = this.audit.failureFrom(error);
-        await this.audit.event(handle.callId, "Failed", {
+        const failure = audit.failureFrom(error);
+        await audit.event(handle.callId, "Failed", {
           actorUserId: principal.user.id,
           grantId: principal.grantId,
           failureCode: failure.code,
           durationMs: Date.now() - handle.receivedAt.getTime(),
           resultSummary: { outcome: "failed" },
         });
-        this.logger.warn({
+        logger.warn({
           event: "mcp.tool.failed",
           tool: spec.name,
           failureCode: failure.code,
@@ -1190,7 +272,7 @@ export class McpToolExecutor {
     }
     const token = header.replace(/^Bearer\s+/iu, "").trim();
     if (token.length === 0 || token.length > 512) return null;
-    return this.oauth.resolveAccessToken(token);
+    return this.services.oauth.resolveAccessToken(token);
   }
 
   private authorised(principal: McpPrincipal, spec: ToolSpec): boolean {
@@ -1205,95 +287,139 @@ export class McpToolExecutor {
     input: Readonly<Record<string, unknown>>,
     principal: McpPrincipal,
   ): Promise<unknown> {
+    const { catalogue, dashboard, jobs, locations, requests, stock, users } = this.services;
+    const seesEverything = roleHasCapability(principal.user.role, "viewAllActivity");
     const viewer = {
       viewerUserId: principal.user.id,
-      scopeActivityToViewer: !roleHasCapability(principal.user.role, "viewAllActivity"),
+      scopeActivityToViewer: !seesEverything,
     };
-    const jobViewer = {
-      ...viewer,
-      restrictToAssignedJobs: !roleHasCapability(principal.user.role, "viewAllActivity"),
-    };
+    const jobViewer = { ...viewer, restrictToAssignedJobs: !seesEverything };
     switch (name) {
+      case "whoami":
+        return {
+          userId: principal.user.id,
+          username: principal.user.username,
+          displayName: principal.user.displayName,
+          role: principal.user.role,
+          capabilities: [...capabilitiesForRole(principal.user.role)],
+          scopes: [...principal.scopes],
+          clientId: principal.clientId,
+          contractVersion: CONTRACT_VERSION,
+        };
       case "get_operational_summary": {
-        const dashboard = await this.dashboard.forUser({
+        const view = await dashboard.forUser({
           id: principal.user.id,
           role: principal.user.role,
         });
-        return operationalSummary(dashboard);
+        return operationalSummary(view);
       }
+      case "get_dashboard":
+        return dashboard.forUser({ id: principal.user.id, role: principal.user.role });
       case "search_items": {
-        const page = await this.catalogue.listItems({
-          search: input["search"] as string | undefined,
-          limit: input["limit"] as number,
-          offset: input["offset"] as number,
+        const page = await catalogue.listItems({
+          search: asOptionalString(input["search"]),
+          limit: asNumber(input["limit"]),
+          offset: asNumber(input["offset"]),
           activeOnly: true,
           viewerUserId: principal.user.id,
         });
         return { ...page, hasMore: page.offset + page.rows.length < page.total };
       }
       case "get_item":
-        return { item: await this.stock.itemDetail(input["itemId"] as string, viewer) };
+        return { item: await stock.itemDetail(asString(input["itemId"]), viewer) };
+      case "lookup_item": {
+        const match = await catalogue.findByCode(asString(input["code"]));
+        if (match === undefined) {
+          throw new ApplicationFailureException(
+            resourceUnavailable({ detail: "No item matches that code." }),
+          );
+        }
+        return { item: await stock.itemDetail(match.id, viewer) };
+      }
+      case "list_low_stock_items": {
+        const page = await catalogue.listItems({
+          limit: asNumber(input["limit"]),
+          offset: asNumber(input["offset"]),
+          activeOnly: true,
+          belowThresholdOnly: true,
+          viewerUserId: principal.user.id,
+        });
+        return { ...page, hasMore: page.offset + page.rows.length < page.total };
+      }
       case "list_transactions": {
-        const page = await this.catalogue.listTransactions({
-          itemId: input["itemId"] as string | undefined,
-          jobId: input["jobId"] as string | undefined,
-          from: input["from"] === undefined ? undefined : new Date(input["from"] as string),
-          to: input["to"] === undefined ? undefined : new Date(input["to"] as string),
-          limit: input["limit"] as number,
-          offset: input["offset"] as number,
-          actorUserId: roleHasCapability(principal.user.role, "viewAllActivity")
-            ? undefined
-            : principal.user.id,
+        const page = await catalogue.listTransactions({
+          itemId: asOptionalString(input["itemId"]),
+          jobId: asOptionalString(input["jobId"]),
+          from: input["from"] === undefined ? undefined : new Date(asString(input["from"])),
+          to: input["to"] === undefined ? undefined : new Date(asString(input["to"])),
+          limit: asNumber(input["limit"]),
+          offset: asNumber(input["offset"]),
+          actorUserId: seesEverything ? undefined : principal.user.id,
         });
         return { ...page, hasMore: page.offset + page.rows.length < page.total };
       }
       case "list_jobs": {
-        const limit = input["limit"] as number;
-        const page = await this.jobs.list({
+        const limit = asNumber(input["limit"]);
+        const page = await jobs.list({
           status: input["status"] as "Open" | "Closed" | undefined,
-          search: input["search"] as string | undefined,
+          search: asOptionalString(input["search"]),
           limit: limit + 1,
-          offset: input["offset"] as number,
-          ...(roleHasCapability(principal.user.role, "viewAllActivity")
-            ? {}
-            : { assignedTo: principal.user.id }),
+          offset: asNumber(input["offset"]),
+          ...(seesEverything ? {} : { assignedTo: principal.user.id }),
         });
         return {
           jobs: page.slice(0, limit),
           limit,
-          offset: input["offset"] as number,
+          offset: asNumber(input["offset"]),
           hasMore: page.length > limit,
         };
       }
       case "get_job":
-        return { job: await this.jobs.detail(input["jobId"] as string, jobViewer) };
+        return { job: await jobs.detail(asString(input["jobId"]), jobViewer) };
+      case "list_reservations":
+        return {
+          reservations: await listOpenReservations(this.services.database, {
+            limit: asNumber(input["limit"]),
+            ...(seesEverything ? {} : { createdByUserId: principal.user.id }),
+          }),
+        };
       case "list_stock_requests": {
-        const page = await this.requests.list({
+        const page = await requests.list({
           status: input["status"] as "Pending" | "Approved" | "Rejected" | "Cancelled" | undefined,
-          itemId: input["itemId"] as string | undefined,
-          jobId: input["jobId"] as string | undefined,
+          itemId: asOptionalString(input["itemId"]),
+          jobId: asOptionalString(input["jobId"]),
           requestedByUserId: roleHasCapability(principal.user.role, "reviewStockRequests")
             ? undefined
             : principal.user.id,
-          limit: input["limit"] as number,
-          offset: input["offset"] as number,
+          limit: asNumber(input["limit"]),
+          offset: asNumber(input["offset"]),
         });
         return { ...page, hasMore: page.offset + page.rows.length < page.total };
       }
       case "list_locations": {
-        const limit = input["limit"] as number;
-        const page = await this.catalogue.listLocations({
+        const limit = asNumber(input["limit"]);
+        const page = await catalogue.listLocations({
           limit: limit + 1,
-          offset: input["offset"] as number,
+          offset: asNumber(input["offset"]),
           activeOnly: true,
         });
         return {
           locations: page.slice(0, limit),
           limit,
-          offset: input["offset"] as number,
+          offset: asNumber(input["offset"]),
           hasMore: page.length > limit,
         };
       }
+      case "search_locations":
+        return { locations: await locations.search(asString(input["query"])) };
+      case "list_maps":
+        return { maps: await locations.maps() };
+      case "get_map":
+        return { map: await locations.map(asString(input["mapId"])) };
+      case "list_users":
+        return { users: await users.list() };
+      case "get_user_activity":
+        return users.activity(asString(input["userId"]));
       default:
         throw new Error("Unknown MCP tool.");
     }
@@ -1305,11 +431,12 @@ export class McpToolExecutor {
     principal: McpPrincipal,
     handle: McpCallHandle,
   ): Promise<Readonly<Record<string, unknown>>> {
-    const idempotencyKey = input["idempotencyKey"] as string;
+    const { audit, database } = this.services;
+    const idempotencyKey = asString(input["idempotencyKey"]);
     const fingerprint = sha256(canonicalJson(input));
-    return this.database.transaction().execute(async (tx) => {
-      await this.audit.lockIdempotency(tx, principal.user.id, name, idempotencyKey);
-      const prior = await this.audit.findReceipt(tx, principal.user.id, name, idempotencyKey);
+    return database.transaction().execute(async (tx) => {
+      await audit.lockIdempotency(tx, principal.user.id, name, idempotencyKey);
+      const prior = await audit.findReceipt(tx, principal.user.id, name, idempotencyKey);
       if (prior !== null) {
         if (prior.requestFingerprint !== fingerprint) {
           throw new ApplicationFailureException(
@@ -1318,9 +445,9 @@ export class McpToolExecutor {
             }),
           );
         }
-        await this.audit.copyEffectLinks(tx, prior.callId, handle.callId);
+        await audit.copyEffectLinks(tx, prior.callId, handle.callId);
         const summary = McpAuditService.resultSummary(prior.result);
-        await this.audit.event(
+        await audit.event(
           handle.callId,
           "Succeeded",
           { ...summary, durationMs: Date.now() - handle.receivedAt.getTime() },
@@ -1331,7 +458,7 @@ export class McpToolExecutor {
 
       const result = await this.executeWriteInTransaction(tx, name, input, principal);
       const compact = McpAuditService.compactWriteResult(result);
-      await this.audit.insertReceipt(tx, {
+      await audit.insertReceipt(tx, {
         actorUserId: principal.user.id,
         toolName: name,
         idempotencyKey,
@@ -1339,9 +466,9 @@ export class McpToolExecutor {
         callId: handle.callId,
         result: compact,
       });
-      await this.audit.linkEffects(tx, handle.callId, effectsFor(result));
+      await audit.linkEffects(tx, handle.callId, effectsFor(result));
       const summary = McpAuditService.resultSummary(compact);
-      await this.audit.event(
+      await audit.event(
         handle.callId,
         "Succeeded",
         { ...summary, durationMs: Date.now() - handle.receivedAt.getTime() },
@@ -1357,18 +484,24 @@ export class McpToolExecutor {
     input: Readonly<Record<string, unknown>>,
     principal: McpPrincipal,
   ): Promise<unknown> {
+    const { catalogue, jobs, locations, requests, stock, users } = this.services;
+    const seesEverything = roleHasCapability(principal.user.role, "viewAllActivity");
     const actor = {
       actorUserId: principal.user.id,
-      scopeActivityToActor: !roleHasCapability(principal.user.role, "viewAllActivity"),
+      scopeActivityToActor: !seesEverything,
+    };
+    const viewer = {
+      viewerUserId: principal.user.id,
+      scopeActivityToViewer: !seesEverything,
     };
     switch (name) {
       case "request_stock": {
-        const request = await this.requests.createInTransaction(tx, {
+        const request = await requests.createInTransaction(tx, {
           requestedByUserId: principal.user.id,
-          itemId: input["itemId"] as string,
-          quantity: input["quantity"] as string,
-          jobId: (input["jobId"] as string | undefined) ?? null,
-          note: (input["note"] as string | undefined) ?? null,
+          itemId: asString(input["itemId"]),
+          quantity: asString(input["quantity"]),
+          jobId: asOptionalString(input["jobId"]) ?? null,
+          note: asOptionalString(input["note"]) ?? null,
         });
         return {
           requestId: request.id,
@@ -1377,50 +510,72 @@ export class McpToolExecutor {
           reservationId: request.reservationId,
         };
       }
+      case "cancel_stock_request": {
+        const request = await requests.cancelInTransaction(
+          tx,
+          asString(input["requestId"]),
+          principal.user.id,
+        );
+        return { requestId: request.id, itemId: request.itemId, jobId: request.jobId };
+      }
       case "reserve_stock":
-        return this.stock.reserveInTransaction(tx, {
+        return stock.reserveInTransaction(tx, {
           ...actor,
-          jobId: input["jobId"] as string,
-          itemId: input["itemId"] as string,
-          quantity: requireQuantity(input["quantity"] as string),
+          jobId: asString(input["jobId"]),
+          itemId: asString(input["itemId"]),
+          quantity: requireQuantity(asString(input["quantity"])),
         });
       case "receive_stock":
-        return this.stock.receiveInTransaction(tx, {
+        return stock.receiveInTransaction(tx, {
           ...actor,
-          itemId: input["itemId"] as string,
-          locationId: input["locationId"] as string,
-          quantity: requireQuantity(input["quantity"] as string),
+          itemId: asString(input["itemId"]),
+          locationId: asString(input["locationId"]),
+          quantity: requireQuantity(asString(input["quantity"])),
         });
       case "issue_stock":
-        return this.stock.issueInTransaction(tx, {
+        return stock.issueInTransaction(tx, {
           ...actor,
-          itemId: input["itemId"] as string,
-          locationId: input["locationId"] as string,
-          quantity: requireQuantity(input["quantity"] as string),
-          jobId: (input["jobId"] as string | undefined) ?? null,
+          itemId: asString(input["itemId"]),
+          locationId: asString(input["locationId"]),
+          quantity: requireQuantity(asString(input["quantity"])),
+          jobId: asOptionalString(input["jobId"]) ?? null,
         });
       case "transfer_stock":
-        return this.stock.transferInTransaction(tx, {
+        return stock.transferInTransaction(tx, {
           ...actor,
-          itemId: input["itemId"] as string,
-          fromLocationId: input["fromLocationId"] as string,
-          toLocationId: input["toLocationId"] as string,
-          quantity: requireQuantity(input["quantity"] as string),
+          itemId: asString(input["itemId"]),
+          fromLocationId: asString(input["fromLocationId"]),
+          toLocationId: asString(input["toLocationId"]),
+          quantity: requireQuantity(asString(input["quantity"])),
+        });
+      case "adjust_stock":
+        return stock.adjustInTransaction(tx, {
+          ...actor,
+          itemId: asString(input["itemId"]),
+          locationId: asString(input["locationId"]),
+          countedQuantity: requireQuantity(asString(input["countedQuantity"]), "countedQuantity"),
+          reason: asString(input["reason"]),
         });
       case "collect_reserved_stock":
-        return this.stock.collectInTransaction(tx, {
+        return stock.collectInTransaction(tx, {
           ...actor,
-          reservationId: input["reservationId"] as string,
-          sourceLocationId: input["sourceLocationId"] as string,
-          quantity: requireQuantity(input["quantity"] as string),
+          reservationId: asString(input["reservationId"]),
+          sourceLocationId: asString(input["sourceLocationId"]),
+          quantity: requireQuantity(asString(input["quantity"])),
+        });
+      case "release_reservation":
+        return stock.releaseInTransaction(tx, {
+          ...actor,
+          reservationId: asString(input["reservationId"]),
+          reason: asString(input["reason"]),
         });
       case "approve_stock_request": {
-        const request = await this.requests.approveInTransaction(tx, {
-          requestId: input["requestId"] as string,
+        const request = await requests.approveInTransaction(tx, {
+          requestId: asString(input["requestId"]),
           decidedByUserId: principal.user.id,
-          decisionNote: (input["decisionNote"] as string | undefined) ?? null,
+          decisionNote: asOptionalString(input["decisionNote"]) ?? null,
           scopeActivityToActor: actor.scopeActivityToActor,
-          ...(input["quantity"] === undefined ? {} : { quantity: input["quantity"] as string }),
+          ...optionalField<string>(input, "quantity"),
         });
         return {
           requestId: request.id,
@@ -1430,13 +585,105 @@ export class McpToolExecutor {
         };
       }
       case "reject_stock_request": {
-        const request = await this.requests.rejectInTransaction(tx, {
-          requestId: input["requestId"] as string,
+        const request = await requests.rejectInTransaction(tx, {
+          requestId: asString(input["requestId"]),
           decidedByUserId: principal.user.id,
-          decisionNote: input["decisionNote"] as string,
+          decisionNote: asString(input["decisionNote"]),
           scopeActivityToActor: actor.scopeActivityToActor,
         });
         return { requestId: request.id, itemId: request.itemId, jobId: request.jobId };
+      }
+      case "create_item": {
+        const item = await catalogue.createItemInTransaction(
+          tx,
+          {
+            reference: asOptionalString(input["reference"]) ?? null,
+            name: asString(input["name"]),
+            unit: asString(input["unit"]),
+            barcode: asOptionalString(input["barcode"]) ?? null,
+            partNumber: asOptionalString(input["partNumber"]) ?? null,
+            lowStockThreshold: asOptionalString(input["lowStockThreshold"]) ?? null,
+          },
+          viewer,
+        );
+        return { itemId: item.id };
+      }
+      case "update_item": {
+        const item = await catalogue.updateItemInTransaction(
+          tx,
+          asString(input["itemId"]),
+          {
+            ...optionalField<string>(input, "name"),
+            ...optionalField<string>(input, "unit"),
+            ...optionalField<string | null>(input, "barcode"),
+            ...optionalField<string | null>(input, "partNumber"),
+            ...optionalField<string | null>(input, "lowStockThreshold"),
+            ...optionalField<boolean>(input, "isActive"),
+          },
+          viewer,
+        );
+        return { itemId: item.id };
+      }
+      case "archive_item": {
+        const item = await catalogue.updateItemInTransaction(
+          tx,
+          asString(input["itemId"]),
+          { isActive: false },
+          viewer,
+        );
+        return { itemId: item.id };
+      }
+      case "set_item_cover_photo": {
+        const item = await catalogue.setItemPhotoCoverInTransaction(
+          tx,
+          asString(input["itemId"]),
+          asString(input["photoId"]),
+          viewer,
+        );
+        return { itemId: item.id, photoId: asString(input["photoId"]) };
+      }
+      case "create_job": {
+        const job = await jobs.createInTransaction(tx, {
+          number: asOptionalString(input["number"]) ?? null,
+          name: asString(input["name"]),
+          customer: asString(input["customer"]),
+        });
+        return { jobId: job.id, locationId: job.locationId };
+      }
+      case "close_job":
+        return stock.closeJobInTransaction(tx, principal.user.id, asString(input["jobId"]));
+      case "assign_job":
+        await jobs.assignInTransaction(
+          tx,
+          asString(input["jobId"]),
+          asString(input["userId"]),
+          principal.user.id,
+        );
+        return { jobId: asString(input["jobId"]), userId: asString(input["userId"]) };
+      case "unassign_job":
+        await jobs.unassignInTransaction(tx, asString(input["jobId"]), asString(input["userId"]));
+        return { jobId: asString(input["jobId"]), userId: asString(input["userId"]) };
+      case "archive_location":
+        return locations.archiveInTransaction(tx, asString(input["locationId"]));
+      case "delete_location":
+        return locations.removeInTransaction(tx, asString(input["locationId"]));
+      case "archive_map":
+        return locations.archiveMapInTransaction(tx, asString(input["mapId"]), principal.user.id);
+      case "update_user": {
+        const user = await users.updateInTransaction(tx, asString(input["userId"]), {
+          ...optionalField<string>(input, "username"),
+          ...optionalField<string | null>(input, "email"),
+          ...optionalField<string>(input, "displayName"),
+          ...optionalField<"Engineer" | "Office" | "Admin">(input, "role"),
+          ...optionalField<boolean>(input, "isActive"),
+        });
+        return { userId: user.id };
+      }
+      case "deactivate_user": {
+        const user = await users.updateInTransaction(tx, asString(input["userId"]), {
+          isActive: false,
+        });
+        return { userId: user.id };
       }
       default:
         throw new Error("Unknown MCP write tool.");
@@ -1450,7 +697,7 @@ export class McpToolExecutor {
     message: string,
     principal: McpPrincipal | null = null,
   ): Promise<McpExecutionResponse> {
-    await this.audit.event(handle.callId, event, {
+    await this.services.audit.event(handle.callId, event, {
       actorUserId: principal?.user.id ?? null,
       grantId: principal?.grantId ?? null,
       failureCode: code,
@@ -1493,6 +740,10 @@ const effectsFor = (value: unknown): readonly McpEffectLinkInput[] => {
   add("request", safe["requestId"]);
   add("job", safe["jobId"]);
   add("item", safe["itemId"]);
+  add("location", safe["locationId"]);
+  add("map", safe["mapId"]);
+  add("user", safe["userId"]);
+  add("photo", safe["photoId"]);
   const nestedItem = safe["item"];
   if (typeof nestedItem === "object" && nestedItem !== null && !Array.isArray(nestedItem)) {
     add("item", (nestedItem as Readonly<Record<string, unknown>>)["id"]);

@@ -17,6 +17,11 @@ export const MCP_SCOPES = [
   "stock:request",
   "stock:write",
   "requests:review",
+  "catalogue:write",
+  "jobs:write",
+  "locations:write",
+  "users:read",
+  "users:write",
 ] as const;
 
 export type McpScope = (typeof MCP_SCOPES)[number];

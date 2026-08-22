@@ -28,8 +28,9 @@ import {
 } from "@stockcontrol/module-locations";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { JsonObject, StockControlDatabase } from "@stockcontrol/platform-database";
-import type { Kysely } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 
+import { withTransaction } from "../persistence/transaction";
 import { locationPaths } from "./location-paths";
 import type { FloorPlanDocumentRow, LocationRow, MapRow } from "./locations.types";
 import { S3PrivateFloorPlanStorage, type FloorPlanObjectStorage } from "./floor-plan-storage";
@@ -635,40 +636,55 @@ export class LocationsService {
   }
 
   public async archiveMap(mapId: string, actorUserId: string): Promise<MapView> {
+    await withTransaction(this.database, undefined, (tx) =>
+      this.archiveMapInTransaction(tx, mapId, actorUserId),
+    );
+    return this.map(mapId);
+  }
+
+  /**
+   * Returns the archived map's identity rather than its view: the caller's
+   * transaction has not committed yet, so reading the map back would either
+   * see the pre-archive row on another connection or duplicate work the
+   * caller can do afterwards.
+   */
+  public async archiveMapInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    mapId: string,
+    actorUserId: string,
+  ): Promise<{ readonly mapId: string }> {
     const map = await this.repository.findMap(mapId);
     if (map === undefined)
       throw new ApplicationFailureException(
         resourceUnavailable({ detail: "That map was not found." }),
       );
     const now = new Date();
-    await this.database.transaction().execute(async (tx) => {
-      await tx
-        .withSchema(SCHEMA)
-        .updateTable("maps")
-        .set({ status: "Archived", updated_at: now })
-        .where("id", "=", mapId)
-        .execute();
-      await tx
-        .withSchema(SCHEMA)
-        .updateTable("locations")
-        .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
-        .where("map_id", "=", mapId)
-        .execute();
-      await tx
-        .withSchema(SCHEMA)
-        .insertInto("map_edit_events")
-        .values({
-          id: randomUUID(),
-          map_id: mapId,
-          actor_user_id: actorUserId,
-          action: "map.archived",
-          before_state: { status: map.status, revision: map.revision },
-          after_state: { status: "Archived", revision: map.revision },
-          reason: null,
-        })
-        .execute();
-    });
-    return this.map(mapId);
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("maps")
+      .set({ status: "Archived", updated_at: now })
+      .where("id", "=", mapId)
+      .execute();
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("locations")
+      .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
+      .where("map_id", "=", mapId)
+      .execute();
+    await tx
+      .withSchema(SCHEMA)
+      .insertInto("map_edit_events")
+      .values({
+        id: randomUUID(),
+        map_id: mapId,
+        actor_user_id: actorUserId,
+        action: "map.archived",
+        before_state: { status: map.status, revision: map.revision },
+        after_state: { status: "Archived", revision: map.revision },
+        reason: null,
+      })
+      .execute();
+    return { mapId };
   }
 
   /**
@@ -677,6 +693,15 @@ export class LocationsService {
    * its parent from what remains.
    */
   public async archive(locationId: string): Promise<void> {
+    await withTransaction(this.database, undefined, (tx) =>
+      this.archiveInTransaction(tx, locationId),
+    );
+  }
+
+  public async archiveInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    locationId: string,
+  ): Promise<{ readonly locationId: string }> {
     const rows = await this.repository.listLocations();
     const row = rows.find((candidate) => candidate.id === locationId);
     if (row === undefined || row.kind !== "Store")
@@ -688,23 +713,31 @@ export class LocationsService {
         validationFailed({ location: ["That location is already archived."] }),
       );
     const now = new Date();
-    await this.database.transaction().execute(async (tx) => {
-      await tx
-        .withSchema(SCHEMA)
-        .updateTable("locations")
-        .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
-        .where("id", "=", locationId)
-        .execute();
-      await tx
-        .withSchema(SCHEMA)
-        .updateTable("locations")
-        .set({ derived_parent_id: row.derived_parent_id, updated_at: now })
-        .where("derived_parent_id", "=", locationId)
-        .execute();
-    });
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("locations")
+      .set({ is_active: false, archived_at: now, derived_parent_id: null, updated_at: now })
+      .where("id", "=", locationId)
+      .execute();
+    await tx
+      .withSchema(SCHEMA)
+      .updateTable("locations")
+      .set({ derived_parent_id: row.derived_parent_id, updated_at: now })
+      .where("derived_parent_id", "=", locationId)
+      .execute();
+    return { locationId };
   }
 
   public async remove(locationId: string): Promise<void> {
+    await withTransaction(this.database, undefined, (tx) =>
+      this.removeInTransaction(tx, locationId),
+    );
+  }
+
+  public async removeInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    locationId: string,
+  ): Promise<{ readonly locationId: string }> {
     const rows = await this.repository.listLocations();
     const row = rows.find((candidate) => candidate.id === locationId);
     if (row === undefined || row.kind !== "Store")
@@ -720,15 +753,13 @@ export class LocationsService {
         ),
       );
     try {
-      await this.database.transaction().execute(async (tx) => {
-        await tx
-          .withSchema(SCHEMA)
-          .updateTable("locations")
-          .set({ derived_parent_id: null })
-          .where("derived_parent_id", "=", locationId)
-          .execute();
-        await tx.withSchema(SCHEMA).deleteFrom("locations").where("id", "=", locationId).execute();
-      });
+      await tx
+        .withSchema(SCHEMA)
+        .updateTable("locations")
+        .set({ derived_parent_id: null })
+        .where("derived_parent_id", "=", locationId)
+        .execute();
+      await tx.withSchema(SCHEMA).deleteFrom("locations").where("id", "=", locationId).execute();
     } catch (error) {
       if (postgresErrorCode(error) === "23503")
         throw new ApplicationFailureException(
@@ -739,6 +770,7 @@ export class LocationsService {
         );
       throw domainFailure(error);
     }
+    return { locationId };
   }
 
   /**

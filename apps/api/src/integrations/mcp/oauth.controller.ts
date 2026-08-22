@@ -69,6 +69,16 @@ const scopeLabel = (scope: McpScope): string => {
       return "Update stock records";
     case "requests:review":
       return "Review stock requests";
+    case "catalogue:write":
+      return "Add and edit catalogue items";
+    case "jobs:write":
+      return "Create and close jobs, and change who is on them";
+    case "locations:write":
+      return "Archive and delete locations and maps";
+    case "users:read":
+      return "View StockControl accounts and what each person has been doing";
+    case "users:write":
+      return "Change StockControl accounts, but never their passwords";
   }
 };
 
