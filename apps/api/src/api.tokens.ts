@@ -22,4 +22,5 @@ export const API_TOKENS = {
   mcpActivityService: Symbol("mcp.activity-service"),
   mcpReconciliationJob: Symbol("mcp.reconciliation-job"),
   mcpRateLimiter: Symbol("mcp.rate-limiter"),
+  mcpAuthorizationRequestSweeper: Symbol("mcp.authorization-request-sweeper"),
 } as const;

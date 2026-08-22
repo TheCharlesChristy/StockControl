@@ -22,6 +22,7 @@ const challenge = createHash("sha256").update(verifier).digest("base64url");
 const configuration = {
   accessTokenMinutes: 15,
   refreshTokenDays: 30,
+  tokenHashKey: "test-only-mcp-token-hash-key-that-is-long-enough",
 } as never;
 
 describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
@@ -179,5 +180,6 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
     await expect(oauth.approveAuthorizationRequest(expired, userId)).rejects.toMatchObject({
       code: "invalid_request",
     });
+    expect(await oauth.deleteExpiredAuthorizationRequests()).toBeGreaterThan(0);
   });
 });

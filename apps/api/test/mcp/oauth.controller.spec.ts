@@ -68,6 +68,9 @@ describe("OAuth controller input handling", () => {
 
     expect(oauth.createAuthorizationRequest).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith(expect.stringContaining('name="request_id"'));
+    expect(send).toHaveBeenCalledWith(
+      expect.stringContaining("Requested permissions: stock:read, activity:read"),
+    );
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining("<script>"));
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
   });

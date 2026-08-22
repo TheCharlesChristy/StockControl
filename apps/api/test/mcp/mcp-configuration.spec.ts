@@ -31,6 +31,17 @@ describe("MCP feature configuration", () => {
     ).toThrow(/MCP_REDIRECT_URI/u);
   });
 
+  it("requires a separate token hash key when MCP is enabled", () => {
+    expect(() =>
+      loadMcpConfiguration({
+        NODE_ENV: "test",
+        MCP_ENABLED: "true",
+        MCP_PUBLIC_BASE_URL: "https://stockcontrol.example",
+        MCP_REDIRECT_URI: "https://stockcontrol.example/oauth/callback",
+      }),
+    ).toThrow(/MCP_TOKEN_HASH_KEY/u);
+  });
+
   it("uses the explicit abandoned-call grace over the legacy timeout", () => {
     const configuration = loadMcpConfiguration({
       NODE_ENV: "test",

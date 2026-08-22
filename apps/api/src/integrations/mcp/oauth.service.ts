@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import type { McpConnectionView } from "@stockcontrol/contracts";
 import type {
@@ -86,13 +86,12 @@ interface GrantTokenRow {
 }
 
 /*
- * Access, refresh and authorization-code values are 256-bit random secrets,
- * not passwords. Keep their database representation opaque and use a memory-
- * hard derivation so a leaked token table cannot be searched cheaply.
+ * These values are 256-bit random bearer secrets, not passwords. HMAC keeps
+ * the indexed lookup cheap and non-blocking while a database-only compromise
+ * cannot verify candidate tokens without the deployment's separate key.
  */
-const TOKEN_HASH_SALT = Buffer.from("stockcontrol-mcp-token-v1", "utf8");
-const hashToken = (token: string): string =>
-  scryptSync(token, TOKEN_HASH_SALT, 32, { N: 16_384, r: 8, p: 1 }).toString("hex");
+const hashToken = (token: string, key: string): string =>
+  createHmac("sha256", key).update(token, "utf8").digest("hex");
 
 const opaqueToken = (bytes: number): string => randomBytes(bytes).toString("base64url");
 
@@ -184,6 +183,20 @@ export class OAuthService {
     return id;
   }
 
+  public async deleteExpiredAuthorizationRequests(): Promise<number> {
+    const result = await this.database
+      .withSchema(SCHEMA)
+      .deleteFrom("oauth_authorization_requests")
+      .where((builder) =>
+        builder.or([
+          builder("expires_at", "<=", this.now()),
+          builder("consumed_at", "is not", null),
+        ]),
+      )
+      .executeTakeFirst();
+    return Number(result.numDeletedRows);
+  }
+
   public async approveAuthorizationRequest(
     requestId: string,
     userId: string,
@@ -218,7 +231,10 @@ export class OAuthService {
       await tx
         .withSchema(SCHEMA)
         .updateTable("oauth_authorization_requests")
-        .set({ authorization_code_hash: hashToken(code), approved_at: now })
+        .set({
+          authorization_code_hash: hashToken(code, this.configuration.tokenHashKey),
+          approved_at: now,
+        })
         .where("id", "=", row.id)
         .execute();
 
@@ -237,7 +253,7 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .selectFrom("oauth_authorization_requests")
         .selectAll()
-        .where("authorization_code_hash", "=", hashToken(code))
+        .where("authorization_code_hash", "=", hashToken(code, this.configuration.tokenHashKey))
         .where("client_id", "=", clientId)
         .where("redirect_uri", "=", redirectUri)
         .where("approved_at", "is not", null)
@@ -322,7 +338,7 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .selectFrom("oauth_grants")
         .selectAll()
-        .where("refresh_token_hash", "=", hashToken(refreshToken))
+        .where("refresh_token_hash", "=", hashToken(refreshToken, this.configuration.tokenHashKey))
         .where("client_id", "=", clientId)
         .where("revoked_at", "is", null)
         .forUpdate()
@@ -357,8 +373,8 @@ export class OAuthService {
         .select(["id", "user_id", "granted_scopes"])
         .where((builder) =>
           builder.or([
-            builder("access_token_hash", "=", hashToken(token)),
-            builder("refresh_token_hash", "=", hashToken(token)),
+            builder("access_token_hash", "=", hashToken(token, this.configuration.tokenHashKey)),
+            builder("refresh_token_hash", "=", hashToken(token, this.configuration.tokenHashKey)),
           ]),
         )
         .where("revoked_at", "is", null)
@@ -393,7 +409,11 @@ export class OAuthService {
         "users.role as role",
         "users.is_active as is_active",
       ])
-      .where("oauth_grants.access_token_hash", "=", hashToken(token))
+      .where(
+        "oauth_grants.access_token_hash",
+        "=",
+        hashToken(token, this.configuration.tokenHashKey),
+      )
       .where("oauth_grants.revoked_at", "is", null)
       .executeTakeFirst();
 
@@ -536,9 +556,9 @@ export class OAuthService {
           authorization_code_method: null,
           authorization_code_expires_at: null,
           authorization_code_used_at: issuedAt,
-          access_token_hash: hashToken(accessToken),
+          access_token_hash: hashToken(accessToken, this.configuration.tokenHashKey),
           access_token_expires_at: accessExpiresAt,
-          refresh_token_hash: hashToken(refreshToken),
+          refresh_token_hash: hashToken(refreshToken, this.configuration.tokenHashKey),
           refresh_token_expires_at: refreshExpiresAt,
           revoked_at: null,
           created_at: issuedAt,
@@ -550,9 +570,9 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .updateTable("oauth_grants")
         .set({
-          access_token_hash: hashToken(accessToken),
+          access_token_hash: hashToken(accessToken, this.configuration.tokenHashKey),
           access_token_expires_at: accessExpiresAt,
-          refresh_token_hash: hashToken(refreshToken),
+          refresh_token_hash: hashToken(refreshToken, this.configuration.tokenHashKey),
           refresh_token_expires_at: refreshExpiresAt,
           updated_at: issuedAt,
         })

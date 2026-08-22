@@ -103,6 +103,7 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 PUBLIC_APP_ORIGIN=https://<the exact web domain>
+MCP_TOKEN_HASH_KEY=<random secret of at least 32 characters when MCP_ENABLED=true>
 TRUSTED_PROXY_HOPS=1
 DATABASE_URL=<private URL for stockcontrol_app>
 DATABASE_POOL_MAX=5

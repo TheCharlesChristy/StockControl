@@ -5,6 +5,7 @@ export interface McpConfiguration {
   readonly publicBaseUrl: string;
   readonly clientId: string;
   readonly redirectUri: string;
+  readonly tokenHashKey: string;
   readonly accessTokenMinutes: number;
   readonly refreshTokenDays: number;
   readonly abandonedCallSeconds: number;
@@ -18,6 +19,7 @@ export interface McpEnvironment {
   readonly MCP_PUBLIC_BASE_URL?: string;
   readonly MCP_CLIENT_ID?: string;
   readonly MCP_REDIRECT_URI?: string;
+  readonly MCP_TOKEN_HASH_KEY?: string;
   readonly MCP_ACCESS_TOKEN_MINUTES?: string;
   readonly MCP_REFRESH_TOKEN_DAYS?: string;
   readonly MCP_MAX_TOOL_SECONDS?: string;
@@ -94,6 +96,14 @@ export const loadMcpConfiguration = (
     production,
   );
 
+  const tokenHashKey = environment.MCP_TOKEN_HASH_KEY?.trim() || undefined;
+  if (
+    enabled(environment.MCP_ENABLED) &&
+    (tokenHashKey === undefined || tokenHashKey.length < 32)
+  ) {
+    throw new Error("MCP_TOKEN_HASH_KEY must contain at least 32 characters when MCP is enabled.");
+  }
+
   if (clientId.length > 160) {
     throw new Error("MCP_CLIENT_ID must be 160 characters or fewer.");
   }
@@ -112,6 +122,7 @@ export const loadMcpConfiguration = (
     publicBaseUrl,
     clientId,
     redirectUri,
+    tokenHashKey: tokenHashKey ?? "",
     accessTokenMinutes: boundedInteger(environment, "MCP_ACCESS_TOKEN_MINUTES", 15, 5, 60),
     refreshTokenDays: boundedInteger(environment, "MCP_REFRESH_TOKEN_DAYS", 30, 1, 90),
     abandonedCallSeconds,

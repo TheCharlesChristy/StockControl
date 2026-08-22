@@ -70,6 +70,7 @@ import {
 import { McpToolExecutor } from "./integrations/mcp/mcp-tool-executor";
 import { McpReconciliationJob } from "./integrations/mcp/mcp-reconciliation";
 import { McpRateLimiter } from "./integrations/mcp/mcp-rate-limiter";
+import { OAuthAuthorizationRequestSweeper } from "./integrations/mcp/oauth-authorization-request-sweeper";
 import { OAuthController } from "./integrations/mcp/oauth.controller";
 import { OAuthService } from "./integrations/mcp/oauth.service";
 
@@ -349,6 +350,12 @@ const mcpProviders: Provider[] = mcpEnabled
       {
         provide: API_TOKENS.mcpRateLimiter,
         useFactory: () => new McpRateLimiter(),
+      },
+      {
+        provide: API_TOKENS.mcpAuthorizationRequestSweeper,
+        useFactory: (oauth: OAuthService, logger: StructuredLogger) =>
+          new OAuthAuthorizationRequestSweeper(oauth, logger),
+        inject: [API_TOKENS.mcpOAuthService, SYSTEM_TOKENS.logger],
       },
     ]
   : [];

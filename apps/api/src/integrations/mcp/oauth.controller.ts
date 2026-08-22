@@ -158,13 +158,14 @@ export class OAuthController {
         redirectUri,
         responseType,
       );
+      const scopes = scopeList(scope);
 
       const requestId = await this.oauth.createAuthorizationRequest({
         userId: user.id,
         clientId: registeredClient.clientId,
         redirectUri: registeredClient.redirectUri,
         state,
-        scopes: scopeList(scope),
+        scopes,
         codeChallenge,
         codeChallengeMethod,
       });
@@ -175,7 +176,7 @@ export class OAuthController {
       return reply
         .type("text/html")
         .send(
-          `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Approve this connection to let ChatGPT use StockControl tools according to your current role.</p><form method="post" action="/oauth/authorize"><input type="hidden" name="request_id" value="${encodedRequestId}"><button type="submit">Approve connection</button></form></main>`,
+          `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Approve this connection to let ChatGPT use StockControl tools according to your current role.</p><p>Requested permissions: ${scopes.join(", ")}</p><form method="post" action="/oauth/authorize"><input type="hidden" name="request_id" value="${encodedRequestId}"><button type="submit">Approve connection</button></form></main>`,
         );
     } catch (error: unknown) {
       return oauthError(reply, error);
