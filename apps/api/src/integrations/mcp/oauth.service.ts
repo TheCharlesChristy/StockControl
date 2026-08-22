@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import type { McpConnectionView } from "@stockcontrol/contracts";
 import type {
@@ -85,7 +85,14 @@ interface GrantTokenRow {
   readonly authorization_code_used_at: Date | null;
 }
 
-const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+/*
+ * Access, refresh and authorization-code values are 256-bit random secrets,
+ * not passwords. A domain-separated HMAC keeps their database representation
+ * opaque while avoiding a password-hash primitive for high-entropy tokens.
+ */
+const TOKEN_HASH_CONTEXT = "stockcontrol-mcp-token-v1";
+const hashToken = (token: string): string =>
+  createHmac("sha256", TOKEN_HASH_CONTEXT).update(token).digest("hex");
 
 const opaqueToken = (bytes: number): string => randomBytes(bytes).toString("base64url");
 

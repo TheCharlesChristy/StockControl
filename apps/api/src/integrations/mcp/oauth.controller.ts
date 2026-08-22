@@ -6,7 +6,13 @@ import { API_TOKENS } from "../../api.tokens";
 import { OriginExempt, Public } from "../../auth/public.decorator";
 import { sessionOf } from "../../auth/request-context";
 import type { McpConfiguration } from "./mcp-configuration";
-import { MCP_SCOPES, OAuthService, OAuthTokenError, type McpScope } from "./oauth.service";
+import {
+  MCP_SCOPES,
+  OAuthService,
+  OAuthTokenError,
+  type McpScope,
+  type TokenResponse,
+} from "./oauth.service";
 
 const oauthText = (body: Readonly<Record<string, unknown>>, field: string): string => {
   const value = body[field];
@@ -34,6 +40,49 @@ const scopeList = (value: string): readonly McpScope[] => {
     throw new OAuthTokenError("invalid_scope", "The requested scope is not supported.");
   }
   return requested as McpScope[];
+};
+
+interface RegisteredOAuthClient {
+  readonly clientId: string;
+  readonly redirectUri: string;
+}
+
+const registeredOAuthClient = (
+  configuration: McpConfiguration,
+  clientId: string,
+  redirectUri: string,
+  responseType: string,
+): RegisteredOAuthClient => {
+  if (clientId !== configuration.clientId || redirectUri !== configuration.redirectUri) {
+    throw new OAuthTokenError("invalid_request", "The OAuth request is not registered.");
+  }
+  if (responseType !== "code") {
+    throw new OAuthTokenError("invalid_request", "The OAuth response type is not supported.");
+  }
+  return {
+    clientId: configuration.clientId,
+    redirectUri: configuration.redirectUri,
+  };
+};
+
+const oauthTokenExchange = (
+  body: Readonly<Record<string, unknown>>,
+  clientId: string,
+): ((oauth: OAuthService) => Promise<TokenResponse>) => {
+  switch (oauthText(body, "grant_type")) {
+    case "authorization_code":
+      return (oauth) =>
+        oauth.exchangeAuthorizationCode(
+          oauthText(body, "code"),
+          clientId,
+          oauthText(body, "redirect_uri"),
+          oauthText(body, "code_verifier"),
+        );
+    case "refresh_token":
+      return (oauth) => oauth.refresh(oauthText(body, "refresh_token"), clientId);
+    default:
+      throw new OAuthTokenError("unsupported_grant_type", "That grant type is not supported.");
+  }
 };
 
 const oauthError = (reply: FastifyReply, error: unknown): FastifyReply => {
@@ -103,18 +152,17 @@ export class OAuthController {
       const codeChallengeMethod = oauthText(query, "code_challenge_method");
       const state = oauthState(query);
 
-      if (
-        clientId !== this.configuration.clientId ||
-        redirectUri !== this.configuration.redirectUri ||
-        responseType !== "code"
-      ) {
-        throw new OAuthTokenError("invalid_request", "The OAuth request is not registered.");
-      }
+      const registeredClient = registeredOAuthClient(
+        this.configuration,
+        clientId,
+        redirectUri,
+        responseType,
+      );
 
       const requestId = await this.oauth.createAuthorizationRequest({
         userId: user.id,
-        clientId,
-        redirectUri,
+        clientId: registeredClient.clientId,
+        redirectUri: registeredClient.redirectUri,
         state,
         scopes: scopeList(scope),
         codeChallenge,
@@ -169,25 +217,12 @@ export class OAuthController {
   public async token(@Body() rawBody: unknown, @Res() reply: FastifyReply): Promise<FastifyReply> {
     try {
       const body = bodyOf(rawBody);
-      const grantTypeValue = oauthText(body, "grant_type");
-      const clientId = oauthText(body, "client_id");
-      if (clientId !== this.configuration.clientId) {
+      const clientIdValue = oauthText(body, "client_id");
+      if (clientIdValue !== this.configuration.clientId) {
         throw new OAuthTokenError("invalid_client", "The OAuth client is not registered.");
       }
-
-      let outcome;
-      if (grantTypeValue === "authorization_code") {
-        outcome = await this.oauth.exchangeAuthorizationCode(
-          oauthText(body, "code"),
-          clientId,
-          oauthText(body, "redirect_uri"),
-          oauthText(body, "code_verifier"),
-        );
-      } else if (grantTypeValue === "refresh_token") {
-        outcome = await this.oauth.refresh(oauthText(body, "refresh_token"), clientId);
-      } else {
-        throw new OAuthTokenError("unsupported_grant_type", "That grant type is not supported.");
-      }
+      const clientId = this.configuration.clientId;
+      const outcome = await oauthTokenExchange(body, clientId)(this.oauth);
 
       return reply.code(200).send({
         token_type: "Bearer",
