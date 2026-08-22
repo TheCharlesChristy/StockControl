@@ -13,9 +13,11 @@ export const ORIGIN_EXEMPT_ROUTE = "stockcontrol:origin-exempt-route";
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(PUBLIC_ROUTE, true);
 
 /**
- * Marks a machine-to-machine OAuth/MCP route whose POST requests do not carry
- * the browser's StockControl origin. This is intentionally separate from
- * `Public`: a public browser route still remains behind the origin guard.
+ * Marks a protocol endpoint that does not use the application's normal
+ * same-origin CSRF model. Each use must enforce its own protection, such as
+ * OAuth's authenticated session plus a short-lived, single-use request handle.
+ * This is intentionally separate from `Public`: a public browser route still
+ * remains behind the origin guard.
  */
 export const OriginExempt = (): MethodDecorator & ClassDecorator =>
   SetMetadata(ORIGIN_EXEMPT_ROUTE, true);
