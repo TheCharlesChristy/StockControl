@@ -103,6 +103,16 @@ describe("OAuth controller input handling", () => {
     expect(send).toHaveBeenCalledWith(expect.stringContaining('target="_top"'));
   });
 
+  it("advertises the public logo for ChatGPT connector setup", () => {
+    const controller = new OAuthController({} as never, configuration);
+
+    expect(controller.authorizationServer()).toEqual(
+      expect.objectContaining({
+        logo_uri: `${configuration.publicBaseUrl}/christy-plumbing-main-logo-2025.png`,
+      }),
+    );
+  });
+
   it("sends an anonymous user to sign in and preserves the authorization request", async () => {
     const oauth = {
       createAuthorizationRequest: vi

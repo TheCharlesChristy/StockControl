@@ -283,6 +283,7 @@ export class OAuthController {
       scopes_supported: MCP_SCOPES,
       token_endpoint_auth_methods_supported: ["none"],
       revocation_endpoint_auth_methods_supported: ["none"],
+      logo_uri: `${this.configuration.publicBaseUrl}/christy-plumbing-main-logo-2025.png`,
     };
   }
 

@@ -10,6 +10,64 @@ const configuration = {
 } as McpConfiguration;
 
 describe("MCP transport authentication", () => {
+  it("negotiates the protocol version used by current ChatGPT connectors", async () => {
+    const executor = {
+      execute: vi.fn(),
+      tools: vi.fn(),
+      authenticate: vi.fn().mockResolvedValue({}),
+    };
+    const logger = { log: vi.fn() };
+    const code = vi.fn();
+    const header = vi.fn();
+    const send = vi.fn();
+    const reply = {
+      code,
+      header,
+      send,
+    } as unknown as FastifyReply;
+    code.mockReturnValue(reply);
+    header.mockReturnValue(reply);
+    send.mockReturnValue(reply);
+
+    const controller = new McpController(executor as never, logger as never, configuration);
+    await controller.handle(
+      {
+        headers: {
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25",
+        },
+      } as unknown as FastifyRequest,
+      {
+        jsonrpc: "2.0",
+        id: "initialize-1",
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "openai-mcp", version: "1.0.0" },
+        },
+      },
+      reply,
+    );
+
+    expect(code).toHaveBeenCalledWith(200);
+    expect(header).toHaveBeenCalledWith("mcp-protocol-version", "2025-11-25");
+    expect(send).toHaveBeenCalledWith({
+      jsonrpc: "2.0",
+      id: "initialize-1",
+      result: expect.objectContaining({
+        protocolVersion: "2025-11-25",
+        serverInfo: expect.objectContaining({
+          icons: [
+            expect.objectContaining({
+              src: `${configuration.publicBaseUrl}/christy-plumbing-main-logo-2025.png`,
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
   it("returns a transport-level OAuth challenge for unauthenticated tool calls", async () => {
     const executor = {
       execute: vi.fn().mockResolvedValue({

@@ -15,7 +15,8 @@ interface JsonRpcRequest {
   readonly params?: unknown;
 }
 
-const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-06-18", "2025-03-26"]);
+const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-11-25", DEFAULT_PROTOCOL_VERSION, "2025-03-26"]);
 
 const idOf = (value: unknown): string | number | null =>
   typeof value === "string" || typeof value === "number" ? value : null;
@@ -146,16 +147,29 @@ export class McpController {
       ) {
         return reply.code(400).send(rpcError(id, -32600, "Unsupported MCP protocol version."));
       }
+      const negotiatedVersion =
+        typeof requestedVersion === "string" ? requestedVersion : DEFAULT_PROTOCOL_VERSION;
       return reply
         .code(200)
-        .header("mcp-protocol-version", "2025-06-18")
+        .header("mcp-protocol-version", negotiatedVersion)
         .send({
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: "2025-06-18",
+            protocolVersion: negotiatedVersion,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: "stockcontrol-mcp", version: "1.0" },
+            serverInfo: {
+              name: "stockcontrol-mcp",
+              title: "StockControl",
+              version: "1.0",
+              icons: [
+                {
+                  src: `${this.configuration.publicBaseUrl}/christy-plumbing-main-logo-2025.png`,
+                  mimeType: "image/png",
+                  sizes: ["any"],
+                },
+              ],
+            },
           },
         });
     }
