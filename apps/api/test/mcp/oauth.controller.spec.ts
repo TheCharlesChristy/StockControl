@@ -91,6 +91,69 @@ describe("OAuth controller input handling", () => {
     expect(oauth.exchangeAuthorizationCode).not.toHaveBeenCalled();
   });
 
+  it("dispatches a valid refresh-token request and returns the OAuth response", async () => {
+    const oauth = {
+      refresh: vi.fn().mockResolvedValue({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expiresIn: 900,
+        scopes: ["stock:read"],
+      }),
+    };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, code, send } = replyFor();
+
+    await controller.token(
+      {
+        grant_type: "refresh_token",
+        client_id: configuration.clientId,
+        refresh_token: "refresh-token",
+      },
+      reply,
+    );
+
+    expect(oauth.refresh).toHaveBeenCalledWith("refresh-token", configuration.clientId);
+    expect(code).toHaveBeenCalledWith(200);
+    expect(send).toHaveBeenCalledWith({
+      token_type: "Bearer",
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+      expires_in: 900,
+      scope: "stock:read",
+    });
+  });
+
+  it("dispatches a valid authorization-code request with its PKCE values", async () => {
+    const oauth = {
+      exchangeAuthorizationCode: vi.fn().mockResolvedValue({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expiresIn: 900,
+        scopes: ["stock:read"],
+      }),
+    };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply } = replyFor();
+
+    await controller.token(
+      {
+        grant_type: "authorization_code",
+        client_id: configuration.clientId,
+        code: "authorization-code",
+        redirect_uri: configuration.redirectUri,
+        code_verifier: "a".repeat(43),
+      },
+      reply,
+    );
+
+    expect(oauth.exchangeAuthorizationCode).toHaveBeenCalledWith(
+      "authorization-code",
+      configuration.clientId,
+      configuration.redirectUri,
+      "a".repeat(43),
+    );
+  });
+
   it("rejects unknown clients before token exchange", async () => {
     const oauth = { refresh: vi.fn(), exchangeAuthorizationCode: vi.fn() };
     const controller = new OAuthController(oauth as never, configuration);
@@ -122,5 +185,31 @@ describe("OAuth controller input handling", () => {
       error_description: "The requested scope is not supported.",
     });
     expect(oauth.createAuthorizationRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unregistered authorization client and response type", async () => {
+    const oauth = { createAuthorizationRequest: vi.fn() };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply: clientReply, code: clientCode, send: clientSend } = replyFor();
+
+    await controller.authorizeScreen(
+      requestFor({ ...validQuery, client_id: "other-client" }),
+      clientReply,
+    );
+
+    expect(clientCode).toHaveBeenCalledWith(400);
+    expect(clientSend).toHaveBeenCalledWith({
+      error: "invalid_request",
+      error_description: "The OAuth request is not registered.",
+    });
+
+    const { reply, code, send } = replyFor();
+    await controller.authorizeScreen(requestFor({ ...validQuery, response_type: "token" }), reply);
+
+    expect(code).toHaveBeenCalledWith(400);
+    expect(send).toHaveBeenCalledWith({
+      error: "invalid_request",
+      error_description: "The OAuth response type is not supported.",
+    });
   });
 });
