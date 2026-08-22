@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
 
 import type { McpConnectionView } from "@stockcontrol/contracts";
 import type {
@@ -85,14 +85,6 @@ interface GrantTokenRow {
   readonly authorization_code_used_at: Date | null;
 }
 
-/*
- * These values are 256-bit random bearer secrets, not passwords. HMAC keeps
- * the indexed lookup cheap and non-blocking while a database-only compromise
- * cannot verify candidate tokens without the deployment's separate key.
- */
-const hashToken = (token: string, key: string): string =>
-  createHmac("sha256", key).update(token, "utf8").digest("hex");
-
 const opaqueToken = (bytes: number): string => randomBytes(bytes).toString("base64url");
 
 const sameSecret = (left: string, right: string): boolean => {
@@ -151,11 +143,36 @@ export class OAuthTokenError extends Error {
 }
 
 export class OAuthService {
+  private readonly tokenHashKey: Promise<CryptoKey>;
+
   public constructor(
     private readonly database: Kysely<StockControlDatabase>,
     private readonly configuration: McpConfiguration,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    /*
+     * These values are 256-bit random bearer secrets, not passwords. HMAC
+     * keeps indexed lookup cheap without blocking the event loop, while a
+     * database-only compromise cannot verify candidate tokens without the
+     * deployment's separate key.
+     */
+    this.tokenHashKey = webcrypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(configuration.tokenHashKey),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+  }
+
+  private async hashToken(token: string): Promise<string> {
+    const digest = await webcrypto.subtle.sign(
+      "HMAC",
+      await this.tokenHashKey,
+      new TextEncoder().encode(token),
+    );
+    return Buffer.from(digest).toString("hex");
+  }
 
   public async createAuthorizationRequest(input: AuthorizationRequestInput): Promise<string> {
     this.validateRequest(input);
@@ -232,7 +249,7 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .updateTable("oauth_authorization_requests")
         .set({
-          authorization_code_hash: hashToken(code, this.configuration.tokenHashKey),
+          authorization_code_hash: await this.hashToken(code),
           approved_at: now,
         })
         .where("id", "=", row.id)
@@ -253,7 +270,7 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .selectFrom("oauth_authorization_requests")
         .selectAll()
-        .where("authorization_code_hash", "=", hashToken(code, this.configuration.tokenHashKey))
+        .where("authorization_code_hash", "=", await this.hashToken(code))
         .where("client_id", "=", clientId)
         .where("redirect_uri", "=", redirectUri)
         .where("approved_at", "is not", null)
@@ -338,7 +355,7 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .selectFrom("oauth_grants")
         .selectAll()
-        .where("refresh_token_hash", "=", hashToken(refreshToken, this.configuration.tokenHashKey))
+        .where("refresh_token_hash", "=", await this.hashToken(refreshToken))
         .where("client_id", "=", clientId)
         .where("revoked_at", "is", null)
         .forUpdate()
@@ -366,6 +383,7 @@ export class OAuthService {
 
   public async revoke(token: string): Promise<void> {
     const now = this.now();
+    const tokenHash = await this.hashToken(token);
     await this.database.transaction().execute(async (tx) => {
       const row = await tx
         .withSchema(SCHEMA)
@@ -373,8 +391,8 @@ export class OAuthService {
         .select(["id", "user_id", "granted_scopes"])
         .where((builder) =>
           builder.or([
-            builder("access_token_hash", "=", hashToken(token, this.configuration.tokenHashKey)),
-            builder("refresh_token_hash", "=", hashToken(token, this.configuration.tokenHashKey)),
+            builder("access_token_hash", "=", tokenHash),
+            builder("refresh_token_hash", "=", tokenHash),
           ]),
         )
         .where("revoked_at", "is", null)
@@ -393,6 +411,7 @@ export class OAuthService {
   }
 
   public async resolveAccessToken(token: string): Promise<McpPrincipal | null> {
+    const tokenHash = await this.hashToken(token);
     const row = await this.database
       .withSchema(SCHEMA)
       .selectFrom("oauth_grants")
@@ -409,11 +428,7 @@ export class OAuthService {
         "users.role as role",
         "users.is_active as is_active",
       ])
-      .where(
-        "oauth_grants.access_token_hash",
-        "=",
-        hashToken(token, this.configuration.tokenHashKey),
-      )
+      .where("oauth_grants.access_token_hash", "=", tokenHash)
       .where("oauth_grants.revoked_at", "is", null)
       .executeTakeFirst();
 
@@ -540,6 +555,10 @@ export class OAuthService {
     const refreshExpiresAt = new Date(
       issuedAt.getTime() + this.configuration.refreshTokenDays * 86_400_000,
     );
+    const [accessTokenHash, refreshTokenHash] = await Promise.all([
+      this.hashToken(accessToken),
+      this.hashToken(refreshToken),
+    ]);
 
     if (consumeCode) {
       await tx
@@ -556,9 +575,9 @@ export class OAuthService {
           authorization_code_method: null,
           authorization_code_expires_at: null,
           authorization_code_used_at: issuedAt,
-          access_token_hash: hashToken(accessToken, this.configuration.tokenHashKey),
+          access_token_hash: accessTokenHash,
           access_token_expires_at: accessExpiresAt,
-          refresh_token_hash: hashToken(refreshToken, this.configuration.tokenHashKey),
+          refresh_token_hash: refreshTokenHash,
           refresh_token_expires_at: refreshExpiresAt,
           revoked_at: null,
           created_at: issuedAt,
@@ -570,9 +589,9 @@ export class OAuthService {
         .withSchema(SCHEMA)
         .updateTable("oauth_grants")
         .set({
-          access_token_hash: hashToken(accessToken, this.configuration.tokenHashKey),
+          access_token_hash: accessTokenHash,
           access_token_expires_at: accessExpiresAt,
-          refresh_token_hash: hashToken(refreshToken, this.configuration.tokenHashKey),
+          refresh_token_hash: refreshTokenHash,
           refresh_token_expires_at: refreshExpiresAt,
           updated_at: issuedAt,
         })

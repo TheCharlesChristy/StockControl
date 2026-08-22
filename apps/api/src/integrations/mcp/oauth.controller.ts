@@ -42,6 +42,21 @@ const scopeList = (value: string): readonly McpScope[] => {
   return requested as McpScope[];
 };
 
+const scopeLabel = (scope: McpScope): string => {
+  switch (scope) {
+    case "stock:read":
+      return "stock:read";
+    case "activity:read":
+      return "activity:read";
+    case "stock:request":
+      return "stock:request";
+    case "stock:write":
+      return "stock:write";
+    case "requests:review":
+      return "requests:review";
+  }
+};
+
 interface RegisteredOAuthClient {
   readonly clientId: string;
   readonly redirectUri: string;
@@ -176,7 +191,7 @@ export class OAuthController {
       return reply
         .type("text/html")
         .send(
-          `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Approve this connection to let ChatGPT use StockControl tools according to your current role.</p><p>Requested permissions: ${scopes.join(", ")}</p><form method="post" action="/oauth/authorize"><input type="hidden" name="request_id" value="${encodedRequestId}"><button type="submit">Approve connection</button></form></main>`,
+          `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Connect StockControl</title><main><h1>Connect StockControl to ChatGPT</h1><p>Approve this connection to let ChatGPT use StockControl tools according to your current role.</p><p>Requested permissions: ${scopes.map(scopeLabel).join(", ")}</p><form method="post" action="/oauth/authorize"><input type="hidden" name="request_id" value="${encodedRequestId}"><button type="submit">Approve connection</button></form></main>`,
         );
     } catch (error: unknown) {
       return oauthError(reply, error);
