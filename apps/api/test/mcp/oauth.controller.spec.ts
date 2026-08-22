@@ -93,7 +93,7 @@ describe("OAuth controller input handling", () => {
   it("sends an anonymous user to sign in and preserves the authorization request", async () => {
     const oauth = { createAuthorizationRequest: vi.fn() };
     const controller = new OAuthController(oauth as never, configuration);
-    const { reply, redirect } = replyFor();
+    const { reply, code, redirect } = replyFor();
     const authorizationUrl =
       "/oauth/authorize?response_type=code&client_id=stockcontrol-chatgpt&scope=stock%3Aread";
 
@@ -103,11 +103,32 @@ describe("OAuth controller input handling", () => {
     );
 
     expect(redirect).toHaveBeenCalledOnce();
+    expect(code).toHaveBeenCalledWith(302);
     const location = new URL(redirect.mock.calls[0]?.[0] as string);
     expect(location.origin).toBe(configuration.publicBaseUrl);
     expect(location.pathname).toBe("/sign-in");
     expect(location.searchParams.get("next")).toBe(authorizationUrl);
     expect(oauth.createAuthorizationRequest).not.toHaveBeenCalled();
+  });
+
+  it("redirects an approved request to the registered callback with OAuth parameters", async () => {
+    const oauth = {
+      approveAuthorizationRequest: vi.fn().mockResolvedValue({
+        redirectUri: configuration.redirectUri,
+        state: "oauth-state",
+        code: "authorization-code",
+      }),
+    };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, code, redirect } = replyFor();
+
+    await controller.authorize(requestFor(validQuery), { request_id: "request-id" }, reply);
+
+    expect(oauth.approveAuthorizationRequest).toHaveBeenCalledWith("request-id", user.id);
+    expect(code).toHaveBeenCalledWith(302);
+    expect(redirect).toHaveBeenCalledWith(
+      `${configuration.redirectUri}?code=authorization-code&state=oauth-state`,
+    );
   });
 
   it("returns OAuth-shaped 400 errors for unsupported grants", async () => {
