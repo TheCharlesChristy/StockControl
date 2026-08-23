@@ -20,6 +20,7 @@ import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 import { hashPassword } from "../auth/password";
+import { exportPersonalData, type PersonalDataExport } from "./personal-data";
 import type { SessionService } from "../auth/session-service";
 import type { PhotoAsset, PhotosService } from "../media/photos.service";
 import {
@@ -357,6 +358,25 @@ export class UsersService {
         pendingRequests: pending.total,
       },
     };
+  }
+
+  /**
+   * A copy of everything held about one person, for a subject access request.
+   *
+   * Deliberately not paginated and not capped. `activity` shows an Admin a
+   * recent slice for a screen; this is the whole record, because an answer
+   * that quietly stops at the fiftieth row is not an answer to Article 15.
+   */
+  public async personalDataExport(userId: string): Promise<PersonalDataExport> {
+    const exported = await exportPersonalData(this.database, userId);
+
+    if (exported === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That user was not found." }),
+      );
+    }
+
+    return exported;
   }
 
   private async hasHistory(userId: string): Promise<boolean> {

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AuthenticatedSession, UserRole } from "@stockcontrol/contracts";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ApiClient } from "../api/ApiClient";
 import { StockControlProviders } from "../app/App";
@@ -476,5 +476,58 @@ describe("profile", () => {
     });
 
     expect(await screen.findByText("No email address")).toBeInTheDocument();
+  });
+
+  /*
+   * Article 15 is the person's own right, so this does not go through an
+   * Admin. The file is handed to the browser rather than opened in a tab: a
+   * whole personal record left in the history of a shared device in a van is
+   * not what anybody asked for.
+   */
+  it("lets a person download everything held about them", async () => {
+    const api = createFakeApiClient();
+    const blob = new Blob(["{}"], { type: "application/json" });
+    const exportSpy = vi.spyOn(api, "personalDataExport").mockResolvedValue(blob);
+    const createObjectURL = vi.fn(() => "blob:stub");
+    const revokeObjectURL = vi.fn();
+
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+
+    const clicks: string[] = [];
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function recordDownload(this: HTMLAnchorElement): void {
+        clicks.push(this.download);
+      });
+
+    try {
+      renderScreen(<ProfilePage />, { api });
+
+      await userEvent.click(await screen.findByRole("button", { name: "Download my information" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Your copy has been downloaded.")).toBeInTheDocument();
+      });
+
+      expect(exportSpy).toHaveBeenCalledWith("user-Office");
+      expect(clicks).toEqual(["stockcontrol-my-data-office.json"]);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:stub");
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("says so when the copy could not be prepared", async () => {
+    const api = createFakeApiClient();
+    vi.spyOn(api, "personalDataExport").mockRejectedValue(new Error("network"));
+
+    renderScreen(<ProfilePage />, { api });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Download my information" }));
+
+    expect(
+      await screen.findByText("Your copy could not be prepared. Please try again."),
+    ).toBeInTheDocument();
   });
 });

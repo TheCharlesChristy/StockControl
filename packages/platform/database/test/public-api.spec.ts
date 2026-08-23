@@ -18,6 +18,10 @@ describe("database public API", () => {
       loadRuntimeDatabaseConfiguration: expect.any(Function),
       migrateConfiguredDatabase: expect.any(Function),
       runMigrations: expect.any(Function),
+      RETENTION_RULES: expect.any(Array),
+      applyConfiguredRetention: expect.any(Function),
+      loadRetentionWindows: expect.any(Function),
+      runRetention: expect.any(Function),
     });
   });
 });

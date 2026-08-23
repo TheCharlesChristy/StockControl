@@ -46,6 +46,15 @@ review trigger for each, are recorded in
 `pnpm audit --audit-level high` runs in CI, so anything above that line has to
 be fixed or recorded rather than merged quietly.
 
+## Data protection
+
+A weakness that exposes personal data is also a personal data breach, with a
+72-hour notification clock. If you are reporting one, saying so helps us start
+that clock on time.
+
+What the application holds, why, and for how long is documented in
+[`docs/legal/`](docs/legal/README.md).
+
 ## What we already do
 
 Worth knowing before you spend time on it:
@@ -66,3 +75,10 @@ Worth knowing before you spend time on it:
 - The API runs with a restricted database role that cannot change the schema.
 - Uploaded images are validated by magic bytes and dimensions, stored
   privately, and verified against a recorded digest when read back.
+- Records of who did what are removed on a schedule by a job that runs under a
+  separate credential, so that reaching the API does not let an attacker erase
+  the audit trail.
+- The browser client loads no third-party scripts, fonts or analytics, and the
+  Content Security Policy enforces that rather than relying on review.
+- Issue reports filed from the application carry no reporter name or role, only
+  an opaque digest.

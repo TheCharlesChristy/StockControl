@@ -22,7 +22,7 @@ server {
     # Tigris S3-compatible endpoint. The API remains same-origin; only the
     # browser's direct PUT to the storage provider needs this additional
     # connect-src host allowlist.
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://*.storageapi.dev https://storageapi.dev; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://*.storageapi.dev https://storageapi.dev; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:" always;
     add_header Permissions-Policy "camera=(self), geolocation=(), microphone=()" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
@@ -69,7 +69,7 @@ server {
     # that may be embedded there; all other StockControl pages stay protected
     # by the server-level frame deny policy above.
     location = /sign-in {
-        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://*.storageapi.dev https://storageapi.dev; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors https://chatgpt.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:" always;
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://*.storageapi.dev https://storageapi.dev; font-src 'self' data:; form-action 'self'; frame-ancestors https://chatgpt.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:" always;
         add_header Permissions-Policy "camera=(self), geolocation=(), microphone=()" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;

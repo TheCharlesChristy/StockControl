@@ -346,3 +346,28 @@ describe("StockControl application routes", () => {
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
   });
 });
+
+/*
+ * A privacy notice that only opens once you are signed in tells a new starter
+ * nothing before they are recorded, so this route sits outside the
+ * authentication guard. That placement is easy to undo by accident when
+ * routes are reshuffled, which is why it is asserted rather than assumed.
+ */
+describe("the privacy notice", () => {
+  it("can be read without signing in", async () => {
+    renderRoute("/privacy");
+
+    expect(
+      await screen.findByRole("heading", { name: "How StockControl uses your information" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
+  });
+
+  it("is reachable from the sign-in screen", async () => {
+    renderRoute("/sign-in");
+
+    expect(
+      await screen.findByRole("link", { name: "How your information is used" }),
+    ).toBeInTheDocument();
+  });
+});

@@ -177,7 +177,9 @@ const providers: Provider[] = [
   },
   {
     provide: API_TOKENS.issuesService,
-    useFactory: () => new IssuesService(),
+    useFactory: (logger: StructuredLogger) =>
+      new IssuesService(process.env, globalThis.fetch.bind(globalThis), undefined, logger),
+    inject: [SYSTEM_TOKENS.logger],
   },
   {
     provide: API_TOKENS.usersService,

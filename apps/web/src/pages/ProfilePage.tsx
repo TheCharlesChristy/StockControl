@@ -1,9 +1,12 @@
 import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import DownloadRounded from "@mui/icons-material/DownloadRounded";
 import LockResetRounded from "@mui/icons-material/LockResetRounded";
 import PhotoCameraRounded from "@mui/icons-material/PhotoCameraRounded";
 import { Alert, Avatar, Box, Button, Divider, Paper, Stack, Typography } from "@mui/material";
 import { useState, type ChangeEvent, type ReactElement } from "react";
 import { Link as RouterLink } from "react-router-dom";
+
+import { PRIVACY_PATH } from "../app/paths";
 
 import { ApiError } from "../api/ApiClient";
 import { useApi } from "../api/ApiContext";
@@ -30,6 +33,39 @@ export function ProfilePage(): ReactElement {
   const [error, setError] = useState<string | undefined>(undefined);
 
   if (user === null) return <></>;
+
+  const downloadPersonalData = (): void => {
+    setBusy(true);
+    setMessage(undefined);
+    setError(undefined);
+
+    api
+      .personalDataExport(user.id)
+      .then((blob) => {
+        /*
+         * Handed straight to the browser's download machinery. The alternative
+         * — opening it in a tab — leaves a person's whole record sitting in
+         * history on a device that may be shared in a van.
+         */
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `stockcontrol-my-data-${user.username}.json`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setMessage("Your copy has been downloaded.");
+      })
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Your copy could not be prepared. Please try again.",
+        );
+      })
+      .finally(() => setBusy(false));
+  };
 
   const upload = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0];
@@ -157,6 +193,26 @@ export function ProfilePage(): ReactElement {
             sx={{ mt: 1 }}
           >
             Change password
+          </Button>
+        </Stack>
+        <Divider sx={{ my: 3 }} />
+        <Stack spacing={1} alignItems="flex-start">
+          <Typography variant="h4" component="h3">
+            Your information
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            You can take a copy of everything StockControl holds about you, at any time and without
+            asking anyone. The <RouterLink to={PRIVACY_PATH}>privacy notice</RouterLink> explains
+            what is kept, why, and for how long.
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadRounded />}
+            onClick={downloadPersonalData}
+            disabled={busy}
+            sx={{ mt: 1 }}
+          >
+            Download my information
           </Button>
         </Stack>
       </Paper>

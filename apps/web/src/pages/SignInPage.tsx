@@ -8,6 +8,7 @@ import {
   Container,
   IconButton,
   InputAdornment,
+  Link as MuiLink,
   Paper,
   Stack,
   TextField,
@@ -15,7 +16,9 @@ import {
 } from "@mui/material";
 import { normaliseUsername, usernameFormatErrors } from "@stockcontrol/contracts";
 import { useState, type FormEvent, type ReactElement } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
+
+import { PRIVACY_PATH } from "../app/paths";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
 import { PageHelp } from "../components/PageHelp";
@@ -366,7 +369,10 @@ export function SignInPage(): ReactElement {
               }}
             >
               <Typography variant="caption" color="text.secondary">
-                Accounts are managed by your StockControl administrator.
+                Accounts are managed by your StockControl administrator.{" "}
+                <MuiLink component={RouterLink} to={PRIVACY_PATH} color="inherit">
+                  How your information is used
+                </MuiLink>
               </Typography>
             </Box>
           </Paper>

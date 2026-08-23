@@ -15,6 +15,7 @@ import {
   ListItemIcon,
   ListItemText,
   ListSubheader,
+  Link as MuiLink,
   Stack,
   Toolbar,
   Tooltip,
@@ -24,6 +25,8 @@ import {
 import { useTheme } from "@mui/material/styles";
 import { useCallback, useState, type ReactElement } from "react";
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+
+import { PRIVACY_PATH } from "../app/paths";
 import { useApi, useResource } from "../api/ApiContext";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
@@ -400,6 +403,20 @@ export function AppShell(): ReactElement | null {
           }}
         >
           <Outlet />
+
+          {/*
+            Where a person looks for it. The notice is no use to anybody if
+            the only way to reach it is to know the URL.
+          */}
+          {!isLocationWorkspace && (
+            <Box component="footer" sx={{ mt: 6, pt: 2, borderTop: 1, borderColor: "divider" }}>
+              <Typography variant="caption" color="text.secondary">
+                <MuiLink component={RouterLink} to={PRIVACY_PATH} color="inherit">
+                  How your information is used
+                </MuiLink>
+              </Typography>
+            </Box>
+          )}
         </Box>
       </Box>
 
