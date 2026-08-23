@@ -69,8 +69,55 @@ history. During an incident, preserve the Bucket and database before changing
 anything. Do not delete a service/project as a retry. Adding a versioned
 off-platform media/database copy is the first recovery upgrade after launch.
 
+## Data protection configuration
+
+Set before a customer installation takes real data. None of it has a safe
+inferred default, and the software says so rather than guessing.
+
+On the `web` service, at build time:
+
+| Variable                    | What it is                                            |
+| --------------------------- | ----------------------------------------------------- |
+| `VITE_DATA_CONTROLLER_NAME` | The business answerable for the data — its legal name |
+| `VITE_PRIVACY_CONTACT`      | Where a member of staff sends a question or a request |
+
+These name the controller in the in-app privacy notice. Until they are set the
+notice says plainly that nobody has been named, which is honest but is not a
+notice. They are read at build time, so changing one needs a redeploy of `web`.
+
+On the retention job:
+
+| Variable                 | Default | What it governs                              |
+| ------------------------ | ------- | -------------------------------------------- |
+| `RETENTION_AUDIT_DAYS`   | `365`   | Assistant activity, grant history, map edits |
+| `RETENTION_CAPTURE_DAYS` | `90`    | Assisted capture session records             |
+
+**Schedule `pnpm db:retain:prod` daily**, as a Railway cron service with the
+migrator credential — not on the `api` service. The API's database role
+deliberately cannot delete audit records, so that reaching the API does not let
+somebody erase the evidence of it; the purge therefore needs
+`DATABASE_MIGRATOR_URL`, the same credential the release migration step uses.
+
+Nothing else enforces retention. If this job is not scheduled, records are kept
+for ever and the privacy notice's retention periods are untrue.
+
+Run `pnpm db:retain -- --dry-run` before changing a window: it reports what is
+out of policy without removing anything, and deletion is not reversible outside
+a backup restore. The reasoning behind each period is in
+[the retention schedule](../legal/retention-schedule.md).
+
+Also confirm at launch:
+
+- The Railway **region**. An installation serving UK or EU staff should use an
+  EU region, which turns the largest international transfer into no transfer.
+  Record the choice in
+  [records of processing](../legal/records-of-processing.md#international-transfers).
+- The rest of the go-live checklist in [`docs/legal/`](../legal/README.md).
+
 ## Routine checks
 
+- Confirm the retention job ran, and that its last run reported a plausible
+  number of rows rather than silently failing.
 - Review deployment failures, API/web CPU and memory, PostgreSQL connections
   and storage, and project spend.
 - Test external web health plus proxied API readiness after every release.
@@ -81,5 +128,6 @@ off-platform media/database copy is the first recovery upgrade after launch.
 - Restore PostgreSQL before launch and quarterly thereafter.
 
 See also [incident response](./incident-response.md),
+[personal data breach](./personal-data-breach.md),
 [monitoring](./monitoring.md), and the
 [Railway infrastructure runbook](../../infra/railway/README.md).
