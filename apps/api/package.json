@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.29",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "catalog:",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
