@@ -223,7 +223,15 @@ export const LocationListPanel = memo(function LocationListPanel({
   };
 
   return (
-    <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1.5, minHeight: 0 }}>
+    /*
+     * minHeight: 0 only at lg+: that is where the parent grid row is a
+     * height-constrained minmax(0, 1fr) and this panel must be free to shrink
+     * so its own "On this map" list scrolls internally. Stacked on top of the
+     * map at xs, the row sizes to content instead — forcing 0 there collapsed
+     * the row to a sliver and let the search box, map picker and "New map"
+     * button spill down into the map workspace underneath.
+     */
+    <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1.5, minHeight: { xs: "auto", lg: 0 } }}>
       <TextField
         fullWidth
         size="small"
