@@ -214,19 +214,6 @@ export class IssuesService {
 
     const reference = reporterReference(input.reporter.id);
 
-    /*
-     * The only place the pseudonym on the public issue can be turned back into
-     * a person. Kept here deliberately: a maintainer who needs to ask the
-     * reporter a follow-up question can find them, and nobody outside the
-     * installation can.
-     */
-    this.logger?.log({
-      event: "issues.reported",
-      reference,
-      reporterId: input.reporter.id,
-      reporterRole: input.reporter.role,
-    });
-
     const [owner, repository] = configuration.repository.split("/");
     const endpoint = `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(repository!)}/issues`;
     const body = [
@@ -278,6 +265,21 @@ export class IssuesService {
     if (issueUrl === undefined) {
       throw externalServiceFailure("GitHub returned an invalid issue link. Try again in a moment.");
     }
+
+    /*
+     * The only place the pseudonym on the public issue can be turned back into
+     * a person. Kept here deliberately: a maintainer who needs to ask the
+     * reporter a follow-up question can find them, and nobody outside the
+     * installation can. Logged only once the issue is confirmed to exist —
+     * earlier, and a network failure or a malformed GitHub response would
+     * leave an audit entry claiming a public issue that was never created.
+     */
+    this.logger?.log({
+      event: "issues.reported",
+      reference,
+      reporterId: input.reporter.id,
+      reporterRole: input.reporter.role,
+    });
 
     return { issueUrl };
   }
