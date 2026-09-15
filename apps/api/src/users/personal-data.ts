@@ -5,6 +5,24 @@ import type { JsonObject, StockControlDatabase } from "@stockcontrol/platform-da
 const SCHEMA = "stockcontrol" as const;
 
 /**
+ * How a source's rows are matched to the person asking.
+ *
+ * `direct` is the common case: one or more columns on the row itself point
+ * straight at `users`. `viaSession` is for a table that only points at a
+ * `stock_recognition_sessions` row, which is itself what points at the
+ * person — the raw capture evidence, not just the session record built from
+ * it. `mcpToolCallsActor` is the one genuinely special case: a tool call is
+ * inserted before it is authorised, so its own `actor_user_id` can still be
+ * null when the row is written, and the actor is only known for certain once
+ * a later event on the same call records it — the same resolution
+ * `mcp-activity.service.ts` uses to answer "whose call was this".
+ */
+export type PersonalDataScope =
+  | { readonly kind: "direct"; readonly columns: readonly string[] }
+  | { readonly kind: "viaSession"; readonly column: string }
+  | { readonly kind: "mcpToolCallsActor" };
+
+/**
  * Everywhere a person appears in this database, and what to call it when they
  * ask for a copy.
  *
@@ -12,7 +30,9 @@ const SCHEMA = "stockcontrol" as const;
  * the live schema to prove it: a new table with a column pointing at `users`
  * fails that test until it is named here. A subject access request answered
  * from a list somebody forgot to update is a worse answer than none, because
- * it looks complete.
+ * it looks complete. That check only catches a table with a direct foreign
+ * key to `users`, though — `viaSession` sources are personal data by
+ * indirection, so they are not something a schema query can discover for you.
  *
  * `users` itself is deliberately absent — it is the subject block, assembled by
  * hand so that the password hash cannot travel with it.
@@ -21,19 +41,25 @@ export interface PersonalDataSource {
   /** Plain English, because this is read by the person the data is about. */
   readonly label: string;
   readonly table: keyof StockControlDatabase;
-  /** The columns that can point at this person. Any match includes the row. */
-  readonly columns: readonly string[];
+  readonly scope: PersonalDataScope;
   /** How the rows are ordered, newest first. */
   readonly orderBy: string;
   /** Columns withheld, and never sent. */
   readonly withhold?: readonly string[];
+  /**
+   * Cleared as part of the same account deletion this list is also used to
+   * gate, so a row here is not a reason to refuse it. Sign-in sessions and a
+   * profile photo do not outlive the account; nothing else on this list is
+   * true of.
+   */
+  readonly clearedOnDeletion?: boolean;
 }
 
 export const PERSONAL_DATA_SOURCES: readonly PersonalDataSource[] = Object.freeze([
   {
     label: "Sign-in sessions",
     table: "sessions",
-    columns: ["user_id"],
+    scope: { kind: "direct", columns: ["user_id"] },
     orderBy: "issued_at",
     /*
      * The id is a digest of the session token, so it is not a usable
@@ -44,65 +70,67 @@ export const PERSONAL_DATA_SOURCES: readonly PersonalDataSource[] = Object.freez
      * question "when was I signed in", and those stay.
      */
     withhold: ["id"],
+    clearedOnDeletion: true,
   },
   {
     label: "Profile photo",
     table: "user_profile_photos",
-    columns: ["user_id"],
+    scope: { kind: "direct", columns: ["user_id"] },
     orderBy: "created_at",
+    clearedOnDeletion: true,
   },
   {
     label: "Stock you moved",
     table: "transactions",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "occurred_at",
   },
   {
     label: "Stock you reserved",
     table: "reservations",
-    columns: ["created_by_user_id"],
+    scope: { kind: "direct", columns: ["created_by_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Stock requests you raised or decided",
     table: "stock_requests",
-    columns: ["requested_by_user_id", "decided_by_user_id"],
+    scope: { kind: "direct", columns: ["requested_by_user_id", "decided_by_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Jobs you were assigned to",
     table: "job_assignments",
-    columns: ["user_id", "assigned_by_user_id"],
+    scope: { kind: "direct", columns: ["user_id", "assigned_by_user_id"] },
     orderBy: "assigned_at",
   },
   {
     label: "Changes you made to a map",
     table: "map_edit_events",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "occurred_at",
   },
   {
     label: "Floor plans you uploaded",
     table: "floor_plan_documents",
-    columns: ["created_by_user_id"],
+    scope: { kind: "direct", columns: ["created_by_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Item photos you uploaded",
     table: "item_photos",
-    columns: ["created_by_user_id"],
+    scope: { kind: "direct", columns: ["created_by_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Item photos you confirmed as a match",
     table: "item_visual_examples",
-    columns: ["verified_by_user_id"],
+    scope: { kind: "direct", columns: ["verified_by_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Assistant connections",
     table: "oauth_grants",
-    columns: ["user_id"],
+    scope: { kind: "direct", columns: ["user_id"] },
     orderBy: "created_at",
     /* Token digests are credentials, not information about the person. */
     withhold: [
@@ -115,56 +143,82 @@ export const PERSONAL_DATA_SOURCES: readonly PersonalDataSource[] = Object.freez
   {
     label: "Assistant connection history",
     table: "oauth_grant_events",
-    columns: ["user_id"],
+    scope: { kind: "direct", columns: ["user_id"] },
     orderBy: "occurred_at",
   },
   {
     label: "Assistant sign-in attempts",
     table: "oauth_authorization_requests",
-    columns: ["user_id"],
+    scope: { kind: "direct", columns: ["user_id"] },
     orderBy: "created_at",
     withhold: ["approval_handle_hash", "authorization_code_hash", "code_challenge"],
   },
   {
     label: "What you asked the assistant to do",
     table: "mcp_tool_calls",
-    columns: ["actor_user_id"],
+    /*
+     * Not `direct`: `actor_user_id` on the call row itself is null until the
+     * call is authorised, so matching only that column silently drops the
+     * calls made before authorisation finished. The true owner is resolved
+     * the same way `mcp-activity.service.ts` resolves it for the activity
+     * screen — the call's own column if set, else the earliest event on it
+     * that recorded one.
+     */
+    scope: { kind: "mcpToolCallsActor" },
     orderBy: "received_at",
   },
   {
     label: "What the assistant did about it",
     table: "mcp_tool_call_events",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "occurred_at",
   },
   {
     label: "Assistant command receipts",
     table: "mcp_command_receipts",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "committed_at",
   },
   {
     label: "Stock you added by photograph",
     table: "stock_capture_batches",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Photographs you took to identify stock",
     table: "stock_recognition_sessions",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
+    orderBy: "created_at",
+  },
+  {
+    label: "The photographs themselves",
+    table: "stock_recognition_images",
+    scope: { kind: "viaSession", column: "session_id" },
+    orderBy: "created_at",
+  },
+  {
+    label: "What the recogniser proposed from your photographs",
+    table: "stock_recognition_candidates",
+    scope: { kind: "viaSession", column: "session_id" },
+    orderBy: "created_at",
+  },
+  {
+    label: "Background work queued for your photographs",
+    table: "stock_recognition_jobs",
+    scope: { kind: "viaSession", column: "session_id" },
     orderBy: "created_at",
   },
   {
     label: "Stock you confirmed from a photograph",
     table: "stock_capture_entries",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "created_at",
   },
   {
     label: "Whether you accepted what the recogniser suggested",
     table: "recognition_feedback",
-    columns: ["actor_user_id"],
+    scope: { kind: "direct", columns: ["actor_user_id"] },
     orderBy: "created_at",
   },
 ]);
@@ -197,9 +251,10 @@ export interface PersonalDataExport {
 }
 
 const EXPORT_NOTES: readonly string[] = Object.freeze([
-  "This is everything StockControl holds that is about you, on the day it was produced.",
-  "Your password is not included. It is stored as a one-way hash, which cannot be turned back into a password and is not information about you.",
-  "Where a record involves somebody else — the person who assigned you a job, for example — they appear as an identifier rather than a name, so that answering your request does not hand out theirs.",
+  "This is a copy of the records StockControl holds about you, on the day it was produced.",
+  "Your password is not included. It is withheld for security: it is stored as a one-way hash, which cannot be turned back into a password.",
+  "Where a record involves somebody else — the person who assigned you a job, for example — they appear as an identifier rather than a name, so that answering your request does not hand out theirs. Free-text fields (a request note, a reason recorded against a map change) are not rewritten, so it remains possible for one to mention someone else by name; that is weighed against their rights before it is sent on.",
+  "Where a record includes an uploaded file — a profile photo, a floor plan, a photograph taken to identify stock — this export lists the file's name or key, its size and its checksum, but not the file's bytes. Ask an Admin for a copy of the file itself if you need it.",
   "Records of stock you moved are kept because they are the company's accounting records. They are explained in the privacy notice, along with how long everything is kept.",
 ]);
 
@@ -227,6 +282,54 @@ interface DynamicSelect {
   execute(): Promise<readonly Record<string, unknown>[]>;
 }
 
+interface DynamicFilterable {
+  where(build: (builder: ExpressionBuilder<never, never>) => unknown): DynamicFilterable;
+  limit(count: number): DynamicFilterable;
+  executeTakeFirst(): Promise<Record<string, unknown> | undefined>;
+}
+
+/**
+ * The `coalesce(actor_user_id, earliest recorded event actor)` match
+ * `mcp-activity.service.ts` uses to resolve who a tool call belongs to, as a
+ * boolean expression comparable against a bound user id.
+ */
+const mcpToolCallsActorMatches = (userId: string): unknown =>
+  sql<boolean>`coalesce(
+    mcp_tool_calls.actor_user_id,
+    (
+      select actor_event.actor_user_id
+      from ${sql.raw(`${SCHEMA}.mcp_tool_call_events`)} actor_event
+      where actor_event.call_id = mcp_tool_calls.id
+        and actor_event.actor_user_id is not null
+      order by actor_event.occurred_at asc, actor_event.id asc
+      limit 1
+    )
+  ) = ${userId}`;
+
+/**
+ * The boolean expression a source's `where` clause is built from, shared
+ * between reading every matching row and merely asking whether at least one
+ * exists.
+ */
+const matchExpression = (source: PersonalDataSource, userId: string) => (builder: unknown) => {
+  switch (source.scope.kind) {
+    case "direct":
+      return (builder as ExpressionBuilderLike).or(
+        source.scope.columns.map((column) =>
+          (builder as ExpressionBuilderLike)(sql.ref(column), "=", userId),
+        ),
+      );
+    case "viaSession":
+      return (builder as ExpressionBuilderLike)(
+        sql.ref(source.scope.column),
+        "in",
+        sql`(select id from ${sql.raw(`${SCHEMA}.stock_recognition_sessions`)} where actor_user_id = ${userId})`,
+      );
+    case "mcpToolCallsActor":
+      return mcpToolCallsActorMatches(userId);
+  }
+};
+
 const readSection = async (
   database: Kysely<StockControlDatabase>,
   source: PersonalDataSource,
@@ -238,13 +341,7 @@ const readSection = async (
     .selectAll() as unknown as DynamicSelect;
 
   const rows = await base
-    .where((builder) =>
-      (builder as unknown as ExpressionBuilderLike).or(
-        source.columns.map((column) =>
-          (builder as unknown as ExpressionBuilderLike)(sql.ref(column), "=", userId),
-        ),
-      ),
-    )
+    .where(matchExpression(source, userId))
     .orderBy(sql.ref(source.orderBy), "desc")
     .execute();
 
@@ -345,4 +442,31 @@ export const exportPersonalData = async (
     sections,
     notes: EXPORT_NOTES,
   };
+};
+
+/**
+ * Whether a person has a row anywhere on the same list a subject access
+ * request is answered from, excluding the two sources that a deletion clears
+ * itself. Deletion is refused when this is true — the same list, so a table
+ * added for an export can never silently stop being a reason to keep the
+ * account, the way a hand-maintained second list once could.
+ */
+export const hasRecordedActivity = async (
+  database: Kysely<StockControlDatabase>,
+  userId: string,
+): Promise<boolean> => {
+  for (const source of PERSONAL_DATA_SOURCES) {
+    if (source.clearedOnDeletion === true) continue;
+
+    const query = database
+      .withSchema(SCHEMA)
+      .selectFrom<AnyTable>(source.table)
+      .select(sql<number>`1`.as("present")) as unknown as DynamicFilterable;
+
+    const found = await query.where(matchExpression(source, userId)).limit(1).executeTakeFirst();
+
+    if (found !== undefined) return true;
+  }
+
+  return false;
 };

@@ -1,5 +1,6 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import DownloadRounded from "@mui/icons-material/DownloadRounded";
 import PhotoCameraRounded from "@mui/icons-material/PhotoCameraRounded";
 import {
   Alert,
@@ -346,6 +347,8 @@ export function UserDetailPage(): ReactElement {
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<ApiError | undefined>(undefined);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<ApiError | undefined>(undefined);
 
   const handleDelete = (): void => {
     setDeleteError(undefined);
@@ -354,6 +357,31 @@ export function UserDetailPage(): ReactElement {
       .deleteUser(userId)
       .then(() => navigate("/team", { replace: true }))
       .catch((caught: unknown) => setDeleteError(asApiError(caught)));
+  };
+
+  /*
+   * The same export a person can take of themselves from their own profile,
+   * available here too — Article 15 does not stop applying once somebody has
+   * left, and their own page is gone the moment the account is deactivated.
+   */
+  const downloadPersonalData = (username: string): void => {
+    setDownloadBusy(true);
+    setDownloadError(undefined);
+
+    api
+      .personalDataExport(userId)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `stockcontrol-personal-data-${username}.json`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      })
+      .catch((caught: unknown) => setDownloadError(asApiError(caught)))
+      .finally(() => setDownloadBusy(false));
   };
 
   return (
@@ -375,17 +403,33 @@ export function UserDetailPage(): ReactElement {
             title={data.user.displayName}
             description={`${data.user.username} · joined ${formatDateTime(data.user.createdAt)}`}
             actions={
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<DeleteOutlineRounded />}
-                onClick={() => setConfirmingDelete(true)}
-                disabled={isSelf}
-              >
-                Delete
-              </Button>
+              <>
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadRounded />}
+                  onClick={() => downloadPersonalData(data.user.username)}
+                  disabled={downloadBusy}
+                >
+                  Download their information
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteOutlineRounded />}
+                  onClick={() => setConfirmingDelete(true)}
+                  disabled={isSelf}
+                >
+                  Delete
+                </Button>
+              </>
             }
           />
+
+          {downloadError !== undefined && (
+            <Alert severity="error" role="alert" sx={{ mb: 2.5 }}>
+              {downloadError.message}
+            </Alert>
+          )}
 
           <Stack spacing={3}>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
