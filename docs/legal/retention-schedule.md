@@ -59,9 +59,13 @@ that somebody who reaches the API cannot erase the record of what they did.
 Granting the API delete so a nightly sweep could work would give away exactly
 what the append-only grant was protecting.
 
-The whole run is one transaction. Every foreign key here is `on delete
-restrict`, so a half-applied purge would leave children whose parents survived
-and the next run would fail rather than repair itself.
+The whole run is one transaction. Every foreign key these rules touch is
+`on delete restrict`, so a half-applied purge would leave children whose
+parents survived and the next run would fail rather than repair itself. A row
+still held up by something outside this schedule's own hierarchy — a session
+whose photograph bytes the worker has not yet confirmed deleted, say — is
+simply left out of that run rather than attempted and failed; see the
+conditions noted against the affected rules in `schedule.ts`.
 
 Schedule it **daily**, off-peak. It is idempotent, and a run with nothing to do
 costs one query per table.

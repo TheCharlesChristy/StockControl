@@ -36,16 +36,66 @@ const expiredParentIds = (
 ): SelectQueryBuilder<StockControlDatabase, never, { id: string }> => {
   const database = withSchema(executor);
 
-  const query =
-    parent === "toolCalls"
-      ? database.selectFrom("mcp_tool_calls").select("id").where("received_at", "<", cutoff)
-      : database
-          .selectFrom("stock_recognition_sessions")
-          .select("id")
-          .where("updated_at", "<", cutoff)
-          .where("status", "in", ["Committed", "Cancelled", "Expired", "Failed"]);
+  if (parent === "toolCalls") {
+    return database.selectFrom("mcp_tool_calls").select("id").where("received_at", "<", cutoff);
+  }
 
-  return query;
+  if (parent === "captureBatches") {
+    /*
+     * Open is deliberately excluded: it is still in flight from the app's own
+     * point of view, and taking its rows out from under whoever has not
+     * finished with it yet is worse than keeping them a little longer — the
+     * same reasoning `captureSessions` below applies to a session.
+     *
+     * A session still standing under the batch — because it is not old
+     * enough yet, or because `captureSessions` below is holding it for an
+     * image the worker has not confirmed deleted — also holds the batch: its
+     * `batch_id` is a restrict FK, and deleting the batch out from under it
+     * would throw and roll back the whole run.
+     */
+    return database
+      .selectFrom("stock_capture_batches")
+      .select("id")
+      .where("updated_at", "<", cutoff)
+      .where("status", "in", ["Completed", "Cancelled"])
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("stock_recognition_sessions")
+              .select("id")
+              .whereRef("stock_recognition_sessions.batch_id", "=", "stock_capture_batches.id"),
+          ),
+        ),
+      );
+  }
+
+  return database
+    .selectFrom("stock_recognition_sessions")
+    .select("id")
+    .where("updated_at", "<", cutoff)
+    .where("status", "in", ["Committed", "Cancelled", "Expired", "Failed"])
+    .where((eb) =>
+      /*
+       * A session whose image rows survived the images rule above — because
+       * the worker has not yet confirmed their bytes are gone — is not
+       * finished either. Without this, the session (and its restrict FK from
+       * `stock_recognition_images`) would be next in line to delete anyway,
+       * which throws and rolls back the whole run, not just this session's
+       * row: one slow cleanup would stall every other table's retention too.
+       * Leaving the session a little longer costs nothing; a bucket object
+       * nothing can find again does not.
+       */
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom("stock_recognition_images")
+            .select("id")
+            .whereRef("stock_recognition_images.session_id", "=", "stock_recognition_sessions.id")
+            .where("deleted_at", "is", null),
+        ),
+      ),
+    );
 };
 
 /**
@@ -101,13 +151,18 @@ const scoped = <Result>(
 ): FilterableQuery<Result> => {
   const filterable = query as FilterableQuery<Result>;
 
-  return rule.scope.kind === "own"
-    ? filterable.where(scopeColumn(rule), "<", cutoff)
-    : filterable.where(
-        scopeColumn(rule),
-        "in",
-        expiredParentIds(database, rule.scope.parent, cutoff),
-      );
+  const inScope =
+    rule.scope.kind === "own"
+      ? filterable.where(scopeColumn(rule), "<", cutoff)
+      : filterable.where(
+          scopeColumn(rule),
+          "in",
+          expiredParentIds(database, rule.scope.parent, cutoff),
+        );
+
+  return rule.requireColumnNotNull === undefined
+    ? inScope
+    : inScope.where(sql.ref(rule.requireColumnNotNull), "is not", null);
 };
 
 const countExpired = async (

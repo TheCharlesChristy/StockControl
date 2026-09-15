@@ -31,7 +31,7 @@ describe("the retention schedule", () => {
   });
 
   /*
-   * Every foreign key in this schema is `on delete restrict`. A rule that
+   * Every foreign key these rules touch is `on delete restrict`. A rule that
    * deletes a parent before its children does not leave a mess — it throws,
    * and the whole run rolls back. Declaration order is what prevents it, so
    * the order is asserted rather than trusted.
@@ -53,6 +53,12 @@ describe("the retention schedule", () => {
     ]) {
       expect(positionOf(child)).toBeLessThan(positionOf("stock_recognition_sessions"));
     }
+
+    for (const child of ["stock_capture_entries", "stock_recognition_sessions"]) {
+      expect(positionOf(child)).toBeLessThan(positionOf("stock_capture_batches"));
+    }
+
+    expect(positionOf("oauth_refresh_tokens")).toBeLessThan(positionOf("oauth_grants"));
   });
 
   /*
@@ -96,14 +102,21 @@ describe("retention windows from the environment", () => {
    * successful run while keeping records for a period nobody chose, which is
    * the failure a retention policy exists to prevent.
    */
-  it.each(["twelve", "0", "-30", "30.5", ""])("refuses %o rather than guessing", (value) => {
+  it.each(["twelve", "0", "-30", "30.5", "", "  "])("refuses %o rather than guessing", (value) => {
     const environment = { RETENTION_AUDIT_DAYS: value };
 
-    if (value === "") {
-      expect(loadRetentionWindows(environment).auditDays).toBe(DEFAULT_AUDIT_DAYS);
-      return;
-    }
-
     expect(() => loadRetentionWindows(environment)).toThrow(RetentionConfigurationError);
+  });
+
+  /*
+   * An explicitly blank value is a configuration mistake, not an unset one —
+   * conflating the two would let `RETENTION_AUDIT_DAYS=` silently keep records
+   * for the default period nobody chose, the exact failure this fail-closed
+   * contract exists to prevent.
+   */
+  it("only treats a truly unset variable as absent", () => {
+    expect(loadRetentionWindows({ RETENTION_AUDIT_DAYS: undefined }).auditDays).toBe(
+      DEFAULT_AUDIT_DAYS,
+    );
   });
 });

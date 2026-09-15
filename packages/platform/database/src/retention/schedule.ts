@@ -37,14 +37,14 @@ export const DEFAULT_RETENTION_WINDOWS: RetentionWindows = Object.freeze({
 /**
  * The parents whose age decides when a dependent row expires.
  *
- * Every foreign key in this schema is `on delete restrict`, which is
- * deliberate — nothing disappears silently because something else did. The
- * consequence for retention is that a child has to be aged out on its
- * parent's clock rather than its own: a tool call from thirteen months ago
- * whose last event landed a minute later would otherwise leave an orphan that
- * the parent's delete then trips over.
+ * Every foreign key these rules touch is `on delete restrict`, which is
+ * deliberate — nothing this job deletes disappears silently because something
+ * else did. The consequence for retention is that a child has to be aged out
+ * on its parent's clock rather than its own: a tool call from thirteen months
+ * ago whose last event landed a minute later would otherwise leave an orphan
+ * that the parent's delete then trips over.
  */
-type RetentionParent = "captureSessions" | "toolCalls";
+type RetentionParent = "captureSessions" | "captureBatches" | "toolCalls";
 
 /**
  * Which rows a rule claims. `own` ages a table on its own timestamp; `parent`
@@ -60,6 +60,14 @@ export interface RetentionRule {
   readonly scope: RetentionScope;
   /** Why the record stops being needed. Read by whoever reviews the policy. */
   readonly reason: string;
+  /**
+   * A second gate some rules need beyond their scope: only touch a row once
+   * this column is set. `stock_recognition_images` uses it so the metadata
+   * row never outlives the object it describes — if the worker that deletes
+   * the bytes has fallen behind, the row survives to give it another chance,
+   * rather than leaving an object in the bucket nothing can find again.
+   */
+  readonly requireColumnNotNull?: string;
 }
 
 /*
@@ -98,6 +106,26 @@ export const RETENTION_RULES: readonly RetentionRule[] = Object.freeze([
     reason: "When a person connected, reauthorised or revoked an assistant grant.",
   },
   {
+    table: "oauth_refresh_tokens",
+    window: "auditDays",
+    scope: { kind: "own", column: "revoked_at" },
+    /*
+     * `revoked_at` is null for a token that is still live, and SQL's `< cutoff`
+     * never matches null — so a token nobody has revoked is never touched here,
+     * whatever its age. A token left to expire on its own without ever being
+     * revoked is a known gap: closing it needs comparing two nullable expiry
+     * columns' worth of "is this actually dead", which this simple scope does
+     * not attempt.
+     */
+    reason: "The credential for a connection that was explicitly revoked.",
+  },
+  {
+    table: "oauth_grants",
+    window: "auditDays",
+    scope: { kind: "own", column: "revoked_at" },
+    reason: "A revoked assistant connection should not outlive its own revocation forever.",
+  },
+  {
     table: "map_edit_events",
     window: "auditDays",
     scope: { kind: "own", column: "occurred_at" },
@@ -119,8 +147,9 @@ export const RETENTION_RULES: readonly RetentionRule[] = Object.freeze([
     table: "stock_recognition_images",
     window: "captureDays",
     scope: { kind: "parent", column: "session_id", parent: "captureSessions" },
+    requireColumnNotNull: "deleted_at",
     reason:
-      "The bytes are already deleted; this is the row that described them. A stockroom photograph can catch somebody in the background, so it is evidence rather than a business record.",
+      "The row that described the bytes, kept only until the worker confirms the bytes themselves are gone — a stockroom photograph can catch somebody in the background, so it is evidence rather than a business record.",
   },
   {
     table: "stock_recognition_jobs",
@@ -139,6 +168,21 @@ export const RETENTION_RULES: readonly RetentionRule[] = Object.freeze([
     window: "captureDays",
     scope: { kind: "parent", column: "id", parent: "captureSessions" },
     reason: "The session itself, once everything that pointed at it has gone.",
+  },
+  {
+    table: "stock_capture_batches",
+    window: "captureDays",
+    scope: { kind: "parent", column: "id", parent: "captureBatches" },
+    /*
+     * Only a batch the app itself marked Completed or Cancelled — never one
+     * still Open. An Open batch is, by definition, still in flight from the
+     * app's point of view; ageing it out on a stale `updated_at` risks taking
+     * rows out from under someone who simply has not finished yet, the same
+     * reason a non-terminal capture session is left alone. A batch abandoned
+     * mid-flow and never explicitly closed is a known gap this rule does not
+     * close — see `expiredParentIds` in `purge.ts`.
+     */
+    reason: "The batch itself, once every session under it has finished and it was closed.",
   },
 ]);
 
@@ -179,17 +223,19 @@ const readWindow = (
   name: string,
   fallback: number,
 ): number => {
-  const raw = environment[name]?.trim();
+  const raw = environment[name];
 
-  if (raw === undefined || raw.length === 0) {
+  if (raw === undefined) {
     return fallback;
   }
 
-  if (!/^[1-9][0-9]{0,4}$/u.test(raw)) {
+  const trimmed = raw.trim();
+
+  if (!/^[1-9][0-9]{0,4}$/u.test(trimmed)) {
     throw new RetentionConfigurationError(`${name} must be a whole number of days above zero.`);
   }
 
-  return Number(raw);
+  return Number(trimmed);
 };
 
 export const loadRetentionWindows = (
