@@ -24,6 +24,11 @@ Article 28 contract.
 
 ## Processing activities
 
+Railway underlies every activity below as the hosting processor described
+under [Processors](#processors) — it stores the database and object storage
+behind all of them. "Shared with" in each activity means recipients beyond
+that hosting relationship, not a claim that Railway is excluded from it.
+
 ### 1. Running staff accounts
 
 |                 |                                                                                                                       |
@@ -33,7 +38,7 @@ Article 28 contract.
 | **Data**        | Username, display name, role, optional email address, password hash, profile photograph if uploaded, sign-in sessions |
 | **Basis**       | Article 6(1)(b) — necessary to perform the contract of employment; Article 6(1)(f) for keeping the account secure     |
 | **Kept**        | While employed; see [retention](./retention-schedule.md)                                                              |
-| **Shared with** | Nobody outside the business                                                                                           |
+| **Shared with** | Nobody beyond the hosting processor above                                                                             |
 
 ### 2. Recording stock movements
 
