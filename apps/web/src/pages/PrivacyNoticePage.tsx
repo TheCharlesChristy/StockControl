@@ -61,7 +61,12 @@ export function PrivacyNoticePage(): ReactElement {
     controller ?? "the business you work for, which runs this copy of StockControl";
 
   return (
-    <Box sx={{ maxWidth: 820, mx: "auto", p: { xs: 2, sm: 3 } }}>
+<Box
+  component="main"
+  id="main-content"
+  tabIndex={-1}
+  sx={{ maxWidth: 820, mx: "auto", p: { xs: 2, sm: 3 } }}
+>
       <Paper sx={{ p: { xs: 2.5, sm: 4 } }}>
         <Stack spacing={4}>
           <Stack spacing={1}>
