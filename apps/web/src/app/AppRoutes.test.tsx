@@ -363,15 +363,24 @@ describe("the privacy notice", () => {
     expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(document.title).toBe("Privacy notice · StockControl");
-      expect(screen.getByRole("main")).toHaveFocus();
     });
   });
 
-  it("is reachable from the sign-in screen", async () => {
+  it("is reachable from the sign-in screen, with the title and focus a navigation gets", async () => {
+    const user = userEvent.setup();
     renderRoute("/sign-in");
 
+    const link = await screen.findByRole("link", { name: "How your information is used" });
+    expect(link).toBeInTheDocument();
+
+    await user.click(link);
+
     expect(
-      await screen.findByRole("link", { name: "How your information is used" }),
+      await screen.findByRole("heading", { name: "How StockControl uses your information" }),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.title).toBe("Privacy notice · StockControl");
+      expect(screen.getByRole("main")).toHaveFocus();
+    });
   });
 });
