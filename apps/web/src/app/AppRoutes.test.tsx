@@ -361,6 +361,10 @@ describe("the privacy notice", () => {
       await screen.findByRole("heading", { name: "How StockControl uses your information" }),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.title).toBe("Privacy notice · StockControl");
+      expect(screen.getByRole("main")).toHaveFocus();
+    });
   });
 
   it("is reachable from the sign-in screen", async () => {

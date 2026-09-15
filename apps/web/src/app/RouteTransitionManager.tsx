@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactElement } from "react";
 import { useLocation } from "react-router-dom";
 import { CHANGE_PASSWORD_PATH } from "../auth/RouteGuards";
 import { navigationItems } from "../navigation";
+import { PRIVACY_PATH } from "./paths";
 
 const fixedRouteTitles: Readonly<Record<string, string>> = {
   "/sign-in": "Sign in",
@@ -9,6 +10,7 @@ const fixedRouteTitles: Readonly<Record<string, string>> = {
   "/error": "Error",
   "/profile": "Profile",
   [CHANGE_PASSWORD_PATH]: "Change password",
+  [PRIVACY_PATH]: "Privacy notice",
 };
 
 /*
