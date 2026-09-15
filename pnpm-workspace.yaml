@@ -16,15 +16,17 @@ catalog:
 
 minimumReleaseAgeExclude:
   - jsdom@30.0.1
+  - fast-uri@3.1.8 || 4.1.5
 
 overrides:
   "@remix-run/router": 1.23.2
   "@nestjs/platform-fastify@11.1.28>find-my-way": 9.7.0
-  # GHSA-7p8r-x3mc-p8w7: host confusion via a backslash authority introducer.
-  # Fastify reaches both major lines transitively (ajv pins 3.x, fast-json-
-  # stringify pins 4.x), so both need pinning to stay on the patched release.
-  "fast-uri@<3.1.5": ^3.1.5
-  "fast-uri@>=4.0.0 <4.1.2": ^4.1.2
+  # GHSA-f65p-4m7j-42xc / GHSA-fph4-wmhf-6fwf / GHSA-jqff-g426-hqxp: SSRF and
+  # host-confusion advisories fixed in 3.1.6 and 4.1.3. Fastify reaches both
+  # major lines transitively (ajv pins 3.x, fast-json-stringify pins 4.x), so
+  # both need pinning to stay on the patched release.
+  "fast-uri@<3.1.6": ^3.1.8
+  "fast-uri@>=4.0.0 <4.1.3": ^4.1.5
   # GHSA for unbounded intermediate arrays; reached only through eslint.
   "brace-expansion@>=4.0.0 <5.0.9": ^5.0.9
   # GHSA-2v37-7h3g-55p8: a custom generator given size zero loops for ever.

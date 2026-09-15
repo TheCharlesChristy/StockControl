@@ -436,7 +436,7 @@ export function ItemDetailPage(): ReactElement {
              * the first tile reads "677 ea" and the rest read "677" invites you
              * to read them as different things.
              */}
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap flexWrap="wrap">
               <StatTile
                 label="Total in stock"
                 value={`${formatQuantity(data.onHand)} ${data.unit}`}
