@@ -23,6 +23,7 @@ import { JobDetailPage } from "./JobDetailPage";
 import { RequestsPage } from "./RequestsPage";
 import { TransactionsPage } from "./TransactionsPage";
 import { ProfilePage } from "./ProfilePage";
+import { UserDetailPage } from "./UserDetailPage";
 import { UsersPage } from "./UsersPage";
 
 function sessionFor(role: UserRole): AuthenticatedSession {
@@ -458,6 +459,70 @@ describe("users", () => {
     const table = await screen.findByRole("table", { name: "Users" });
 
     expect(within(table).getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("user detail", () => {
+  const options = { path: "/team/:userId", route: "/team/test-engineer" } as const;
+
+  it("shows who someone is and what they have been doing", async () => {
+    renderScreen(<UserDetailPage />, { ...options, role: "Admin" });
+
+    expect(await screen.findByRole("heading", { name: "Priya Kaur" })).toBeInTheDocument();
+    expect(screen.getByText(/engineer\.two/u)).toBeInTheDocument();
+  });
+
+  /*
+   * Mirrors the profile page's own download test below — the API has always
+   * permitted an Admin to call this for someone else; this is the button
+   * that makes it reachable from the person's own page, which matters most
+   * for a leaver who cannot get their own export any more.
+   */
+  it("lets an Admin download someone else's information", async () => {
+    const api = createFakeApiClient();
+    const blob = new Blob(["{}"], { type: "application/json" });
+    const exportSpy = vi.spyOn(api, "personalDataExport").mockResolvedValue(blob);
+    const createObjectURL = vi.fn(() => "blob:stub");
+    const revokeObjectURL = vi.fn();
+
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+
+    const clicks: string[] = [];
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function recordDownload(this: HTMLAnchorElement): void {
+        clicks.push(this.download);
+      });
+
+    try {
+      renderScreen(<UserDetailPage />, { ...options, role: "Admin", api });
+
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Download their information" }),
+      );
+
+      await waitFor(() => {
+        expect(exportSpy).toHaveBeenCalledWith("test-engineer");
+      });
+      expect(clicks).toEqual(["stockcontrol-personal-data-engineer.two.json"]);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:stub");
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("says so when the copy could not be prepared", async () => {
+    const api = createFakeApiClient();
+    vi.spyOn(api, "personalDataExport").mockRejectedValue(new Error("network"));
+
+    renderScreen(<UserDetailPage />, { ...options, role: "Admin", api });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Download their information" }),
+    );
+
+    expect(await screen.findByText("Could not reach StockControl.")).toBeInTheDocument();
   });
 });
 
