@@ -231,7 +231,15 @@ export const LocationListPanel = memo(function LocationListPanel({
      * the row to a sliver and let the search box, map picker and "New map"
      * button spill down into the map workspace underneath.
      */
-    <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1.5, minHeight: { xs: "auto", lg: 0 } }}>
+    <Box
+      sx={{
+        p: 1.5,
+        display: "flex",
+        flexDirection: "column",
+        gap: 1.5,
+        minHeight: { xs: "auto", lg: 0 },
+      }}
+    >
       <TextField
         fullWidth
         size="small"
