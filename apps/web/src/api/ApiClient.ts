@@ -214,11 +214,13 @@ export class ApiClient {
   private async sendForBlob(
     method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT",
     path: string,
+    options: { readonly signal?: AbortSignal } = {},
   ): Promise<Blob> {
     const response = await this.fetchImplementation(`${this.baseUrl}${path}`, {
       method,
       credentials: "include",
       headers: { Accept: "application/json" },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
 
     if (!response.ok) {
@@ -595,8 +597,10 @@ export class ApiClient {
    * the person as a file, and there is nothing this client would do with the
    * shape of it in between.
    */
-  public async personalDataExport(id: string): Promise<Blob> {
-    return await this.sendForBlob("GET", `/users/${id}/personal-data`);
+  public async personalDataExport(id: string, signal?: AbortSignal): Promise<Blob> {
+    return await this.sendForBlob("GET", `/users/${id}/personal-data`, {
+      ...(signal === undefined ? {} : { signal }),
+    });
   }
 
   public userActivity(id: string, signal?: AbortSignal): Promise<UserActivityResponse> {

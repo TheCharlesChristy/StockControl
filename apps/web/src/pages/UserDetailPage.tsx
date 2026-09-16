@@ -378,7 +378,13 @@ export function UserDetailPage(): ReactElement {
         document.body.append(link);
         link.click();
         link.remove();
-        URL.revokeObjectURL(url);
+        /*
+         * Revoking the URL in the same tick as the click can cancel the
+         * download in some browsers, which have not necessarily started
+         * reading the blob yet. A moment's delay is enough to let that
+         * begin without leaving the object alive for any real length of time.
+         */
+        setTimeout(() => URL.revokeObjectURL(url), 0);
       })
       .catch((caught: unknown) => setDownloadError(asApiError(caught)))
       .finally(() => setDownloadBusy(false));
