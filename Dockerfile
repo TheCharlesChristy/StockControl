@@ -23,6 +23,15 @@ ARG RUNTIME_TARGET=web
 FROM ${NODE_IMAGE} AS build
 
 ARG PNPM_VERSION
+# Read by apps/web/src/pages/PrivacyNoticePage.tsx via import.meta.env at
+# build time — Vite has no way to read them later, so setting these as
+# Railway service variables on `web` only takes effect on the next build.
+# Undeclared here, Railway's auto-forwarded build args for them would have
+# nothing to land in and the notice would keep the "nobody has been named"
+# fallback regardless of what the service variables say — see
+# docs/operations/railway-deployment.md.
+ARG VITE_DATA_CONTROLLER_NAME
+ARG VITE_PRIVACY_CONTACT
 ENV PNPM_HOME=/pnpm
 ENV PATH="${PNPM_HOME}:${PATH}"
 
