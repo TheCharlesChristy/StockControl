@@ -47,8 +47,10 @@ Before an installation goes live:
 - [ ] Work through the [impact assessment](./impact-assessment.md) and record
       the decision. It is short, and it is the document a regulator asks for
       first when the subject is staff monitoring.
-- [ ] Schedule `pnpm db:retain:prod`. Nothing else enforces the retention
-      schedule, and a policy nothing enforces is not a policy.
+- [ ] Schedule the retain job (`node packages/platform/database/dist/retain.js`
+      in production — see [Railway deployment](../operations/railway-deployment.md#data-protection-configuration),
+      or `pnpm db:retain:prod` from a local checkout). Nothing else enforces
+      the retention schedule, and a policy nothing enforces is not a policy.
 - [ ] Confirm the Railway region and the backup retention match what the
       [transfer register](./records-of-processing.md#international-transfers)
       says they are.

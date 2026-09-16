@@ -92,11 +92,17 @@ On the retention job:
 | `RETENTION_AUDIT_DAYS`   | `365`   | Assistant activity, grant history, map edits |
 | `RETENTION_CAPTURE_DAYS` | `90`    | Assisted capture session records             |
 
-**Schedule `pnpm db:retain:prod` daily**, as a Railway cron service with the
-migrator credential — not on the `api` service. The API's database role
-deliberately cannot delete audit records, so that reaching the API does not let
-somebody erase the evidence of it; the purge therefore needs
-`DATABASE_MIGRATOR_URL`, the same credential the release migration step uses.
+**Schedule a daily Railway cron service** from
+`/infra/railway/retain.railway.json` (`RUNTIME_TARGET=api`, cron schedule
+`0 3 * * *`), with the migrator credential — not on the `api` service. Its
+start command, `node packages/platform/database/dist/retain.js`, runs the
+same built entrypoint `pnpm db:retain:prod` runs locally; the packaged image
+has no `pnpm` workspace root to resolve `db:retain:prod` itself against, the
+same reason `migrate` and `bootstrap` are invoked directly rather than
+through `pnpm`. The API's database role deliberately cannot delete audit
+records, so that reaching the API does not let somebody erase the evidence of
+it; the purge therefore needs `DATABASE_MIGRATOR_URL`, the same credential
+the release migration step uses.
 
 Nothing else enforces retention. If this job is not scheduled, records are kept
 for ever and the privacy notice's retention periods are untrue.

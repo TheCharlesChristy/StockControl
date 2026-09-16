@@ -31,6 +31,7 @@ policy, region and replica count:
 | `api`       | Retained  | `/infra/railway/api.railway.json`       | `api`            | Image default                                             |
 | `migrate`   | Retained  | `/infra/railway/migrate.railway.json`   | `api`            | `node packages/platform/database/dist/migrate.js`         |
 | `bootstrap` | Temporary | `/infra/railway/bootstrap.railway.json` | `api`            | `node packages/platform/database/dist/bootstrap-roles.js` |
+| `retain`    | Scheduled | `/infra/railway/retain.railway.json`    | `api`            | `node packages/platform/database/dist/retain.js`, daily   |
 
 The paths are absolute repository paths entered under each Railway service's
 **Settings -> Config as Code**. Keep the repository root as the source root.
@@ -88,12 +89,17 @@ RUNTIME_TARGET=web
 PORT=8080
 API_HOST=${{api.RAILWAY_PRIVATE_DOMAIN}}
 API_PORT=3000
-MCP_ENABLED=false
+MCP_ENABLED=true
 ```
 
 The browser uses relative `/api/*` URLs. Nginx resolves `API_HOST` using the
 container's current DNS resolver, so the private API can move between Railway
 hosts without rebuilding the web image.
+
+`web`'s `MCP_ENABLED` has to agree with `api`'s below: Nginx gates `/mcp` and
+every OAuth endpoint on its own copy of the flag and returns 404 when it is
+false, regardless of whether the API is configured for MCP. Set both to
+`false` together if this installation is not connecting ChatGPT.
 
 #### `api`
 
@@ -166,6 +172,22 @@ DATABASE_RUNTIME_ROLE=stockcontrol_app
 Do not give `migrate` the runtime URL. Do not give `api` the administrator or
 migrator URL. The migration process exits zero after a successful integrity
 check and non-zero on any migration failure.
+
+#### `retain`
+
+```text
+RUNTIME_TARGET=api
+NODE_ENV=production
+DATABASE_MIGRATOR_URL=<private URL for stockcontrol_migrator>
+DATABASE_RUNTIME_ROLE=stockcontrol_app
+```
+
+Same credential as `migrate`, for the same reason: the runtime role cannot
+delete audit records, so the nightly purge needs the migrator's. Set Railway's
+**Cron Schedule** to match `/infra/railway/retain.railway.json`'s
+`deploy.cronSchedule` (daily), or update the file if that changes — see
+[data protection configuration](../../docs/operations/railway-deployment.md#data-protection-configuration)
+for the retention windows themselves.
 
 ### 4. Bootstrap PostgreSQL
 

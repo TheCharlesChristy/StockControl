@@ -50,8 +50,14 @@ person to read the code finds the reasoning without coming here.
 ```bash
 pnpm db:retain -- --dry-run   # what is out of policy, removing nothing
 pnpm db:retain                # apply it
-pnpm db:retain:prod           # the built entrypoint, for a scheduled job
+pnpm db:retain:prod           # the built entrypoint, from a local checkout
 ```
+
+The scheduled job in production runs the same built entrypoint directly —
+`node packages/platform/database/dist/retain.js` — because the packaged
+Railway image has no `pnpm` workspace root for `db:retain:prod` to resolve
+against. See
+[Railway deployment](../operations/railway-deployment.md#data-protection-configuration).
 
 It runs under `DATABASE_MIGRATOR_URL`, not the API's credential. This is the
 point: the audit tables are append-only to the runtime role on purpose, so
