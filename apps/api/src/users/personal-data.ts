@@ -16,11 +16,19 @@ const SCHEMA = "stockcontrol" as const;
  * null when the row is written, and the actor is only known for certain once
  * a later event on the same call records it — the same resolution
  * `mcp-activity.service.ts` uses to answer "whose call was this".
+ * `mcpToolCallEventsActor` is the same problem one table over: the earliest
+ * event on a call — the one recorded before authorisation, which is exactly
+ * the event that could carry the null — has no actor of its own to match
+ * `direct` against. Matching straight on `actor_user_id` would silently drop
+ * that row from the person's own export, so this matches through the call's
+ * resolved actor instead, the way a `viaSession` source matches through its
+ * session.
  */
 export type PersonalDataScope =
   | { readonly kind: "direct"; readonly columns: readonly string[] }
   | { readonly kind: "viaSession"; readonly column: string }
-  | { readonly kind: "mcpToolCallsActor" };
+  | { readonly kind: "mcpToolCallsActor" }
+  | { readonly kind: "mcpToolCallEventsActor" };
 
 /**
  * Everywhere a person appears in this database, and what to call it when they
@@ -170,7 +178,15 @@ export const PERSONAL_DATA_SOURCES: readonly PersonalDataSource[] = Object.freez
   {
     label: "What the assistant did about it",
     table: "mcp_tool_call_events",
-    scope: { kind: "direct", columns: ["actor_user_id"] },
+    /*
+     * Not `direct`, for the reason `mcp_tool_calls` above is not: the
+     * earliest event on a call is written before authorisation resolves who
+     * it belongs to, so its own `actor_user_id` can be null. Matching
+     * through the call's resolved actor catches that row along with every
+     * other event on the same call, rather than only the ones written after
+     * authorisation happened to record an actor.
+     */
+    scope: { kind: "mcpToolCallEventsActor" },
     orderBy: "occurred_at",
   },
   {
@@ -277,6 +293,8 @@ interface ExpressionBuilderLike {
 }
 
 interface DynamicSelect {
+  select(columns: readonly unknown[]): DynamicSelect;
+  selectAll(): DynamicSelect;
   where(build: (builder: ExpressionBuilder<never, never>) => unknown): DynamicSelect;
   orderBy(column: unknown, direction: string): DynamicSelect;
   execute(): Promise<readonly Record<string, unknown>[]>;
@@ -327,7 +345,33 @@ const matchExpression = (source: PersonalDataSource, userId: string) => (builder
       );
     case "mcpToolCallsActor":
       return mcpToolCallsActorMatches(userId);
+    case "mcpToolCallEventsActor":
+      return (builder as ExpressionBuilderLike)(
+        sql.ref("call_id"),
+        "in",
+        sql`(select mcp_tool_calls.id from ${sql.raw(`${SCHEMA}.mcp_tool_calls`)} where ${mcpToolCallsActorMatches(userId)})`,
+      );
   }
+};
+
+/**
+ * The columns `withhold` leaves selectable, read from the live schema rather
+ * than assumed. A withheld column is excluded from the query itself this
+ * way — never read from the database for this code path at all, rather than
+ * fetched and then dropped once it is already sitting in application memory.
+ */
+const selectableColumns = async (
+  database: Kysely<StockControlDatabase>,
+  table: keyof StockControlDatabase,
+  withheld: ReadonlySet<string>,
+): Promise<readonly string[]> => {
+  const columns = await sql<{ readonly column_name: string }>`
+    select column_name
+    from information_schema.columns
+    where table_schema = ${SCHEMA} and table_name = ${table}
+  `.execute(database);
+
+  return columns.rows.map((row) => row.column_name).filter((column) => !withheld.has(column));
 };
 
 const readSection = async (
@@ -335,17 +379,24 @@ const readSection = async (
   source: PersonalDataSource,
   userId: string,
 ): Promise<PersonalDataSection> => {
-  const base = database
+  const withheld = new Set(source.withhold ?? []);
+  const query = database
     .withSchema(SCHEMA)
-    .selectFrom<AnyTable>(source.table)
-    .selectAll() as unknown as DynamicSelect;
+    .selectFrom<AnyTable>(source.table) as unknown as DynamicSelect;
+
+  const base =
+    withheld.size === 0
+      ? query.selectAll()
+      : query.select(
+          (await selectableColumns(database, source.table, withheld)).map((column) =>
+            sql.ref(column),
+          ),
+        );
 
   const rows = await base
     .where(matchExpression(source, userId))
     .orderBy(sql.ref(source.orderBy), "desc")
     .execute();
-
-  const withheld = new Set(source.withhold ?? []);
 
   return {
     label: source.label,
@@ -353,9 +404,7 @@ const readSection = async (
     rowCount: rows.length,
     rows: rows.map((row) =>
       Object.fromEntries(
-        Object.entries(row)
-          .filter(([column]) => !withheld.has(column))
-          .map(([column, value]) => [column, serialisable(value)]),
+        Object.entries(row).map(([column, value]) => [column, serialisable(value)]),
       ),
     ),
   };
@@ -397,51 +446,65 @@ export const exportPersonalData = async (
   userId: string,
   now: Date = new Date(),
 ): Promise<PersonalDataExport | undefined> => {
-  const account = await database
-    .withSchema(SCHEMA)
-    .selectFrom("users")
-    .select([
-      "id",
-      "username",
-      "email",
-      "display_name",
-      "role",
-      "is_active",
-      "must_change_password",
-      "password_changed_at",
-      "created_at",
-      "updated_at",
-    ])
-    .where("id", "=", userId)
-    .executeTakeFirst();
+  /*
+   * One snapshot, not one query per section. Twenty-odd unbounded selects
+   * against a growing set of tables take long enough that a write landing
+   * mid-export is a real possibility, not a theoretical one — a job closed
+   * between reading `stock_capture_batches` and `stock_recognition_sessions`
+   * would otherwise read as two different moments in the same file. Read
+   * only, because an export has no business taking a write lock.
+   */
+  return database
+    .transaction()
+    .setIsolationLevel("repeatable read")
+    .setAccessMode("read only")
+    .execute(async (transaction) => {
+      const account = await transaction
+        .withSchema(SCHEMA)
+        .selectFrom("users")
+        .select([
+          "id",
+          "username",
+          "email",
+          "display_name",
+          "role",
+          "is_active",
+          "must_change_password",
+          "password_changed_at",
+          "created_at",
+          "updated_at",
+        ])
+        .where("id", "=", userId)
+        .executeTakeFirst();
 
-  if (account === undefined) {
-    return undefined;
-  }
+      if (account === undefined) {
+        return undefined;
+      }
 
-  const sections: PersonalDataSection[] = [];
+      const sections: PersonalDataSection[] = [];
 
-  for (const source of PERSONAL_DATA_SOURCES) {
-    sections.push(await readSection(database, source, userId));
-  }
+      for (const source of PERSONAL_DATA_SOURCES) {
+        sections.push(await readSection(transaction, source, userId));
+      }
 
-  return {
-    exportedAt: now.toISOString(),
-    subject: {
-      id: account.id,
-      username: account.username,
-      email: account.email,
-      displayName: account.display_name,
-      role: account.role,
-      isActive: account.is_active,
-      mustChangePassword: account.must_change_password,
-      passwordChangedAt: account.password_changed_at?.toISOString() ?? null,
-      createdAt: account.created_at.toISOString(),
-      updatedAt: account.updated_at.toISOString(),
-    },
-    sections,
-    notes: EXPORT_NOTES,
-  };
+      return {
+        exportedAt: now.toISOString(),
+        subject: {
+          id: account.id,
+          username: account.username,
+          email: account.email,
+          displayName: account.display_name,
+          role: account.role,
+          isActive: account.is_active,
+          mustChangePassword: account.must_change_password,
+          passwordChangedAt: account.password_changed_at?.toISOString() ?? null,
+          createdAt: account.created_at.toISOString(),
+          updatedAt: account.updated_at.toISOString(),
+        },
+        sections,
+        notes: EXPORT_NOTES,
+      };
+    });
 };
 
 /**

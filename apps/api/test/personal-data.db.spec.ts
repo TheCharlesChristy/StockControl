@@ -98,6 +98,9 @@ describe.sequential("the personal data export", () => {
       case "mcpToolCallsActor":
         /* The column its coalesce resolution reads first. */
         return ["actor_user_id"];
+      case "mcpToolCallEventsActor":
+        /* The column its subquery correlates on. */
+        return ["call_id"];
     }
   };
 
@@ -215,6 +218,72 @@ describe.sequential("the personal data export", () => {
     expect(calls?.rows.map((row) => row.id)).toContain(callId);
 
     /* Neither table grants the runtime role delete; only the migrator can clean these up. */
+    await migrator
+      .withSchema(SCHEMA)
+      .deleteFrom("mcp_tool_call_events")
+      .where("call_id", "=", callId)
+      .execute();
+    await migrator
+      .withSchema(SCHEMA)
+      .deleteFrom("mcp_tool_calls")
+      .where("id", "=", callId)
+      .execute();
+  });
+
+  /*
+   * The event that records the call being received is itself written before
+   * authorisation resolves who it belongs to, so it has no actor of its own
+   * either. A source matching straight on the event's own actor_user_id
+   * would drop this specific row from the export even once the call above
+   * is found correctly.
+   */
+  it("finds the received event on a call whose actor is only known from a later one", async () => {
+    const callId = randomUUID();
+    const receivedEventId = randomUUID();
+
+    await database
+      .withSchema(SCHEMA)
+      .insertInto("mcp_tool_calls")
+      .values({
+        id: callId,
+        correlation_id: randomUUID(),
+        actor_user_id: null,
+        tool_name: "stock.list",
+        contract_version: "1",
+        operation: "read",
+        arguments: JSON.stringify({}),
+        arguments_sha256: "a".repeat(64),
+      })
+      .execute();
+
+    await database
+      .withSchema(SCHEMA)
+      .insertInto("mcp_tool_call_events")
+      .values([
+        {
+          id: receivedEventId,
+          call_id: callId,
+          actor_user_id: null,
+          event_type: "Received",
+          result_summary: JSON.stringify({}),
+          record_types: JSON.stringify([]),
+        },
+        {
+          id: randomUUID(),
+          call_id: callId,
+          actor_user_id: userId,
+          event_type: "Authorised",
+          result_summary: JSON.stringify({}),
+          record_types: JSON.stringify([]),
+        },
+      ])
+      .execute();
+
+    const exported = await exportPersonalData(database, userId);
+    const events = exported?.sections.find((section) => section.table === "mcp_tool_call_events");
+
+    expect(events?.rows.map((row) => row.id)).toContain(receivedEventId);
+
     await migrator
       .withSchema(SCHEMA)
       .deleteFrom("mcp_tool_call_events")
