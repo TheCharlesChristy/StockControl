@@ -130,7 +130,7 @@ export function PrivacyNoticePage(): ReactElement {
                 ],
                 [
                   "Photographs you take to identify stock",
-                  "If your installation has assisted stock capture switched on. The photographs are deleted after the session; the stock they produced stays.",
+                  "If your installation has assisted stock capture switched on. The photographs are deleted within 30 days of the session ending — usually straight away, always by then — and only the stock they produced stays.",
                 ],
                 [
                   "Anything you ask an assistant to do",
