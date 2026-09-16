@@ -312,6 +312,23 @@ export class LocationsService {
   }
 
   public async createMap(input: CreateMapRequest, actorUserId: string): Promise<MapView> {
+    const { mapId } = await withTransaction(this.database, undefined, (tx) =>
+      this.createMapInTransaction(tx, input, actorUserId),
+    );
+    return this.map(mapId);
+  }
+
+  /**
+   * Returns the created map's identity rather than its view, matching
+   * `archiveMapInTransaction`: the caller's transaction has not committed yet,
+   * so reading the map back here could see a pre-commit row on another
+   * connection.
+   */
+  public async createMapInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    input: CreateMapRequest,
+    actorUserId: string,
+  ): Promise<{ readonly mapId: string }> {
     const mapId = createMapId(randomUUID());
     try {
       LocationMap.create(mapId, createLocationCode(input.code), createLocationName(input.name), {
@@ -321,35 +338,33 @@ export class LocationsService {
       throw domainFailure(error);
     }
     try {
-      await this.database.transaction().execute(async (tx) => {
-        await tx
-          .withSchema(SCHEMA)
-          .insertInto("maps")
-          .values({
-            id: mapId,
-            code: createLocationCode(input.code),
-            name: createLocationName(input.name),
-            background_kind: "Blank",
-            background_asset_id: null,
-            background_metadata: { kind: "Blank" } as unknown as JsonObject,
-            status: "Active",
-            revision: 0,
-          })
-          .execute();
-        await tx
-          .withSchema(SCHEMA)
-          .insertInto("map_edit_events")
-          .values({
-            id: randomUUID(),
-            map_id: mapId,
-            actor_user_id: actorUserId,
-            action: "map.created",
-            before_state: null,
-            after_state: { revision: 0, locations: 0 },
-            reason: null,
-          })
-          .execute();
-      });
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("maps")
+        .values({
+          id: mapId,
+          code: createLocationCode(input.code),
+          name: createLocationName(input.name),
+          background_kind: "Blank",
+          background_asset_id: null,
+          background_metadata: { kind: "Blank" } as unknown as JsonObject,
+          status: "Active",
+          revision: 0,
+        })
+        .execute();
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("map_edit_events")
+        .values({
+          id: randomUUID(),
+          map_id: mapId,
+          actor_user_id: actorUserId,
+          action: "map.created",
+          before_state: null,
+          after_state: { revision: 0, locations: 0 },
+          reason: null,
+        })
+        .execute();
     } catch (error) {
       if (postgresErrorCode(error) === "23505")
         throw new ApplicationFailureException(
@@ -357,7 +372,7 @@ export class LocationsService {
         );
       throw domainFailure(error);
     }
-    return this.map(mapId);
+    return { mapId };
   }
 
   /**

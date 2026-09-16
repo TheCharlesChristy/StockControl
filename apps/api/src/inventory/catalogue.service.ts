@@ -79,6 +79,37 @@ export class CatalogueService {
     return this.requireDetail(itemId, viewer);
   }
 
+  public async uploadItemPhotoInTransaction(
+    tx: CatalogueTransaction,
+    itemId: string,
+    actorUserId: string,
+    input: ImageUploadRequest,
+    viewer: ItemDetailOptions,
+  ): Promise<{ readonly item: ItemDetailView; readonly photoId: string }> {
+    const { photoId } = await this.photos.saveItemPhotoInTransaction(
+      tx,
+      itemId,
+      actorUserId,
+      input,
+    );
+    return { item: await this.detailInTransaction(tx, itemId, viewer), photoId };
+  }
+
+  /**
+   * Returns the object key alongside the item so the caller can delete the
+   * underlying storage object only after its own transaction has committed —
+   * see `PhotosService.deleteItemPhotoInTransaction`.
+   */
+  public async deleteItemPhotoInTransaction(
+    tx: CatalogueTransaction,
+    itemId: string,
+    photoId: string,
+    viewer: ItemDetailOptions,
+  ): Promise<{ readonly item: ItemDetailView; readonly objectKey: string }> {
+    const { objectKey } = await this.photos.deleteItemPhotoInTransaction(tx, itemId, photoId);
+    return { item: await this.detailInTransaction(tx, itemId, viewer), objectKey };
+  }
+
   public async setItemPhotoCover(
     itemId: string,
     photoId: string,
@@ -239,7 +270,15 @@ export class CatalogueService {
   }
 
   private async requireDetail(itemId: string, viewer: ItemDetailOptions): Promise<ItemDetailView> {
-    const item = await findItemDetail(this.database, itemId, viewer);
+    return this.detailInTransaction(this.database, itemId, viewer);
+  }
+
+  private async detailInTransaction(
+    database: Kysely<StockControlDatabase> | CatalogueTransaction,
+    itemId: string,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    const item = await findItemDetail(database, itemId, viewer);
     if (item === undefined) {
       throw new ApplicationFailureException(
         resourceUnavailable({ detail: "That item was not found." }),

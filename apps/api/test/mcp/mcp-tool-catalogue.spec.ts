@@ -154,4 +154,56 @@ describe("the MCP tool catalogue", () => {
       offset: undefined,
     });
   });
+
+  it("refuses an item photo that is not png or jpeg", () => {
+    expect(() =>
+      specFor("upload_item_photo").validate({
+        itemId: ITEM,
+        originalFileName: "cover.gif",
+        mediaType: "image/gif",
+        contentBase64: "AAAA",
+        ...writeExtras,
+      }),
+    ).toThrow(ToolValidationError);
+  });
+
+  /*
+   * A multi-megabyte image has no place in an insert-only audit log — the
+   * Received record still has to exist (this file's rule that a projector
+   * must never make an invocation vanish), but it carries the byte count,
+   * never the bytes.
+   */
+  it("never writes an uploaded photo's bytes into the audit trail", () => {
+    const projected = specFor("upload_item_photo").project({
+      itemId: ITEM,
+      originalFileName: "cover.png",
+      mediaType: "image/png",
+      contentBase64: "AAAABBBB",
+    });
+
+    expect(projected).not.toHaveProperty("contentBase64");
+    expect(projected["contentBase64Length"]).toBe(8);
+  });
+
+  it("never asks create_user for a password", () => {
+    expect(specFor("create_user").inputSchema["properties"]).not.toHaveProperty("password");
+    expect(
+      specFor("create_user").validate({
+        username: "newuser",
+        displayName: "New User",
+        role: "Engineer",
+        ...writeExtras,
+      }),
+    ).not.toHaveProperty("password");
+  });
+
+  it("scopes list_mcp_activity to no wider than its own outcome and operation enums", () => {
+    expect(() =>
+      specFor("list_mcp_activity").validate({ outcome: "Cancelled" }),
+    ).toThrow(ToolValidationError);
+    expect(() => specFor("list_mcp_activity").validate({ operation: "delete" })).toThrow(
+      ToolValidationError,
+    );
+    expect(specFor("list_mcp_activity").inputSchema["properties"]).not.toHaveProperty("userId");
+  });
 });
