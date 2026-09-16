@@ -42,6 +42,9 @@ import type {
   StartCaptureBatchRequest,
   StartRecognitionSessionRequest,
   StockCaptureBatchView,
+  McpActivityListResponse,
+  McpActivityQuery,
+  McpConnectionListResponse,
 } from "@stockcontrol/contracts";
 
 /**
@@ -201,6 +204,43 @@ export class ApiClient {
     }
 
     return parsed as Result;
+  }
+
+  /**
+   * A response the caller wants as a file rather than as data. Error handling
+   * still goes through the JSON path, because a refusal is JSON however the
+   * success case is meant to arrive.
+   */
+  private async sendForBlob(
+    method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT",
+    path: string,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<Blob> {
+    const response = await this.fetchImplementation(`${this.baseUrl}${path}`, {
+      method,
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      let parsed: unknown;
+
+      try {
+        parsed = text.length > 0 ? JSON.parse(text) : undefined;
+      } catch {
+        throw new ApiError(
+          response.status,
+          `http.${String(response.status)}`,
+          "StockControl is not responding properly at the moment. Please try again.",
+        );
+      }
+
+      throw toApiError(response.status, parsed);
+    }
+
+    return await response.blob();
   }
 
   public dashboard(signal?: AbortSignal): Promise<DashboardResponse> {
@@ -550,10 +590,43 @@ export class ApiClient {
     return user;
   }
 
+  /**
+   * A copy of everything held about one person, for a subject access request.
+   *
+   * Returned as a blob rather than parsed. The browser hands it straight to
+   * the person as a file, and there is nothing this client would do with the
+   * shape of it in between.
+   */
+  public async personalDataExport(id: string, signal?: AbortSignal): Promise<Blob> {
+    return await this.sendForBlob("GET", `/users/${id}/personal-data`, {
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
   public userActivity(id: string, signal?: AbortSignal): Promise<UserActivityResponse> {
     return this.send("GET", `/users/${id}/activity`, {
       ...(signal === undefined ? {} : { signal }),
     });
+  }
+
+  public listMcpActivity(
+    query: McpActivityQuery = {},
+    signal?: AbortSignal,
+  ): Promise<McpActivityListResponse> {
+    return this.send("GET", "/mcp-activity", {
+      query,
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public listMcpConnections(signal?: AbortSignal): Promise<McpConnectionListResponse> {
+    return this.send("GET", "/mcp-activity/connections", {
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  public async revokeMcpConnection(grantId: string): Promise<void> {
+    await this.send("POST", `/mcp-activity/connections/${grantId}/revoke`);
   }
 
   // ---- Assisted stock capture, specification section 10 --------------------

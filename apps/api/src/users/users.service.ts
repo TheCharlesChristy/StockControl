@@ -17,9 +17,10 @@ import {
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { hashPassword } from "../auth/password";
+import { exportPersonalData, hasRecordedActivity, type PersonalDataExport } from "./personal-data";
 import type { SessionService } from "../auth/session-service";
 import type { PhotoAsset, PhotosService } from "../media/photos.service";
 import {
@@ -27,6 +28,7 @@ import {
   listStockRequests,
   listTransactions,
 } from "../persistence/read-models";
+import type { DatabaseExecutor } from "../persistence/transaction";
 
 const SCHEMA = "stockcontrol" as const;
 
@@ -183,8 +185,32 @@ export class UsersService {
     return this.require(userId);
   }
 
-  public async update(userId: string, input: UserChanges): Promise<UserView> {
-    const existing = await this.require(userId);
+  public async update(actorId: string, userId: string, input: UserChanges): Promise<UserView> {
+    return this.updateOn(this.database, actorId, userId, input);
+  }
+
+  /**
+   * Session revocation reaches the sessions table on its own connection, so a
+   * caller's transaction that later rolls back leaves a deactivated user's
+   * sessions ended. That direction is the safe one: ending a session too
+   * eagerly costs a sign-in, leaving one alive would outlive the account.
+   */
+  public updateInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    actorId: string,
+    userId: string,
+    input: UserChanges,
+  ): Promise<UserView> {
+    return this.updateOn(tx, actorId, userId, input);
+  }
+
+  private async updateOn(
+    database: DatabaseExecutor,
+    actorId: string,
+    userId: string,
+    input: UserChanges,
+  ): Promise<UserView> {
+    const existing = await this.require(userId, database);
     const displayName = input.displayName;
     const { role, isActive } = input;
     const username = input.username === undefined ? undefined : normaliseUsername(input.username);
@@ -194,6 +220,18 @@ export class UsersService {
     if (role !== undefined && !userRoles.includes(role)) {
       throw new ApplicationFailureException(
         validationFailed({ role: ["Choose Engineer, Office or Admin."] }),
+      );
+    }
+
+    /*
+     * Enforced here, not in the controller alone, so every caller gets it —
+     * the MCP write tools reach this same method with nothing upstream of it
+     * to stop an Admin routing a self-demotion or self-deactivation through
+     * the assistant instead of their own account page.
+     */
+    if (actorId === userId && (isActive === false || (role !== undefined && role !== "Admin"))) {
+      throw new ApplicationFailureException(
+        validationFailed({ role: ["You cannot change your own role or disable yourself."] }),
       );
     }
 
@@ -217,7 +255,7 @@ export class UsersService {
       existing.isActive &&
       ((role !== undefined && role !== "Admin") || isActive === false);
 
-    if (losingLastAdmin && (await this.activeAdminCount()) <= 1) {
+    if (losingLastAdmin && (await this.activeAdminCount(database)) <= 1) {
       throw new ApplicationFailureException(
         validationFailed({
           role: ["This is the only active Admin. Promote another Admin first."],
@@ -226,7 +264,7 @@ export class UsersService {
     }
 
     try {
-      await this.database
+      await database
         .withSchema(SCHEMA)
         .updateTable("users")
         .set({
@@ -254,7 +292,7 @@ export class UsersService {
       await this.sessions.revokeAllForUser(userId);
     }
 
-    return this.require(userId);
+    return this.require(userId, database);
   }
 
   /**
@@ -336,38 +374,41 @@ export class UsersService {
     };
   }
 
-  private async hasHistory(userId: string): Promise<boolean> {
-    const row = await this.database
-      .withSchema(SCHEMA)
-      .selectFrom("users")
-      .select([
-        sql<string>`(select count(*) from stockcontrol.transactions where actor_user_id = ${userId})`.as(
-          "transactions",
-        ),
-        sql<string>`(select count(*) from stockcontrol.reservations where created_by_user_id = ${userId})`.as(
-          "reservations",
-        ),
-        sql<string>`(select count(*) from stockcontrol.stock_requests
-           where requested_by_user_id = ${userId} or decided_by_user_id = ${userId})`.as(
-          "requests",
-        ),
-        sql<string>`(select count(*) from stockcontrol.job_assignments
-           where assigned_by_user_id = ${userId})`.as("assignments"),
-      ])
-      .where("id", "=", userId)
-      .executeTakeFirst();
+  /**
+   * A copy of everything held about one person, for a subject access request.
+   *
+   * Deliberately not paginated and not capped. `activity` shows an Admin a
+   * recent slice for a screen; this is the whole record, because an answer
+   * that quietly stops at the fiftieth row is not an answer to Article 15.
+   */
+  public async personalDataExport(userId: string): Promise<PersonalDataExport> {
+    const exported = await exportPersonalData(this.database, userId);
 
-    return (
-      Number(row?.transactions ?? 0) +
-        Number(row?.reservations ?? 0) +
-        Number(row?.requests ?? 0) +
-        Number(row?.assignments ?? 0) >
-      0
-    );
+    if (exported === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That user was not found." }),
+      );
+    }
+
+    return exported;
   }
 
-  private async activeAdminCount(): Promise<number> {
-    const row = await this.database
+  /*
+   * The same exhaustive list a subject access request is answered from,
+   * minus the two sources deletion clears itself (`remove` does that right
+   * after this check passes). A hand-picked subset of tables here — the
+   * shape this method used to be — silently stops matching the real set of
+   * `on delete restrict` references to `users` the moment somebody adds a
+   * table and updates the export but not this method, which fails as a raw
+   * foreign-key error out of `deleteFrom("users")` instead of the message
+   * below.
+   */
+  private async hasHistory(userId: string): Promise<boolean> {
+    return hasRecordedActivity(this.database, userId);
+  }
+
+  private async activeAdminCount(database: DatabaseExecutor = this.database): Promise<number> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .select((builder) => builder.fn.countAll<string>().as("total"))
@@ -378,8 +419,11 @@ export class UsersService {
     return Number(row?.total ?? 0);
   }
 
-  private async require(userId: string): Promise<UserView> {
-    const row = await this.database
+  private async require(
+    userId: string,
+    database: DatabaseExecutor = this.database,
+  ): Promise<UserView> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .select(["id", "username", "email", "display_name", "role", "is_active", "created_at"])

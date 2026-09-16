@@ -37,6 +37,80 @@ describe("IssuesService", () => {
     ).toBe(true);
   });
 
+  /*
+   * The issue tracker is world-readable. This body once carried the reporter's
+   * display name and role, which published a member of staff's identity — and
+   * in a firm this size, "Admin" identifies one person — to anybody who opened
+   * the repository.
+   */
+  it("keeps the reporter's name and role off the public issue", async () => {
+    const fetchImplementation = acceptingGitHub();
+    const service = configuredService(fetchImplementation);
+
+    await service.create({
+      title: "The inventory count is wrong",
+      description: "The count changed after refreshing the page.",
+      page: "/inventory",
+      reporter,
+    });
+
+    const [, init] = fetchImplementation.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as { readonly body: string };
+
+    expect(sent.body).not.toContain(reporter.displayName);
+    expect(sent.body).not.toContain(reporter.role);
+    expect(sent.body).not.toContain(reporter.id);
+    expect(sent.body).toMatch(/Reporter:\s+[0-9a-f]{12}/u);
+  });
+
+  it("gives the same reporter the same reference on every report", async () => {
+    const fetchImplementation = acceptingGitHub();
+    const service = configuredService(fetchImplementation);
+    const report = {
+      title: "The inventory count is wrong",
+      description: "The count changed after refreshing the page.",
+      page: "/inventory",
+      reporter,
+    };
+
+    await service.create(report);
+    await service.create(report);
+
+    const references = fetchImplementation.mock.calls.map(([, init]) => {
+      const sent = JSON.parse((init as RequestInit).body as string) as { readonly body: string };
+      return /Reporter:\s+([0-9a-f]{12})/u.exec(sent.body)?.[1];
+    });
+
+    expect(references[0]).toBeDefined();
+    expect(references[0]).toBe(references[1]);
+  });
+
+  /* The pseudonym is only useful if the installation can still resolve it. */
+  it("records the reference against the reporter in its own log", async () => {
+    const log = vi.fn();
+    const service = new IssuesService(
+      { GITHUB_TOKEN: "github-token", GITHUB_REPOSITORY: "example/repo" },
+      acceptingGitHub() as never,
+      undefined,
+      { log },
+    );
+
+    await service.create({
+      title: "The inventory count is wrong",
+      description: "The count changed after refreshing the page.",
+      page: "/inventory",
+      reporter,
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "issues.reported",
+        reporterId: reporter.id,
+        reference: expect.stringMatching(/^[0-9a-f]{12}$/u) as unknown,
+      }),
+    );
+  });
+
   it("creates a GitHub issue with the report context", async () => {
     const fetchImplementation = vi.fn(
       (input: string | URL, init?: RequestInit): Promise<Response> => {
@@ -77,7 +151,7 @@ describe("IssuesService", () => {
     ) as { readonly title?: string; readonly body?: string };
     expect(requestBody.title).toBe("The inventory count is wrong");
     expect(requestBody.body).toContain("/inventory");
-    expect(requestBody.body).toContain("Olivia Desk (Office)");
+    expect(requestBody.body).toMatch(/Reporter:\s+[0-9a-f]{12}/u);
   });
 
   /*

@@ -14,11 +14,14 @@ import { JobsPage } from "../pages/JobsPage";
 import { RequestsPage } from "../pages/RequestsPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { ProfilePage } from "../pages/ProfilePage";
+import { PrivacyNoticePage } from "../pages/PrivacyNoticePage";
 import { SignInPage } from "../pages/SignInPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
+import { McpActivityPage } from "../pages/McpActivityPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
 import { RouteErrorBoundary } from "./ErrorBoundaries";
+import { PRIVACY_PATH } from "./paths";
 import { RouteTransitionManager } from "./RouteTransitionManager";
 
 /*
@@ -72,6 +75,14 @@ export function AppRoutes(): ReactElement {
           }
         />
 
+        {/*
+          Outside the authentication guard on purpose. Somebody who has just
+          been given an account, or who is deciding whether to accept one,
+          has to be able to read what will be recorded about them before they
+          are inside.
+        */}
+        <Route path={PRIVACY_PATH} element={<PrivacyNoticePage />} />
+
         <Route element={<RequireAuthentication />}>
           <Route element={<AppShell />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
@@ -111,6 +122,14 @@ export function AppRoutes(): ReactElement {
               }
             />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route
+              path="/mcp-activity"
+              element={
+                <Guarded path="/mcp-activity">
+                  <McpActivityPage />
+                </Guarded>
+              }
+            />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path={CHANGE_PASSWORD_PATH} element={<ChangePasswordPage />} />
             <Route

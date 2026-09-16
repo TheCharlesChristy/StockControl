@@ -1,7 +1,10 @@
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
+import type { Reflector } from "@nestjs/core";
 import { permissionDenied } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
+
+import { ORIGIN_EXEMPT_ROUTE } from "./public.decorator";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -84,7 +87,10 @@ export function isRequestOriginAllowed(
 
 /** Protects the cookie-authenticated API from cross-site state changes. */
 export class RequestOriginGuard implements CanActivate {
-  public constructor(private readonly allowedOrigin: string | null) {}
+  public constructor(
+    private readonly allowedOrigin: string | null,
+    private readonly reflector?: Reflector,
+  ) {}
 
   public canActivate(context: ExecutionContext): boolean {
     if (context.getType() !== "http") {
@@ -92,6 +98,15 @@ export class RequestOriginGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
+
+    if (
+      this.reflector?.getAllAndOverride<boolean>(ORIGIN_EXEMPT_ROUTE, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    ) {
+      return true;
+    }
 
     if (isRequestOriginAllowed(request.method, request.headers, this.allowedOrigin)) {
       return true;

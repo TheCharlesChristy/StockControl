@@ -18,6 +18,8 @@
     "db:migrate": "pnpm --filter @stockcontrol/platform-database migrate",
     "db:migrate:prod": "pnpm --filter @stockcontrol/platform-database migrate:prod",
     "db:seed": "pnpm --filter @stockcontrol/api seed",
+    "db:retain": "pnpm --filter @stockcontrol/platform-database retain",
+    "db:retain:prod": "pnpm --filter @stockcontrol/platform-database retain:prod",
     "setup:first-admin:prod": "pnpm --filter @stockcontrol/api setup:first-admin:prod",
     "dev": "pnpm -r --parallel --if-present dev",
     "format": "prettier --write .",

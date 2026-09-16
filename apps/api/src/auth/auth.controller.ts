@@ -23,6 +23,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { API_TOKENS } from "../api.tokens";
 import { bodyOf, requireText } from "../inventory/request-parsing";
 import { isStockCaptureEnabled } from "../stock-capture/capture-configuration";
+import { isMcpEnabled } from "../integrations/mcp/mcp-configuration";
 import { readSessionCookie } from "./auth.guard";
 import { hashPassword } from "./password";
 import { Public } from "./public.decorator";
@@ -76,7 +77,10 @@ export class AuthController {
     return {
       session,
       capabilities: capabilitiesForRole(session.user.role),
-      features: { stockCapture: isStockCaptureEnabled() },
+      features: {
+        stockCapture: isStockCaptureEnabled(),
+        ...(isMcpEnabled() ? { mcpActivity: true } : {}),
+      },
     };
   }
 
@@ -135,7 +139,10 @@ export class AuthController {
     return {
       session: outcome.session,
       capabilities: capabilitiesForRole(outcome.session.user.role),
-      features: { stockCapture: isStockCaptureEnabled() },
+      features: {
+        stockCapture: isStockCaptureEnabled(),
+        ...(isMcpEnabled() ? { mcpActivity: true } : {}),
+      },
     };
   }
 

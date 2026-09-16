@@ -20,6 +20,8 @@
     "clean": "tsc -b tsconfig.build.json --clean",
     "migrate": "node --env-file-if-exists=../../../.env --import tsx src/migrate.ts",
     "migrate:prod": "node dist/migrate.js",
+    "retain": "node --env-file-if-exists=../../../.env --import tsx src/retain.ts",
+    "retain:prod": "node dist/retain.js",
     "test": "vitest run --configLoader runner",
     "test:coverage": "vitest run --coverage --configLoader runner",
     "test:integration": "vitest run --config vitest.integration.config.ts --configLoader runner",

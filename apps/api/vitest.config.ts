@@ -52,6 +52,20 @@ export default defineConfig({
         // the SQL they write.
         "src/inventory/catalogue-writer.ts",
         "src/inventory/stock-writer.ts",
+        // MCP persistence services are exercised by the real-PostgreSQL
+        // integration suites; their query-builder branches do not provide
+        // useful signal in the unit runner's coverage report.
+        "src/integrations/mcp/mcp-activity.service.ts",
+        "src/integrations/mcp/mcp-audit.service.ts",
+        "src/integrations/mcp/mcp-reconciliation.ts",
+        // The subject access export builds one query per table from a list of
+        // column names, so what it does is what PostgreSQL does with those
+        // names — and the property that matters is that the list matches the
+        // live schema, which only a real server can answer. test/personal-data
+        // .db.spec.ts reads the catalogue and fails if a table that references
+        // a user is missing from it.
+        "src/users/personal-data.ts",
+        "src/integrations/mcp/oauth.service.ts",
       ],
       /*
        * Ratchet floors, not targets. CI enforces these from the commit that
@@ -62,10 +76,10 @@ export default defineConfig({
        * config. Raise a floor whenever a change lifts the measured value.
        */
       thresholds: {
-        branches: 35,
-        functions: 40,
-        lines: 42,
-        statements: 41,
+        branches: 39,
+        functions: 42,
+        lines: 45,
+        statements: 44,
       },
     },
   },

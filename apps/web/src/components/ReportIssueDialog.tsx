@@ -65,7 +65,8 @@ export function ReportIssueDialog({
         <DialogContent>
           <Stack spacing={2}>
             <Alert severity="success">
-              Thanks — your report has been submitted to the StockControl repository.
+              Thanks — your report has been published on the StockControl issue tracker, without
+              your name attached.
             </Alert>
             <Button
               component="a"
@@ -95,6 +96,11 @@ export function ReportIssueDialog({
             <DialogContentText>
               Tell us what went wrong and we’ll create an issue for the team to review.
             </DialogContentText>
+            <Alert severity="info">
+              Reports are published on our public issue tracker, where anyone can read them. Your
+              name is not included. Please leave out customer names, addresses and anything else you
+              would not want made public.
+            </Alert>
             {error !== undefined && !error.hasFieldErrors && (
               <Alert severity="error" role="alert">
                 {error.message}

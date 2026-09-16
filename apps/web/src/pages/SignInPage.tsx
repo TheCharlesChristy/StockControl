@@ -8,6 +8,7 @@ import {
   Container,
   IconButton,
   InputAdornment,
+  Link as MuiLink,
   Paper,
   Stack,
   TextField,
@@ -15,7 +16,9 @@ import {
 } from "@mui/material";
 import { normaliseUsername, usernameFormatErrors } from "@stockcontrol/contracts";
 import { useState, type FormEvent, type ReactElement } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
+
+import { PRIVACY_PATH } from "../app/paths";
 import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
 import { PageHelp } from "../components/PageHelp";
@@ -36,6 +39,9 @@ const DEEP_LINK_PATTERNS: readonly RegExp[] = [
   /^\/jobs\/[^/]+$/u,
   /^\/requests\/[^/]+$/u,
 ];
+
+const OAUTH_AUTHORIZE_PATH = "/oauth/authorize";
+const OAUTH_AUTHORIZE_RESUME_PATH = "/oauth/authorize/resume";
 
 export const DEFAULT_SIGNED_IN_PATH = "/dashboard";
 
@@ -60,7 +66,12 @@ function safeDeepLink(candidate: unknown): string | null {
     return null;
   }
 
-  if (!DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname))) {
+  const isRecordDeepLink = DEEP_LINK_PATTERNS.some((pattern) => pattern.test(resolvedUrl.pathname));
+  const isOAuthAuthorization =
+    resolvedUrl.pathname === OAUTH_AUTHORIZE_PATH ||
+    resolvedUrl.pathname === OAUTH_AUTHORIZE_RESUME_PATH;
+
+  if (!isRecordDeepLink && !isOAuthAuthorization) {
     return null;
   }
 
@@ -89,6 +100,12 @@ export function signInPathFor(attemptedPath: string): string {
   return safeDeepLink(attemptedPath) === null
     ? "/sign-in"
     : `/sign-in?${REDIRECT_QUERY_KEY}=${encodeURIComponent(attemptedPath)}`;
+}
+
+/** OAuth is served by the API, so the SPA must hand it back to the server. */
+export function requiresDocumentNavigation(destination: string): boolean {
+  const pathname = new URL(destination, window.location.origin).pathname;
+  return pathname === OAUTH_AUTHORIZE_PATH || pathname === OAUTH_AUTHORIZE_RESUME_PATH;
 }
 
 export function SignInPage(): ReactElement {
@@ -122,7 +139,12 @@ export function SignInPage(): ReactElement {
 
     void signIn(normalizedUsername, password)
       .then(() => {
-        void navigate(getRedirectPath(location.state, location.search), { replace: true });
+        const destination = getRedirectPath(location.state, location.search);
+        if (requiresDocumentNavigation(destination)) {
+          window.location.assign(destination);
+          return;
+        }
+        void navigate(destination, { replace: true });
       })
       .catch(() => {
         setErrorMessage("We could not sign you in. Check your details and try again.");
@@ -347,7 +369,10 @@ export function SignInPage(): ReactElement {
               }}
             >
               <Typography variant="caption" color="text.secondary">
-                Accounts are managed by your StockControl administrator.
+                Accounts are managed by your StockControl administrator.{" "}
+                <MuiLink component={RouterLink} to={PRIVACY_PATH} color="inherit">
+                  How your information is used
+                </MuiLink>
               </Typography>
             </Box>
           </Paper>

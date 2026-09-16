@@ -15,4 +15,12 @@ export const API_TOKENS = {
   expiredSessionSweeper: Symbol("auth.expired-session-sweeper"),
   stockCaptureConfiguration: Symbol("stock-capture.configuration"),
   stockCaptureService: Symbol("stock-capture.service"),
+  mcpConfiguration: Symbol("mcp.configuration"),
+  mcpAuditService: Symbol("mcp.audit-service"),
+  mcpOAuthService: Symbol("mcp.oauth-service"),
+  mcpToolExecutor: Symbol("mcp.tool-executor"),
+  mcpActivityService: Symbol("mcp.activity-service"),
+  mcpReconciliationJob: Symbol("mcp.reconciliation-job"),
+  mcpRateLimiter: Symbol("mcp.rate-limiter"),
+  mcpAuthorizationRequestSweeper: Symbol("mcp.authorization-request-sweeper"),
 } as const;

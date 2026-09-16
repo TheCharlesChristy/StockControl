@@ -31,6 +31,7 @@ import {
   readText,
   requireText,
 } from "../inventory/request-parsing";
+import type { PersonalDataExport } from "./personal-data";
 import type { UsersService } from "./users.service";
 
 function readRole(value: string): UserRole | undefined {
@@ -47,7 +48,7 @@ export class UsersController {
     @Param("id") id: string,
     @Res() reply: FastifyReply,
   ): Promise<FastifyReply> {
-    this.requirePhotoAccess(request, id);
+    this.requireSelfOrAdmin(request, id);
     const asset = await this.users.profilePhoto(id);
     return reply
       .type(asset.mediaType)
@@ -62,7 +63,7 @@ export class UsersController {
     @Param("id") id: string,
     @Body() rawBody: unknown,
   ): Promise<UserResponse> {
-    this.requirePhotoAccess(request, id);
+    this.requireSelfOrAdmin(request, id);
     const body = bodyOf(rawBody);
     const mediaType = body.mediaType;
     if (mediaType !== "image/png" && mediaType !== "image/jpeg") {
@@ -83,7 +84,7 @@ export class UsersController {
     @Req() request: FastifyRequest,
     @Param("id") id: string,
   ): Promise<UserResponse> {
-    this.requirePhotoAccess(request, id);
+    this.requireSelfOrAdmin(request, id);
     return { user: await this.users.deleteProfilePhoto(id) };
   }
 
@@ -146,13 +147,6 @@ export class UsersController {
       );
     }
 
-    /* Nobody may disable or demote themselves and lock the demo. */
-    if (actor.id === id && (isActive === false || (role !== undefined && role !== "Admin"))) {
-      throw new ApplicationFailureException(
-        validationFailed({ role: ["You cannot change your own role or disable yourself."] }),
-      );
-    }
-
     const displayName = readText(body, "displayName");
     /*
      * `readText` collapses "omitted" and "present but blank" to the same "",
@@ -168,7 +162,7 @@ export class UsersController {
     const email = readClearableText(body, "email");
 
     return {
-      user: await this.users.update(id, {
+      user: await this.users.update(actor.id, id, {
         ...(username === undefined ? {} : { username }),
         ...(email === undefined ? {} : { email }),
         ...(displayName.length === 0 ? {} : { displayName }),
@@ -205,6 +199,36 @@ export class UsersController {
     return { user: await this.users.resetPassword(id, newPassword) };
   }
 
+  /**
+   * A copy of everything held about one person, for a subject access request.
+   *
+   * Reachable by the person themselves as well as by an Admin. Article 15 is
+   * their right, and routing it through a request to somebody else adds a
+   * month and a gatekeeper to an answer the system can give immediately.
+   */
+  @Get(":id/personal-data")
+  public async personalData(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<PersonalDataExport> {
+    this.requireSelfOrAdmin(request, id);
+
+    const exported = await this.users.personalDataExport(id);
+
+    /*
+     * Offered as a file rather than rendered. This is the person's own record
+     * to keep, and a browser tab of JSON is not something anybody can file.
+     */
+    void reply.header(
+      "Content-Disposition",
+      `attachment; filename="stockcontrol-personal-data-${exported.subject.username}.json"`,
+    );
+    void reply.header("Cache-Control", "no-store");
+
+    return exported;
+  }
+
   @Delete(":id")
   public async remove(
     @Req() request: FastifyRequest,
@@ -223,7 +247,8 @@ export class UsersController {
     return { deleted: true };
   }
 
-  private requirePhotoAccess(request: FastifyRequest, userId: string): void {
+  /** Your own record, or an Admin's to manage. */
+  private requireSelfOrAdmin(request: FastifyRequest, userId: string): void {
     if (currentUser(request).id !== userId) requireCapability(request, "manageUsers");
   }
 }

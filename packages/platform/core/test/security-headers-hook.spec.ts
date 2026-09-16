@@ -54,11 +54,21 @@ describe("API security headers", () => {
     expect(runHookWith().headers.get("x-content-type-options")).toBe("nosniff");
   });
 
-  it("denies every resource and frame for anything the API returns", () => {
+  it("denies every resource and frame by default", () => {
     const policy = runHookWith().headers.get("content-security-policy");
 
     expect(policy).toContain("default-src 'none'");
     expect(policy).toContain("frame-ancestors 'none'");
+  });
+
+  it("keeps the document policy selected by a route", () => {
+    const documentPolicy = "default-src 'none'; frame-ancestors https://chatgpt.com";
+
+    expect(
+      runHookWith({ "content-security-policy": documentPolicy }).headers.get(
+        "content-security-policy",
+      ),
+    ).toBe(documentPolicy);
   });
 
   it("defaults an authenticated response to no-store", () => {

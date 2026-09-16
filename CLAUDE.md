@@ -64,6 +64,28 @@ These are the load-bearing ones. Breaking one is not a style question.
   must add its grants in `RUNTIME_TABLE_PRIVILEGES`.
 - **Uploaded bytes are not trusted.** Validate magic bytes and dimensions, store
   privately, verify the recorded digest when reading back.
+- **The runtime role cannot erase the audit trail.** Records of who did what are
+  insert-only to the API. Retention is a separate maintenance step under the
+  migrator credential (`pnpm db:retain`). If a feature seems to need `delete` on
+  an audit table, it belongs in the retention schedule instead.
+- **The browser reaches no third party.** No analytics, no CDN, no external
+  fonts — a page load must not disclose a user's IP address to anybody. The CSP
+  enforces it; do not widen it to make an asset load.
+
+## Personal data
+
+The ledger records who moved what, which makes this staff monitoring, and that
+carries obligations — see [`docs/legal/`](docs/legal/README.md). Two of them
+land on code:
+
+- **A new table that references `users` must be added to
+  `PERSONAL_DATA_SOURCES`** in `apps/api/src/users/personal-data.ts`. An
+  integration test reads the live schema and fails until it is, because a
+  subject access export that quietly omits a table looks complete while being
+  wrong.
+- **A new table holding a record of activity needs a retention rule**, in
+  `packages/platform/database/src/retention/schedule.ts`, with the reason
+  written down. Retaining something forever is a decision, so make it one.
 
 ## Conventions
 

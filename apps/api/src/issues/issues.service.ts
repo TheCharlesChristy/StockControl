@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ReportIssueResponse } from "@stockcontrol/contracts";
 import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
@@ -118,8 +120,27 @@ function fencedBlock(value: string): string {
   return `${fence}text\n${value}\n${fence}`;
 }
 
-function reporterLabel(reporter: CreateIssueInput["reporter"]): string {
-  return `${reporter.displayName} (${reporter.role})`;
+/**
+ * A stable, opaque reference for the reporter.
+ *
+ * This body is published to a repository the whole world can read, so it must
+ * not carry the reporter's name — and in a firm of this size it must not carry
+ * their role either, because "Admin" identifies one or two people. A digest of
+ * the user id lets a maintainer see that three reports came from the same
+ * person without telling a stranger who that person is. The installation keeps
+ * the mapping in its own logs, which is where the answer belongs.
+ */
+function reporterReference(userId: string): string {
+  return createHash("sha256").update(userId).digest("hex").slice(0, 12);
+}
+
+/**
+ * The narrow slice of `StructuredLogger` this service needs. Taking the shape
+ * rather than the class keeps the mapping test honest without standing up an
+ * observability stack for it.
+ */
+interface ReporterLog {
+  log(message: unknown): void;
 }
 
 function externalServiceFailure(detail: string): ApplicationFailureException {
@@ -133,6 +154,7 @@ export class IssuesService {
     private readonly environment: NodeJS.ProcessEnv = process.env,
     private readonly fetchImplementation: FetchImplementation = globalThis.fetch.bind(globalThis),
     private readonly throttle: ReportThrottle = new ReportThrottle(),
+    private readonly logger: ReporterLog | undefined = undefined,
   ) {}
 
   public isConfigured(): boolean {
@@ -190,6 +212,8 @@ export class IssuesService {
       );
     }
 
+    const reference = reporterReference(input.reporter.id);
+
     const [owner, repository] = configuration.repository.split("/");
     const endpoint = `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(repository!)}/issues`;
     const body = [
@@ -199,7 +223,7 @@ export class IssuesService {
       "",
       "## Context",
       "",
-      fencedBlock(`Page:        ${page || "/"}\nReported by: ${reporterLabel(input.reporter)}`),
+      fencedBlock(`Page:      ${page || "/"}\nReporter:  ${reference}`),
       "",
       "_Submitted from StockControl._",
     ].join("\n");
@@ -241,6 +265,21 @@ export class IssuesService {
     if (issueUrl === undefined) {
       throw externalServiceFailure("GitHub returned an invalid issue link. Try again in a moment.");
     }
+
+    /*
+     * The only place the pseudonym on the public issue can be turned back into
+     * a person. Kept here deliberately: a maintainer who needs to ask the
+     * reporter a follow-up question can find them, and nobody outside the
+     * installation can. Logged only once the issue is confirmed to exist —
+     * earlier, and a network failure or a malformed GitHub response would
+     * leave an audit entry claiming a public issue that was never created.
+     */
+    this.logger?.log({
+      event: "issues.reported",
+      reference,
+      reporterId: input.reporter.id,
+      reporterRole: input.reporter.role,
+    });
 
     return { issueUrl };
   }

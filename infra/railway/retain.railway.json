@@ -1,0 +1,28 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "/apps/api/**",
+      "/packages/**",
+      "/infra/railway/retain.railway.json",
+      "/.dockerignore",
+      "/Dockerfile",
+      "/package.json",
+      "/pnpm-lock.yaml",
+      "/pnpm-workspace.yaml",
+      "/tsconfig*.json"
+    ]
+  },
+  "deploy": {
+    "startCommand": "node packages/platform/database/dist/retain.js",
+    "cronSchedule": "0 3 * * *",
+    "restartPolicyType": "NEVER",
+    "multiRegionConfig": {
+      "europe-west4-drams3a": {
+        "numReplicas": 1
+      }
+    }
+  }
+}

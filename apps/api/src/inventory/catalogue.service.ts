@@ -10,7 +10,11 @@ import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely } from "kysely";
 
-import { createItemInTransaction, duplicateOrRethrow } from "./catalogue-writer";
+import {
+  createItemInTransaction as insertItemRow,
+  duplicateOrRethrow,
+  type CatalogueTransaction,
+} from "./catalogue-writer";
 import {
   findItemByCode,
   findItemDetail,
@@ -96,16 +100,35 @@ export class CatalogueService {
     return { rows, total, limit: query.limit, offset: query.offset };
   }
 
-  public listLocations(): Promise<readonly LocationView[]> {
-    return listLocations(this.database);
+  public listLocations(query?: {
+    readonly limit?: number;
+    readonly offset?: number;
+    readonly activeOnly?: boolean;
+  }): Promise<readonly LocationView[]> {
+    return listLocations(this.database, query);
   }
 
   public async createItem(input: NewItem, viewer: ItemDetailOptions): Promise<ItemDetailView> {
-    const { id } = await this.database
-      .transaction()
-      .execute((tx) => createItemInTransaction(tx, input));
+    const { id } = await this.database.transaction().execute((tx) => insertItemRow(tx, input));
 
     const item = await findItemDetail(this.database, id, viewer);
+
+    if (item === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "The new item could not be read back." }),
+      );
+    }
+
+    return item;
+  }
+
+  public async createItemInTransaction(
+    tx: CatalogueTransaction,
+    input: NewItem,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    const { id } = await insertItemRow(tx, input);
+    const item = await findItemDetail(tx, id, viewer);
 
     if (item === undefined) {
       throw new ApplicationFailureException(
@@ -122,6 +145,43 @@ export class CatalogueService {
    * balances and transactions stay exactly where they are.
    */
   public async updateItem(
+    itemId: string,
+    edit: ItemEdit,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    return this.updateItemOn(this.database, itemId, edit, viewer);
+  }
+
+  public updateItemInTransaction(
+    tx: CatalogueTransaction,
+    itemId: string,
+    edit: ItemEdit,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    return this.updateItemOn(tx, itemId, edit, viewer);
+  }
+
+  /** Reorders an item's photos so the chosen one is its cover. */
+  public async setItemPhotoCoverInTransaction(
+    tx: CatalogueTransaction,
+    itemId: string,
+    photoId: string,
+    viewer: ItemDetailOptions,
+  ): Promise<ItemDetailView> {
+    await this.photos.setCoverInTransaction(tx, itemId, photoId);
+    const item = await findItemDetail(tx, itemId, viewer);
+
+    if (item === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That item was not found." }),
+      );
+    }
+
+    return item;
+  }
+
+  private async updateItemOn(
+    database: Kysely<StockControlDatabase> | CatalogueTransaction,
     itemId: string,
     edit: ItemEdit,
     viewer: ItemDetailOptions,
@@ -149,7 +209,7 @@ export class CatalogueService {
 
     if (Object.keys(changes).length > 0) {
       try {
-        await this.database
+        await database
           .withSchema(SCHEMA)
           .updateTable("items")
           .set({ ...changes, updated_at: new Date() })
@@ -162,7 +222,7 @@ export class CatalogueService {
       }
     }
 
-    const item = await findItemDetail(this.database, itemId, viewer);
+    const item = await findItemDetail(database, itemId, viewer);
 
     if (item === undefined) {
       throw new ApplicationFailureException(

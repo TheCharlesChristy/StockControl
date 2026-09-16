@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SIGNED_IN_PATH, getRedirectPath, signInPathFor } from "./SignInPage";
+import {
+  DEFAULT_SIGNED_IN_PATH,
+  getRedirectPath,
+  requiresDocumentNavigation,
+  signInPathFor,
+} from "./SignInPage";
 
 const ITEM = "/inventory/21290659-a871-46d5-94e0-c979de2afd4c";
+const OAUTH_AUTHORIZE =
+  "/oauth/authorize?response_type=code&client_id=stockcontrol-chatgpt&scope=stock%3Aread";
+const OAUTH_AUTHORIZE_RESUME =
+  "/oauth/authorize/resume?request_id=opaque-request-handle-123456789012345678901234567890";
 
 describe("signInPathFor", () => {
   it("remembers a deep link in the query string", () => {
@@ -12,6 +21,12 @@ describe("signInPathFor", () => {
   it("stays plain for anything that is not a deep link", () => {
     expect(signInPathFor("/inventory")).toBe("/sign-in");
     expect(signInPathFor("//evil.example.com")).toBe("/sign-in");
+  });
+
+  it("remembers an OAuth authorization request", () => {
+    expect(signInPathFor(OAUTH_AUTHORIZE)).toBe(
+      `/sign-in?next=${encodeURIComponent(OAUTH_AUTHORIZE)}`,
+    );
   });
 });
 
@@ -28,6 +43,20 @@ describe("getRedirectPath", () => {
   it("round-trips whatever signInPathFor produced", () => {
     const search = signInPathFor(ITEM).slice("/sign-in".length);
     expect(getRedirectPath(undefined, search)).toBe(ITEM);
+  });
+
+  it("returns to the API route after OAuth sign-in", () => {
+    const search = signInPathFor(OAUTH_AUTHORIZE).slice("/sign-in".length);
+
+    expect(getRedirectPath(undefined, search)).toBe(OAUTH_AUTHORIZE);
+    expect(requiresDocumentNavigation(OAUTH_AUTHORIZE)).toBe(true);
+  });
+
+  it("returns to the opaque OAuth resume route after sign-in", () => {
+    const search = signInPathFor(OAUTH_AUTHORIZE_RESUME).slice("/sign-in".length);
+
+    expect(getRedirectPath(undefined, search)).toBe(OAUTH_AUTHORIZE_RESUME);
+    expect(requiresDocumentNavigation(OAUTH_AUTHORIZE_RESUME)).toBe(true);
   });
 
   it("still honours router state, for in-app navigations", () => {

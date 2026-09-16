@@ -5,6 +5,7 @@ export * from "./dashboard";
 export * from "./inventory";
 export * from "./issues";
 export * from "./media";
+export * from "./mcp";
 export * from "./locations";
 export * from "./jobs";
 export * from "./observability";

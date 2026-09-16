@@ -144,6 +144,8 @@ export function PageHeader({
       spacing={2}
       alignItems={{ xs: "stretch", sm: "flex-end" }}
       justifyContent="space-between"
+      useFlexGap
+      flexWrap="wrap"
       sx={{ mb: 3 }}
     >
       <Stack direction="row" spacing={1.5} alignItems="center">

@@ -111,6 +111,8 @@ export interface AuthenticatedSession {
  * renders an entry point for something the API will refuse anyway. */
 export interface SessionFeatures {
   readonly stockCapture: boolean;
+  /** Optional for backward-compatible clients deployed before MCP activity. */
+  readonly mcpActivity?: boolean;
 }
 
 export interface SessionResponse {
@@ -167,7 +169,11 @@ export function isAuthenticatedSession(value: unknown): value is AuthenticatedSe
 }
 
 function isSessionFeatures(value: unknown): value is SessionFeatures {
-  return isRecord(value) && typeof value["stockCapture"] === "boolean";
+  return (
+    isRecord(value) &&
+    typeof value["stockCapture"] === "boolean" &&
+    (value["mcpActivity"] === undefined || typeof value["mcpActivity"] === "boolean")
+  );
 }
 
 export function isSessionResponse(value: unknown): value is SessionResponse {

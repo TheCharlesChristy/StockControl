@@ -31,6 +31,7 @@ policy, region and replica count:
 | `api`       | Retained  | `/infra/railway/api.railway.json`       | `api`            | Image default                                             |
 | `migrate`   | Retained  | `/infra/railway/migrate.railway.json`   | `api`            | `node packages/platform/database/dist/migrate.js`         |
 | `bootstrap` | Temporary | `/infra/railway/bootstrap.railway.json` | `api`            | `node packages/platform/database/dist/bootstrap-roles.js` |
+| `retain`    | Scheduled | `/infra/railway/retain.railway.json`    | `api`            | `node packages/platform/database/dist/retain.js`, daily   |
 
 The paths are absolute repository paths entered under each Railway service's
 **Settings -> Config as Code**. Keep the repository root as the source root.
@@ -88,11 +89,17 @@ RUNTIME_TARGET=web
 PORT=8080
 API_HOST=${{api.RAILWAY_PRIVATE_DOMAIN}}
 API_PORT=3000
+MCP_ENABLED=true
 ```
 
 The browser uses relative `/api/*` URLs. Nginx resolves `API_HOST` using the
 container's current DNS resolver, so the private API can move between Railway
 hosts without rebuilding the web image.
+
+`web`'s `MCP_ENABLED` has to agree with `api`'s below: Nginx gates `/mcp` and
+every OAuth endpoint on its own copy of the flag and returns 404 when it is
+false, regardless of whether the API is configured for MCP. Set both to
+`false` together if this installation is not connecting ChatGPT.
 
 #### `api`
 
@@ -102,6 +109,17 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 PUBLIC_APP_ORIGIN=https://<the exact web domain>
+MCP_ENABLED=true
+MCP_READ_TOOLS_ENABLED=true
+MCP_WRITE_TOOLS_ENABLED=false
+MCP_PUBLIC_BASE_URL=https://<the exact web domain>
+MCP_CLIENT_ID=stockcontrol-chatgpt
+MCP_REDIRECT_URI=https://chatgpt.com/connector/oauth/<connector-id>
+MCP_TOKEN_HASH_KEY=<random secret of at least 32 characters when MCP_ENABLED=true>
+MCP_ACCESS_TOKEN_MINUTES=15
+MCP_REFRESH_TOKEN_DAYS=30
+MCP_MAX_TOOL_SECONDS=30
+MCP_ABANDONED_CALL_SECONDS=300
 TRUSTED_PROXY_HOPS=1
 DATABASE_URL=<private URL for stockcontrol_app>
 DATABASE_POOL_MAX=5
@@ -154,6 +172,22 @@ DATABASE_RUNTIME_ROLE=stockcontrol_app
 Do not give `migrate` the runtime URL. Do not give `api` the administrator or
 migrator URL. The migration process exits zero after a successful integrity
 check and non-zero on any migration failure.
+
+#### `retain`
+
+```text
+RUNTIME_TARGET=api
+NODE_ENV=production
+DATABASE_MIGRATOR_URL=<private URL for stockcontrol_migrator>
+DATABASE_RUNTIME_ROLE=stockcontrol_app
+```
+
+Same credential as `migrate`, for the same reason: the runtime role cannot
+delete audit records, so the nightly purge needs the migrator's. Set Railway's
+**Cron Schedule** to match `/infra/railway/retain.railway.json`'s
+`deploy.cronSchedule` (daily), or update the file if that changes — see
+[data protection configuration](../../docs/operations/railway-deployment.md#data-protection-configuration)
+for the retention windows themselves.
 
 ### 4. Bootstrap PostgreSQL
 

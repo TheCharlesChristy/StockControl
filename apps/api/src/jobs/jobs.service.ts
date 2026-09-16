@@ -4,7 +4,7 @@ import type { JobDetailView, JobSummaryView } from "@stockcontrol/contracts";
 import { resourceUnavailable, validationFailed } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import {
   assigneesForJobs,
@@ -12,6 +12,7 @@ import {
   listReservationsForJob,
   listTransactions,
 } from "../persistence/read-models";
+import { withTransaction, type DatabaseExecutor as Database } from "../persistence/transaction";
 
 const SCHEMA = "stockcontrol" as const;
 
@@ -27,11 +28,14 @@ export interface JobFilter {
   readonly search?: string | undefined;
   readonly assignedTo?: string | undefined;
   readonly jobId?: string | undefined;
+  readonly limit?: number | undefined;
+  readonly offset?: number | undefined;
 }
 
 export interface JobDetailOptions {
   readonly viewerUserId: string;
   readonly scopeActivityToViewer: boolean;
+  readonly restrictToAssignedJobs?: boolean;
 }
 
 export class JobsService {
@@ -85,7 +89,7 @@ export class JobsService {
       );
     }
 
-    const rows = await selection
+    let rowsQuery = selection
       .select((builder) => [
         "jobs.id as id",
         "jobs.number as number",
@@ -107,8 +111,10 @@ export class JobsService {
         "jobs.closed_at",
         "locations.id",
       ])
-      .orderBy("jobs.number")
-      .execute();
+      .orderBy("jobs.number");
+    if (filter.limit !== undefined) rowsQuery = rowsQuery.limit(filter.limit);
+    if (filter.offset !== undefined) rowsQuery = rowsQuery.offset(filter.offset);
+    const rows = await rowsQuery.execute();
 
     const assignees = await assigneesForJobs(
       this.database,
@@ -130,7 +136,10 @@ export class JobsService {
   }
 
   public async detail(jobId: string, viewer: JobDetailOptions): Promise<JobDetailView> {
-    const [summary] = await this.list({ jobId });
+    const [summary] = await this.list({
+      jobId,
+      ...(viewer.restrictToAssignedJobs === true ? { assignedTo: viewer.viewerUserId } : {}),
+    });
 
     if (summary === undefined) {
       throw new ApplicationFailureException(
@@ -159,38 +168,53 @@ export class JobsService {
 
   /** Creating a job also creates the one job-site location it owns. */
   public async create(input: NewJob, viewer: JobDetailOptions): Promise<JobDetailView> {
+    const { id } = await withTransaction(this.database, undefined, (tx) =>
+      this.createInTransaction(tx, input),
+    );
+
+    return this.detail(id, viewer);
+  }
+
+  /**
+   * The compact shape a caller needs to reference the new job, rather than the
+   * full detail view: an MCP write reads nothing back inside its own
+   * transaction that the receipt does not already carry.
+   */
+  public async createInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    input: NewJob,
+  ): Promise<{ readonly id: string; readonly number: string; readonly locationId: string }> {
     const { name, customer } = input;
-    const number = input.number ?? (await this.nextJobNumber());
+    const number = input.number ?? (await this.nextJobNumber(tx));
     const jobId = randomUUID();
+    const locationId = randomUUID();
 
     try {
-      await this.database.transaction().execute(async (tx) => {
-        await tx
-          .withSchema(SCHEMA)
-          .insertInto("jobs")
-          .values({ id: jobId, number, name, customer, status: "Open", closed_at: null })
-          .execute();
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("jobs")
+        .values({ id: jobId, number, name, customer, status: "Open", closed_at: null })
+        .execute();
 
-        await tx
-          .withSchema(SCHEMA)
-          .insertInto("locations")
-          .values({
-            id: randomUUID(),
-            code: number,
-            name: `${name} site`,
-            kind: "JobSite",
-            job_id: jobId,
-            is_active: true,
-            /* A job site is somewhere stock sits, not somewhere you draw. */
-            map_id: null,
-            geometry: null,
-            z_order: 0,
-            search_aliases: JSON.stringify([]),
-            derived_parent_id: null,
-            archived_at: null,
-          })
-          .execute();
-      });
+      await tx
+        .withSchema(SCHEMA)
+        .insertInto("locations")
+        .values({
+          id: locationId,
+          code: number,
+          name: `${name} site`,
+          kind: "JobSite",
+          job_id: jobId,
+          is_active: true,
+          /* A job site is somewhere stock sits, not somewhere you draw. */
+          map_id: null,
+          geometry: null,
+          z_order: 0,
+          search_aliases: JSON.stringify([]),
+          derived_parent_id: null,
+          archived_at: null,
+        })
+        .execute();
     } catch (error: unknown) {
       const candidate = error as { readonly code?: string; readonly constraint?: string };
 
@@ -203,7 +227,7 @@ export class JobsService {
       throw error;
     }
 
-    return this.detail(jobId, viewer);
+    return { id: jobId, number, locationId };
   }
 
   /**
@@ -211,10 +235,19 @@ export class JobsService {
    * just means that person is on the job.
    */
   public async assign(jobId: string, userId: string, assignedByUserId: string): Promise<void> {
-    await this.requireJobExists(jobId);
-    await this.requireUserExists(userId);
+    await this.assignInTransaction(this.database, jobId, userId, assignedByUserId);
+  }
 
-    await this.database
+  public async assignInTransaction(
+    database: Database,
+    jobId: string,
+    userId: string,
+    assignedByUserId: string,
+  ): Promise<void> {
+    await this.requireJobExists(database, jobId);
+    await this.requireUserExists(database, userId);
+
+    await database
       .withSchema(SCHEMA)
       .insertInto("job_assignments")
       .values({ job_id: jobId, user_id: userId, assigned_by_user_id: assignedByUserId })
@@ -223,7 +256,15 @@ export class JobsService {
   }
 
   public async unassign(jobId: string, userId: string): Promise<void> {
-    await this.database
+    await this.unassignInTransaction(this.database, jobId, userId);
+  }
+
+  public async unassignInTransaction(
+    database: Database,
+    jobId: string,
+    userId: string,
+  ): Promise<void> {
+    await database
       .withSchema(SCHEMA)
       .deleteFrom("job_assignments")
       .where("job_id", "=", jobId)
@@ -231,8 +272,8 @@ export class JobsService {
       .execute();
   }
 
-  private async requireJobExists(jobId: string): Promise<void> {
-    const job = await this.database
+  private async requireJobExists(database: Database, jobId: string): Promise<void> {
+    const job = await database
       .withSchema(SCHEMA)
       .selectFrom("jobs")
       .select("id")
@@ -246,8 +287,8 @@ export class JobsService {
     }
   }
 
-  private async requireUserExists(userId: string): Promise<void> {
-    const user = await this.database
+  private async requireUserExists(database: Database, userId: string): Promise<void> {
+    const user = await database
       .withSchema(SCHEMA)
       .selectFrom("users")
       .select("id")
@@ -262,8 +303,8 @@ export class JobsService {
     }
   }
 
-  private async nextJobNumber(): Promise<string> {
-    const row = await this.database
+  private async nextJobNumber(database: Database = this.database): Promise<string> {
+    const row = await database
       .withSchema(SCHEMA)
       .selectFrom("jobs")
       .select((builder) => [
