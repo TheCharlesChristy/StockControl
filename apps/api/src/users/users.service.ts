@@ -20,6 +20,7 @@ import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 import { hashPassword } from "../auth/password";
+import { exportPersonalData, hasRecordedActivity, type PersonalDataExport } from "./personal-data";
 import type { SessionService } from "../auth/session-service";
 import type { PhotoAsset, PhotosService } from "../media/photos.service";
 import {
@@ -359,34 +360,37 @@ export class UsersService {
     };
   }
 
-  private async hasHistory(userId: string): Promise<boolean> {
-    const row = await this.database
-      .withSchema(SCHEMA)
-      .selectFrom("users")
-      .select([
-        sql<string>`(select count(*) from stockcontrol.transactions where actor_user_id = ${userId})`.as(
-          "transactions",
-        ),
-        sql<string>`(select count(*) from stockcontrol.reservations where created_by_user_id = ${userId})`.as(
-          "reservations",
-        ),
-        sql<string>`(select count(*) from stockcontrol.stock_requests
-           where requested_by_user_id = ${userId} or decided_by_user_id = ${userId})`.as(
-          "requests",
-        ),
-        sql<string>`(select count(*) from stockcontrol.job_assignments
-           where assigned_by_user_id = ${userId})`.as("assignments"),
-      ])
-      .where("id", "=", userId)
-      .executeTakeFirst();
+  /**
+   * A copy of everything held about one person, for a subject access request.
+   *
+   * Deliberately not paginated and not capped. `activity` shows an Admin a
+   * recent slice for a screen; this is the whole record, because an answer
+   * that quietly stops at the fiftieth row is not an answer to Article 15.
+   */
+  public async personalDataExport(userId: string): Promise<PersonalDataExport> {
+    const exported = await exportPersonalData(this.database, userId);
 
-    return (
-      Number(row?.transactions ?? 0) +
-        Number(row?.reservations ?? 0) +
-        Number(row?.requests ?? 0) +
-        Number(row?.assignments ?? 0) >
-      0
-    );
+    if (exported === undefined) {
+      throw new ApplicationFailureException(
+        resourceUnavailable({ detail: "That user was not found." }),
+      );
+    }
+
+    return exported;
+  }
+
+  /*
+   * The same exhaustive list a subject access request is answered from,
+   * minus the two sources deletion clears itself (`remove` does that right
+   * after this check passes). A hand-picked subset of tables here — the
+   * shape this method used to be — silently stops matching the real set of
+   * `on delete restrict` references to `users` the moment somebody adds a
+   * table and updates the export but not this method, which fails as a raw
+   * foreign-key error out of `deleteFrom("users")` instead of the message
+   * below.
+   */
+  private async hasHistory(userId: string): Promise<boolean> {
+    return hasRecordedActivity(this.database, userId);
   }
 
   private async activeAdminCount(database: DatabaseExecutor = this.database): Promise<number> {

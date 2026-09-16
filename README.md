@@ -132,13 +132,27 @@ pnpm test:e2e          # the demo journey above, in a browser
 
 `test:integration` and `test:e2e` need the database running. `test:e2e` needs it seeded.
 
+Retention is a scheduled maintenance step, not something the API does:
+
+```bash
+pnpm db:retain -- --dry-run  # what is past its retention window
+pnpm db:retain               # remove it
+```
+
+It runs under the migrator credential, because the API's role deliberately cannot delete
+its own audit trail. Schedule it daily in production — nothing else enforces the
+[retention schedule](docs/legal/retention-schedule.md).
+
 CI runs the same four and builds/smoke-checks the production API and web images in
 [one workflow](.github/workflows/ci.yml).
 
 ## Where things are
 
 For step-by-step instructions for each page and role, start with the
-[`docs/user-guide/`](docs/user-guide/README.md).
+[`docs/user-guide/`](docs/user-guide/README.md). Before an installation goes live, work
+through the checklist in [`docs/legal/`](docs/legal/README.md) — StockControl records who
+moved what, which makes it staff monitoring, and that carries obligations the software
+cannot discharge on the business's behalf.
 
 | Path                         | What is in it                                                  |
 | ---------------------------- | -------------------------------------------------------------- |
@@ -148,6 +162,7 @@ For step-by-step instructions for each page and role, start with the
 | `packages/contracts`         | Types and the role-to-capability map shared by both sides      |
 | `packages/modules/locations` | Framework-independent geometry, containment, and map rules     |
 | `packages/platform`          | Database access, migrations, HTTP plumbing                     |
+| `docs/legal`                 | Data protection: the notice, the records, the DPIA, retention  |
 
 The stock engine decides; it does not perform. Each operation returns the exact effects to apply, or
 a typed refusal, and one application function writes the stock level and its transaction row in a

@@ -58,6 +58,13 @@ export default defineConfig({
         "src/integrations/mcp/mcp-activity.service.ts",
         "src/integrations/mcp/mcp-audit.service.ts",
         "src/integrations/mcp/mcp-reconciliation.ts",
+        // The subject access export builds one query per table from a list of
+        // column names, so what it does is what PostgreSQL does with those
+        // names — and the property that matters is that the list matches the
+        // live schema, which only a real server can answer. test/personal-data
+        // .db.spec.ts reads the catalogue and fails if a table that references
+        // a user is missing from it.
+        "src/users/personal-data.ts",
         "src/integrations/mcp/oauth.service.ts",
       ],
       /*

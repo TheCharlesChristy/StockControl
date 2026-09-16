@@ -422,10 +422,28 @@ export function createFakeApiClient(
     if (path === "/users") {
       return Promise.resolve(jsonResponse(users));
     }
+    /** The id in `/users/{id}/...`, so a fake keyed by path returns the right person. */
+    const requestedUserId = (): string | undefined => {
+      const segments = path.split("/");
+      return segments[segments.length - 2];
+    };
+    const requestedUser = (): (typeof users.users)[number] =>
+      users.users.find((candidate) => candidate.id === requestedUserId()) ?? users.users[0]!;
+
+    if (path.endsWith("/personal-data")) {
+      return Promise.resolve(
+        jsonResponse({
+          exportedAt: "2026-07-29T09:00:00.000Z",
+          subject: requestedUser(),
+          sections: [],
+          notes: [],
+        }),
+      );
+    }
     if (path.endsWith("/activity")) {
       return Promise.resolve(
         jsonResponse({
-          user: users.users[0],
+          user: requestedUser(),
           recentTransactions: [testTransaction],
           openReservations: testJob.reservations,
           stockRequests: [testStockRequest],

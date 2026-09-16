@@ -10,6 +10,7 @@ These runbooks govern each dedicated customer installation.
 | [Backup and restore](./backup-and-restore.md)     | Verify backups and rehearse or perform recovery           |
 | [Monitoring](./monitoring.md)                     | Operate health checks, alerts, and routine maintenance    |
 | [Incident response](./incident-response.md)       | Contain, recover, and learn from an incident              |
+| [Personal data breach](./personal-data-breach.md) | Run the 72-hour notification clock alongside an incident  |
 | [Legacy Lightsail deployment](./deployment.md)    | Historical AWS/Lightsail procedure retained for reference |
 
 Runbooks use UTC for evidence and timelines. Every customer installation has an

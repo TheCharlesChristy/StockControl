@@ -49,6 +49,12 @@ without identifying every dependent service and a safe replacement route.
 
 ## Communication and obligations
 
+If personal data was destroyed, lost, altered, disclosed, or accessed without
+authorisation, this is also a personal data breach and a 72-hour statutory
+clock is already running. Follow
+[the personal data breach procedure](./personal-data-breach.md) in parallel —
+it starts before the investigation finishes, not after.
+
 The communications owner follows the customer contract and applicable legal
 process for notification, jurisdiction, personal data, evidence, and timing.
 State confirmed facts, impact, mitigations, and next update time; distinguish

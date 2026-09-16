@@ -5,11 +5,15 @@ import { createChecksummedMigration, type CanonicalMigrationDefinition } from ".
  *
  * Two shapes here are worth explaining before anybody extends them.
  *
- * Recognition evidence is operational state, not a business record. Sessions,
- * images, candidates and their reasons are deleted thirty days after the
- * session finishes; the stock transaction stays forever and remains the only
- * record of what was received. That is why nothing in the stock ledger
- * references a candidate: the ledger must survive the evidence being purged.
+ * Recognition evidence is operational state, not a business record. The
+ * photograph bytes are deleted from object storage within thirty days of the
+ * session finishing (`capture-expiry-sweeper.ts`, against `delete_after`);
+ * the rows describing sessions, images and candidates outlive the bytes and
+ * are purged separately by the retention schedule
+ * (`packages/platform/database/src/retention/schedule.ts`, ninety days). The
+ * stock transaction stays forever and remains the only record of what was
+ * received. That is why nothing in the stock ledger references a candidate:
+ * the ledger must survive the evidence being purged.
  *
  * `stock_recognition_jobs` is the durable queue ADR 0004 describes and nothing
  * had yet built. It is deliberately named for recognition rather than added to

@@ -27,13 +27,26 @@ export default defineConfig({
        * would assert the shape of the SQL we wrote rather than that any of it
        * works. Its retry policy is pure and is unit-tested beside it.
        */
-      exclude: ["src/jobs/job-store.ts"],
+      exclude: [
+        "src/jobs/job-store.ts",
+        /*
+         * Same reasoning as the queue store above. What the purge does is what
+         * PostgreSQL does with twelve `on delete restrict` constraints when
+         * rows are removed in a particular order, and a mocked query builder
+         * would assert the shape of the SQL we wrote rather than that any of
+         * it works. test/retention.integration.spec.ts runs it against a real
+         * server, with real rows, and checks what survived. The policy it
+         * applies — which tables, in which order, on which clock — is pure,
+         * and is unit-tested in test/retention-schedule.spec.ts.
+         */
+        "src/retention/purge.ts",
+      ],
       /* Ratchet floors, not targets — see apps/api/vitest.config.ts. */
       thresholds: {
-        branches: 80,
-        functions: 87,
-        lines: 86,
-        statements: 87,
+        branches: 81,
+        functions: 88,
+        lines: 88,
+        statements: 88,
       },
     },
   },
