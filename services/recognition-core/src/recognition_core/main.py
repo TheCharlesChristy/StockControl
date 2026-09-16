@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Response
@@ -61,8 +61,7 @@ def create_app(settings: Settings | None = None, backends: Backends | None = Non
             yield
         finally:
             task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+            await asyncio.wait([task])
 
     app = FastAPI(
         title="recognition-core",
