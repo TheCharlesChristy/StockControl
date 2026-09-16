@@ -13,7 +13,7 @@ import type { McpScope } from "./oauth.service";
  * role may do.
  */
 
-export const CONTRACT_VERSION = "1.2";
+export const CONTRACT_VERSION = "1.3";
 export const MAX_LIMIT = 100;
 export const MAX_OFFSET = 10_000;
 const MAX_DATE_RANGE_MS = 31 * 86_400_000;
@@ -164,6 +164,26 @@ const role = (value: unknown, field: string): string => {
     throw new ToolValidationError(field, "Choose Engineer, Office or Admin.");
   }
   return candidate;
+};
+
+const imageMediaType = (value: unknown, field: string): "image/png" | "image/jpeg" => {
+  const candidate = text(value, field, 20);
+  if (candidate !== "image/png" && candidate !== "image/jpeg") {
+    throw new ToolValidationError(field, "Use image/png or image/jpeg.");
+  }
+  return candidate;
+};
+
+/**
+ * The size limit lives where the bytes are actually decoded
+ * (`PhotosService`, against `PHOTO_MAX_BYTES`), not here — this only rejects
+ * an empty or non-string payload before it reaches the transaction.
+ */
+const imageBytes = (value: unknown, field: string): string => {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ToolValidationError(field, "Provide the image bytes as base64.");
+  }
+  return value;
 };
 
 type FieldKind =
@@ -548,6 +568,51 @@ const readSpecs: readonly ToolSpec[] = [
     inputSchema: readSchema({ userId: { type: "string" } }, ["userId"]),
     project: idOnly("userId"),
     validate: (value) => ({ userId: id(record(value)["userId"], "userId") }),
+  },
+  {
+    name: "list_mcp_activity",
+    operation: "read",
+    scopes: ["activity:read"],
+    capability: "view",
+    description:
+      "List this connection's own past MCP tool calls and how each one turned out. Always scoped to your own activity, regardless of role.",
+    inputSchema: readSchema({
+      from: { type: "string", format: "date-time" },
+      to: { type: "string", format: "date-time" },
+      tool: stringProperty(120),
+      outcome: {
+        type: "string",
+        enum: ["Succeeded", "Denied", "Failed", "Interrupted", "Incomplete"],
+      },
+      operation: { type: "string", enum: ["read", "write"] },
+      ...pagingProperties,
+    }),
+    project: (value) => safeJsonObject(value),
+    validate: (value) => {
+      const input = record(value);
+      const from = date(input["from"], "from");
+      const to = date(input["to"], "to");
+      validateRange(from, to);
+      const outcome = input["outcome"];
+      if (
+        outcome !== undefined &&
+        (typeof outcome !== "string" ||
+          !["Succeeded", "Denied", "Failed", "Interrupted", "Incomplete"].includes(outcome))
+      )
+        throw new ToolValidationError("outcome", "That outcome is not supported.");
+      const operation = input["operation"];
+      if (operation !== undefined && operation !== "read" && operation !== "write")
+        throw new ToolValidationError("operation", "Operation must be read or write.");
+      const paging = page(input["limit"], input["offset"]);
+      return {
+        from,
+        to,
+        tool: optionalText(input["tool"], "tool", 120),
+        outcome,
+        operation,
+        ...paging,
+      };
+    },
   },
 ];
 
@@ -984,6 +1049,104 @@ const writeSpecs: readonly ToolSpec[] = [
     inputSchema: writeSchema({ userId: { type: "string" } }, ["userId"]),
     project: passthrough,
     validate: (value) => writeArguments(value, { userId: required("uuid") }),
+  },
+  {
+    name: "create_map",
+    operation: "write",
+    scopes: ["locations:write"],
+    capability: "manageLocations",
+    description: "Create a new, empty location map with a code and a name.",
+    inputSchema: writeSchema({ code: stringProperty(60), name: stringProperty(200) }, [
+      "code",
+      "name",
+    ]),
+    project: passthrough,
+    validate: (value) =>
+      writeArguments(value, { code: required("text", 60), name: required("text") }),
+  },
+  {
+    name: "upload_item_photo",
+    operation: "write",
+    scopes: ["catalogue:write"],
+    capability: "manageCatalogue",
+    description:
+      "Add a photo to an item. Accepts PNG or JPEG bytes as base64; an item can hold at most 10 photos.",
+    inputSchema: writeSchema(
+      {
+        itemId: { type: "string" },
+        originalFileName: stringProperty(255),
+        mediaType: { type: "string", enum: ["image/png", "image/jpeg"] },
+        contentBase64: { type: "string" },
+      },
+      ["itemId", "originalFileName", "mediaType", "contentBase64"],
+    ),
+    /**
+     * Never writes the image bytes themselves into the audit trail — only
+     * their length. The Received record still exists before validation, per
+     * this file's rule that a projector must not make an invocation vanish,
+     * but a multi-megabyte payload has no place in an insert-only log meant
+     * for accountability, not blob storage.
+     */
+    project: (value) => {
+      const input = record(value);
+      const contentBase64 = input["contentBase64"];
+      return {
+        itemId: projectedOptionalText(input["itemId"], 80),
+        originalFileName: projectedOptionalText(input["originalFileName"], 255),
+        mediaType: projectedOptionalText(input["mediaType"], 20),
+        contentBase64Length: typeof contentBase64 === "string" ? contentBase64.length : undefined,
+      };
+    },
+    validate: (value) => {
+      const input = record(value);
+      return {
+        itemId: id(input["itemId"], "itemId"),
+        originalFileName: text(input["originalFileName"], "originalFileName", 255),
+        mediaType: imageMediaType(input["mediaType"], "mediaType"),
+        contentBase64: imageBytes(input["contentBase64"], "contentBase64"),
+        actionSummary: text(input["actionSummary"], "actionSummary", 300),
+        idempotencyKey: text(input["idempotencyKey"], "idempotencyKey", 200),
+      };
+    },
+  },
+  {
+    name: "delete_item_photo",
+    operation: "write",
+    scopes: ["catalogue:write"],
+    capability: "manageCatalogue",
+    description: "Remove one of an item's photos.",
+    inputSchema: writeSchema({ itemId: { type: "string" }, photoId: { type: "string" } }, [
+      "itemId",
+      "photoId",
+    ]),
+    project: passthrough,
+    validate: (value) =>
+      writeArguments(value, { itemId: required("uuid"), photoId: required("uuid") }),
+  },
+  {
+    name: "create_user",
+    operation: "write",
+    scopes: ["users:write"],
+    capability: "manageUsers",
+    description:
+      "Create a StockControl account. The account is created with no usable password — it cannot sign in until an Admin sets one through StockControl's own reset-password flow, since passwords are never set through MCP.",
+    inputSchema: writeSchema(
+      {
+        username: stringProperty(60),
+        email: stringProperty(200),
+        displayName: stringProperty(200),
+        role: { type: "string", enum: ["Engineer", "Office", "Admin"] },
+      },
+      ["username", "displayName", "role"],
+    ),
+    project: passthrough,
+    validate: (value) =>
+      writeArguments(value, {
+        username: required("text", 60),
+        email: optional("text", 200),
+        displayName: required("text"),
+        role: required("role"),
+      }),
   },
 ];
 
@@ -1499,6 +1662,59 @@ const userActivitySchema = {
   required: ["user", "recentTransactions", "openReservations", "stockRequests", "counts"],
 } as const;
 
+const mcpEffectLinkSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: { type: { type: "string" }, id: { type: "string" } },
+  required: ["type", "id"],
+} as const;
+
+const mcpToolCallSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: idSchema,
+    correlationId: { type: "string" },
+    actorUserId: nullableIdSchema,
+    actorName: { type: ["string", "null"] },
+    grantId: { type: ["string", "null"] },
+    clientId: { type: ["string", "null"] },
+    toolName: { type: "string" },
+    contractVersion: { type: "string" },
+    operation: { type: "string", enum: ["read", "write"] },
+    outcome: {
+      type: "string",
+      enum: ["Succeeded", "Denied", "Failed", "Interrupted", "Incomplete"],
+    },
+    arguments: { type: "object" },
+    actionSummary: { type: ["string", "null"] },
+    failureCode: { type: ["string", "null"] },
+    durationMs: { type: ["integer", "null"] },
+    effectLinks: { type: "array", items: mcpEffectLinkSchema },
+    receivedAt: { type: "string", format: "date-time" },
+    completedAt: { type: ["string", "null"], format: "date-time" },
+  },
+  required: [
+    "id",
+    "correlationId",
+    "actorUserId",
+    "actorName",
+    "grantId",
+    "clientId",
+    "toolName",
+    "contractVersion",
+    "operation",
+    "outcome",
+    "arguments",
+    "actionSummary",
+    "failureCode",
+    "durationMs",
+    "effectLinks",
+    "receivedAt",
+    "completedAt",
+  ],
+} as const;
+
 const requestDecisionSchema = referenceSchema({
   requestId: { type: "string" },
   itemId: { type: "string" },
@@ -1558,6 +1774,11 @@ const outputSchemas: Readonly<Record<string, Readonly<Record<string, unknown>>>>
   archive_map: referenceSchema({ mapId: { type: "string" } }),
   update_user: referenceSchema({ userId: { type: "string" } }),
   deactivate_user: referenceSchema({ userId: { type: "string" } }),
+  create_map: referenceSchema({ mapId: { type: "string" } }),
+  upload_item_photo: referenceSchema({ itemId: { type: "string" }, photoId: { type: "string" } }),
+  delete_item_photo: referenceSchema({ itemId: { type: "string" }, photoId: { type: "string" } }),
+  create_user: referenceSchema({ userId: { type: "string" } }),
+  list_mcp_activity: pageSchema(mcpToolCallSchema),
 };
 
 const outputSchemaFor = (name: string): Readonly<Record<string, unknown>> =>

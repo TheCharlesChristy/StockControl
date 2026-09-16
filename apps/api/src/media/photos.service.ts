@@ -170,7 +170,33 @@ export class PhotosService {
     actorUserId: string,
     input: ImageUploadRequest,
   ): Promise<void> {
-    const item = await this.database
+    await this.saveItemPhotoOn(this.database, itemId, actorUserId, input);
+  }
+
+  /**
+   * Mirrors `saveItemPhoto`, writing inside the caller's transaction instead
+   * of opening its own. The S3 write still happens before the row insert, as
+   * it does outside a transaction, so if the caller's `tx` later rolls back
+   * for an unrelated reason the object can be left orphaned in storage —
+   * unreferenced, not dangerous, the same best-effort cleanup trade-off this
+   * file already accepts for `putVerifiedObject`'s own compensating deletes.
+   */
+  public async saveItemPhotoInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    itemId: string,
+    actorUserId: string,
+    input: ImageUploadRequest,
+  ): Promise<{ readonly photoId: string }> {
+    return this.saveItemPhotoOn(tx, itemId, actorUserId, input);
+  }
+
+  private async saveItemPhotoOn(
+    database: Database,
+    itemId: string,
+    actorUserId: string,
+    input: ImageUploadRequest,
+  ): Promise<{ readonly photoId: string }> {
+    const item = await database
       .withSchema(SCHEMA)
       .selectFrom("items")
       .select("id")
@@ -181,7 +207,7 @@ export class PhotosService {
         resourceUnavailable({ detail: "That item was not found." }),
       );
     const decoded = this.decode(input);
-    const countRow = await this.database
+    const countRow = await database
       .withSchema(SCHEMA)
       .selectFrom("item_photos")
       .select((builder) => builder.fn.countAll<string>().as("total"))
@@ -209,20 +235,47 @@ export class PhotosService {
     } as const;
     await this.putVerifiedObject(objectKey, decoded.bytes, input.mediaType);
     try {
-      await this.database.withSchema(SCHEMA).insertInto("item_photos").values(next).execute();
+      await database.withSchema(SCHEMA).insertInto("item_photos").values(next).execute();
     } catch (error) {
       await this.storage.deleteObject(objectKey).catch(() => undefined);
       throw error;
     }
+    return { photoId: id };
   }
 
   public async deleteItemPhoto(itemId: string, photoId: string): Promise<void> {
-    const row = await this.photoRow(itemId, photoId);
-    await this.database.transaction().execute(async (tx) => {
-      await tx.withSchema(SCHEMA).deleteFrom("item_photos").where("id", "=", photoId).execute();
-      await this.normaliseOrders(tx, itemId);
-    });
-    await this.storage.deleteObject(row.object_key).catch(() => undefined);
+    const { objectKey } = await withTransaction(this.database, undefined, (tx) =>
+      this.deleteItemPhotoInTransaction(tx, itemId, photoId),
+    );
+    await this.storage.deleteObject(objectKey).catch(() => undefined);
+  }
+
+  /**
+   * Only removes the row; storage is never touched here. If the caller's
+   * outer transaction later rolls back for an unrelated reason, the row
+   * reappears — but a storage delete already issued from inside `tx` cannot
+   * be undone, which would leave the restored row pointing at bytes that no
+   * longer exist. The caller deletes the object only once its transaction
+   * has actually committed.
+   */
+  public async deleteItemPhotoInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    itemId: string,
+    photoId: string,
+  ): Promise<{ readonly objectKey: string }> {
+    const row = await this.photoRow(itemId, photoId, tx);
+    await tx.withSchema(SCHEMA).deleteFrom("item_photos").where("id", "=", photoId).execute();
+    await this.normaliseOrders(tx, itemId);
+    return { objectKey: row.object_key };
+  }
+
+  /**
+   * The other half of `deleteItemPhotoInTransaction`: called once the
+   * caller's own transaction has committed, so the row is durably gone before
+   * the bytes it pointed to are.
+   */
+  public async deleteStoredObject(objectKey: string): Promise<void> {
+    await this.storage.deleteObject(objectKey).catch(() => undefined);
   }
 
   public async setCover(itemId: string, photoId: string): Promise<void> {

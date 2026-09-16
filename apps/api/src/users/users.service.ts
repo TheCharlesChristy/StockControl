@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   ImageUploadRequest,
@@ -85,7 +85,26 @@ export class UsersService {
     );
   }
 
-  public async create(input: NewUser): Promise<UserView> {
+  public create(input: NewUser): Promise<UserView> {
+    return this.createOn(this.database, input);
+  }
+
+  /**
+   * MCP never carries a password: `createInTransaction` generates one at
+   * random, hashes it, and discards the plaintext immediately. The account
+   * exists but cannot sign in — `must_change_password` is already forced
+   * below — until an Admin sets a real password through the web UI's reset
+   * flow, the same way `update_user`/`deactivate_user` never touch
+   * credentials either.
+   */
+  public createInTransaction(
+    tx: Transaction<StockControlDatabase>,
+    input: Omit<NewUser, "password">,
+  ): Promise<UserView> {
+    return this.createOn(tx, { ...input, password: randomBytes(32).toString("base64url") });
+  }
+
+  private async createOn(database: DatabaseExecutor, input: NewUser): Promise<UserView> {
     const username = normaliseUsername(input.username);
     const email = input.email === undefined ? "" : input.email.trim().toLowerCase();
     const displayName = input.displayName.trim();
@@ -121,7 +140,7 @@ export class UsersService {
     const id = randomUUID();
 
     try {
-      await this.database
+      await database
         .withSchema(SCHEMA)
         .insertInto("users")
         .values({
@@ -144,7 +163,7 @@ export class UsersService {
       throw error;
     }
 
-    return this.require(id);
+    return this.require(id, database);
   }
 
   public profilePhoto(userId: string): Promise<PhotoAsset> {

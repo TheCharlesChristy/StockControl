@@ -6,6 +6,7 @@ import {
   idempotencyConflict,
   resourceUnavailable,
   type DashboardResponse,
+  type ImageUploadRequest,
 } from "@stockcontrol/contracts";
 import { ApplicationFailureException } from "@stockcontrol/platform";
 import type { FastifyRequest } from "fastify";
@@ -15,6 +16,7 @@ import { requireQuantity, type StockService } from "../../inventory/stock.servic
 import type { DashboardService } from "../../dashboard/dashboard.service";
 import type { JobsService } from "../../jobs/jobs.service";
 import type { LocationsService } from "../../locations/locations.service";
+import type { PhotosService } from "../../media/photos.service";
 import { listOpenReservations } from "../../persistence/read-models";
 import type { StockRequestsService } from "../../requests/requests.service";
 import type { UsersService } from "../../users/users.service";
@@ -22,6 +24,7 @@ import type { CorrelationContext, StructuredLogger } from "@stockcontrol/platfor
 import type { StockControlDatabase } from "@stockcontrol/platform-database";
 import type { Kysely, Transaction } from "kysely";
 
+import type { McpActivityService } from "./mcp-activity.service";
 import type { McpConfiguration } from "./mcp-configuration";
 import {
   CONTRACT_VERSION,
@@ -62,6 +65,8 @@ export interface McpToolServices {
   readonly requests: StockRequestsService;
   readonly locations: LocationsService;
   readonly users: UsersService;
+  readonly photos: PhotosService;
+  readonly mcpActivity: McpActivityService;
   readonly correlation: CorrelationContext;
   readonly logger: StructuredLogger;
   readonly rateLimiter?: McpRateLimiter | undefined;
@@ -420,6 +425,33 @@ export class McpToolExecutor {
         return { users: await users.list() };
       case "get_user_activity":
         return users.activity(asString(input["userId"]));
+      case "list_mcp_activity": {
+        const page = await this.services.mcpActivity.list(
+          { id: principal.user.id, role: principal.user.role },
+          {
+            ...(input["from"] === undefined ? {} : { from: asString(input["from"]) }),
+            ...(input["to"] === undefined ? {} : { to: asString(input["to"]) }),
+            ...(input["tool"] === undefined ? {} : { tool: asString(input["tool"]) }),
+            ...(input["outcome"] === undefined
+              ? {}
+              : {
+                  outcome: input["outcome"] as
+                    "Succeeded" | "Denied" | "Failed" | "Interrupted" | "Incomplete",
+                }),
+            ...(input["operation"] === undefined
+              ? {}
+              : { operation: input["operation"] as "read" | "write" }),
+            limit: asNumber(input["limit"]),
+            offset: asNumber(input["offset"]),
+            // A caller's own connection can only ever see its own activity,
+            // regardless of whether its StockControl role could otherwise see
+            // everyone's — the tool's input schema carries no userId field,
+            // and this overrides anything a client might still try to send.
+            userId: principal.user.id,
+          },
+        );
+        return { ...page, hasMore: page.offset + page.rows.length < page.total };
+      }
       default:
         throw new Error("Unknown MCP tool.");
     }
@@ -431,10 +463,18 @@ export class McpToolExecutor {
     principal: McpPrincipal,
     handle: McpCallHandle,
   ): Promise<Readonly<Record<string, unknown>>> {
-    const { audit, database } = this.services;
+    const { audit, database, photos } = this.services;
     const idempotencyKey = asString(input["idempotencyKey"]);
     const fingerprint = sha256(canonicalJson(input));
-    return database.transaction().execute(async (tx) => {
+    /**
+     * `delete_item_photo` deletes its DB row inside `tx` but must not touch
+     * storage until `tx` has actually committed — see
+     * `PhotosService.deleteItemPhotoInTransaction`. Only a fresh execution
+     * (never an idempotent replay, whose deletion already happened on the
+     * original call) sets this.
+     */
+    let deleteStorageObjectKey: string | undefined;
+    const compact = await database.transaction().execute(async (tx) => {
       await audit.lockIdempotency(tx, principal.user.id, name, idempotencyKey);
       const prior = await audit.findReceipt(tx, principal.user.id, name, idempotencyKey);
       if (prior !== null) {
@@ -457,6 +497,9 @@ export class McpToolExecutor {
       }
 
       const result = await this.executeWriteInTransaction(tx, name, input, principal);
+      if (name === "delete_item_photo") {
+        deleteStorageObjectKey = safeJsonObject(result)["objectKey"] as string | undefined;
+      }
       const compact = McpAuditService.compactWriteResult(result);
       await audit.insertReceipt(tx, {
         actorUserId: principal.user.id,
@@ -476,6 +519,10 @@ export class McpToolExecutor {
       );
       return compact;
     });
+    if (deleteStorageObjectKey !== undefined) {
+      await photos.deleteStoredObject(deleteStorageObjectKey);
+    }
+    return compact;
   }
 
   private async executeWriteInTransaction(
@@ -691,6 +738,53 @@ export class McpToolExecutor {
           asString(input["userId"]),
           { isActive: false },
         );
+        return { userId: user.id };
+      }
+      case "create_map": {
+        const map = await locations.createMapInTransaction(
+          tx,
+          { code: asString(input["code"]), name: asString(input["name"]) },
+          principal.user.id,
+        );
+        return { mapId: map.mapId };
+      }
+      case "upload_item_photo": {
+        const upload: ImageUploadRequest = {
+          originalFileName: asString(input["originalFileName"]),
+          mediaType: input["mediaType"] as "image/png" | "image/jpeg",
+          contentBase64: asString(input["contentBase64"]),
+        };
+        const { item, photoId } = await catalogue.uploadItemPhotoInTransaction(
+          tx,
+          asString(input["itemId"]),
+          principal.user.id,
+          upload,
+          viewer,
+        );
+        return { itemId: item.id, photoId };
+      }
+      case "delete_item_photo": {
+        const { item, objectKey } = await catalogue.deleteItemPhotoInTransaction(
+          tx,
+          asString(input["itemId"]),
+          asString(input["photoId"]),
+          viewer,
+        );
+        // `objectKey` is not one of compactWriteResult's known keys, so it
+        // never reaches the audit receipt or the JSON-RPC response — it only
+        // carries as far as runWrite, which deletes the storage object after
+        // this transaction has actually committed. See
+        // PhotosService.deleteItemPhotoInTransaction for why that ordering
+        // matters.
+        return { itemId: item.id, photoId: asString(input["photoId"]), objectKey };
+      }
+      case "create_user": {
+        const user = await users.createInTransaction(tx, {
+          username: asString(input["username"]),
+          displayName: asString(input["displayName"]),
+          role: asString(input["role"]),
+          ...optionalField<string>(input, "email"),
+        });
         return { userId: user.id };
       }
       default:
