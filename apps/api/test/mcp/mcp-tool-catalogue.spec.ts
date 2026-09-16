@@ -198,9 +198,9 @@ describe("the MCP tool catalogue", () => {
   });
 
   it("scopes list_mcp_activity to no wider than its own outcome and operation enums", () => {
-    expect(() =>
-      specFor("list_mcp_activity").validate({ outcome: "Cancelled" }),
-    ).toThrow(ToolValidationError);
+    expect(() => specFor("list_mcp_activity").validate({ outcome: "Cancelled" })).toThrow(
+      ToolValidationError,
+    );
     expect(() => specFor("list_mcp_activity").validate({ operation: "delete" })).toThrow(
       ToolValidationError,
     );

@@ -238,23 +238,22 @@ describe("MCP tool audit ordering", () => {
     },
   );
 
-  const writeHandle = (toolName: string): McpCallHandle =>
-    ({
-      callId: "call-write",
-      correlationId: "correlation-write",
-      actorUserId: null,
-      grantId: null,
-      toolName,
-      contractVersion: "1.0",
-      operation: "write",
-      arguments: {},
-      actionSummary: null,
-      clientRequestId: null,
-      receivedAt: new Date("2026-08-21T00:00:00.000Z"),
-      argumentFingerprint: "fingerprint",
-    }) as McpCallHandle;
+  const writeHandle = (toolName: string): McpCallHandle => ({
+    callId: "call-write",
+    correlationId: "correlation-write",
+    actorUserId: null,
+    grantId: null,
+    toolName,
+    contractVersion: "1.0",
+    operation: "write",
+    arguments: {},
+    actionSummary: null,
+    clientRequestId: null,
+    receivedAt: new Date("2026-08-21T00:00:00.000Z"),
+    argumentFingerprint: "fingerprint",
+  });
 
-  const writeAudit = () => ({
+  const writeAudit = (): Readonly<Record<string, ReturnType<typeof vi.fn>>> => ({
     start: vi.fn(),
     event: vi.fn().mockResolvedValue(undefined),
     failureFrom: vi.fn(),
@@ -365,7 +364,7 @@ describe("MCP tool audit ordering", () => {
     const deleteItemPhotoInTransaction = vi
       .fn()
       .mockResolvedValue({ item: { id: itemId }, objectKey: "item-photos/abc" });
-    const deleteStoredObject = vi.fn().mockImplementation(async () => {
+    const deleteStoredObject = vi.fn().mockImplementation(() => {
       order.push("deleted");
     });
     const database = {
