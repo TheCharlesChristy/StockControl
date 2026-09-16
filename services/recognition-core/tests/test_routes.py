@@ -8,9 +8,17 @@ than skipping them.
 
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 
-from recognition_core.backend import load_backends
+from recognition_core.backend import (
+    Backends,
+    LoadedModels,
+    OnDemandModels,
+    _UnavailableCategoryBackend,
+    load_backends,
+)
 from recognition_core.config import Settings
 from recognition_core.main import create_app
 
@@ -25,6 +33,7 @@ def _settings(**overrides: object) -> Settings:
         "max_images_per_request": 5,
         "max_source_bytes": 12 * 1024 * 1024,
         "max_source_pixels": 40_000_000,
+        "idle_unload_seconds": 120,
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -200,3 +209,32 @@ def test_no_public_api_docs_are_exposed() -> None:
     assert client.get("/docs").status_code == 404
     assert client.get("/redoc").status_code == 404
     assert client.get("/openapi.json").status_code == 404
+
+
+class _NoModel:
+    pass
+
+
+# The unload only saves money if the running app actually schedules it; the
+# OnDemandModels unit tests alone would pass with the background task unwired.
+def test_the_running_app_releases_idle_models_and_stays_ready() -> None:
+    def load() -> LoadedModels:
+        return LoadedModels(ocr=_NoModel(), embedding=_NoModel())  # type: ignore[arg-type]
+
+    models = OnDemandModels(load, idle_unload_seconds=1, loaded=load(), release_memory=lambda: None)
+    backends = Backends(
+        ocr=models.ocr,
+        embedding=models.embedding,
+        category=_UnavailableCategoryBackend(),
+        all_loaded=True,
+        models=models,
+    )
+    app = create_app(settings=_settings(idle_unload_seconds=1), backends=backends)
+
+    with TestClient(app) as client:
+        deadline = time.monotonic() + 5
+        while models.is_loaded and time.monotonic() < deadline:
+            time.sleep(0.1)
+
+        assert not models.is_loaded
+        assert client.get("/health/ready").status_code == 200

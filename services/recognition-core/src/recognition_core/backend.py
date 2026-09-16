@@ -8,8 +8,14 @@ model-loading problem into catalogue state.
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import json
 import math
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -63,13 +69,128 @@ class _UnavailableCategoryBackend:
 
 
 @dataclass(frozen=True)
+class LoadedModels:
+    ocr: OcrBackend
+    embedding: EmbeddingBackend
+
+
+def return_freed_memory_to_the_system() -> None:
+    gc.collect()
+    # Dropping the ONNX sessions frees their arenas, but glibc keeps freed
+    # chunks mapped inside its per-thread heaps. Measured in the production
+    # image, only about half of the model memory left the resident size -
+    # which is what Railway bills - until this trim returned the rest. musl or
+    # a non-Linux development machine has no malloc_trim; there is nothing
+    # further to hand back there.
+    with suppress(OSError, AttributeError):
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+
+
+class OnDemandModels:
+    """Holds the ONNX sessions only while the service is in use.
+
+    The loaded sessions dominate this process's resident memory and a capture session is
+    an occasional event, so keeping them loaded around the clock is most of
+    this service's cost. They are dropped after ``idle_unload_seconds`` without
+    a request and reloaded by the next one, which costs that request a second
+    or two. The unload has to happen while the container is still running:
+    Railway only puts a service to sleep after several quiet minutes, and a
+    service that never becomes quiet is billed for whatever it holds.
+    """
+
+    def __init__(
+        self,
+        load: Callable[[], LoadedModels],
+        *,
+        idle_unload_seconds: int,
+        loaded: LoadedModels | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        release_memory: Callable[[], None] = return_freed_memory_to_the_system,
+    ) -> None:
+        self._load = load
+        self._idle_unload_seconds = idle_unload_seconds
+        self._loaded = loaded
+        self._clock = clock
+        self._release_memory = release_memory
+        self._lock = threading.Lock()
+        self._in_flight = 0
+        self._last_used = clock()
+        self.ocr: OcrBackend = _OnDemandOcr(self)
+        self.embedding: EmbeddingBackend = _OnDemandEmbedding(self)
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded is not None
+
+    @contextmanager
+    def in_use(self) -> Iterator[LoadedModels]:
+        with self._lock:
+            loaded = self._loaded
+            if loaded is None:
+                try:
+                    loaded = self._load()
+                except Exception as error:  # noqa: BLE001
+                    # The same broad catch as load_backends, for the same
+                    # onnxruntime exception hierarchy. Startup already proved
+                    # these files load, so this is a transient failure such as
+                    # memory pressure: the stage degrades, the service stays up.
+                    raise ModelUnavailableError(
+                        "recognition.models_unavailable", "The recognition models could not load."
+                    ) from error
+                self._loaded = loaded
+            self._in_flight += 1
+        try:
+            yield loaded
+        finally:
+            with self._lock:
+                self._in_flight -= 1
+                self._last_used = self._clock()
+
+    def unload_if_idle(self) -> bool:
+        if self._idle_unload_seconds == 0:
+            return False
+        with self._lock:
+            if (
+                self._loaded is None
+                or self._in_flight > 0
+                or self._clock() - self._last_used < self._idle_unload_seconds
+            ):
+                return False
+            self._loaded = None
+        self._release_memory()
+        return True
+
+
+class _OnDemandOcr:
+    def __init__(self, models: OnDemandModels) -> None:
+        self._models = models
+
+    def recognise_text(self, pixels: np.ndarray) -> list[OcrLine]:
+        with self._models.in_use() as loaded:
+            return loaded.ocr.recognise_text(pixels)
+
+
+class _OnDemandEmbedding:
+    def __init__(self, models: OnDemandModels) -> None:
+        self._models = models
+
+    def embed_image(self, pixels: np.ndarray) -> EmbeddingResult:
+        with self._models.in_use() as loaded:
+            return loaded.embedding.embed_image(pixels)
+
+
+@dataclass(frozen=True)
 class Backends:
     ocr: OcrBackend
     embedding: EmbeddingBackend
     category: CategoryBackend
-    # OCR and visual embedding are loaded. Category matching is intentionally
-    # optional because the service has no catalogue label vocabulary.
+    # OCR and visual embedding loaded successfully at startup. They may since
+    # have been unloaded for idleness; readiness is about whether the deployed
+    # weights work, not whether they happen to be in memory right now.
+    # Category matching is intentionally optional because the service has no
+    # catalogue label vocabulary.
     all_loaded: bool
+    models: OnDemandModels | None = None
 
 
 def _session(path: Path, intra_op_threads: int) -> ort.InferenceSession:
@@ -358,11 +479,23 @@ class _OnnxEmbeddingBackend:
             ) from error
 
 
-def load_backends(model_directory: str, intra_op_threads: int = 4) -> Backends:
+def load_backends(
+    model_directory: str, intra_op_threads: int = 4, idle_unload_seconds: int = 0
+) -> Backends:
     root = Path(model_directory)
+
+    def load() -> LoadedModels:
+        return LoadedModels(
+            ocr=_OnnxOcrBackend(root, intra_op_threads),
+            embedding=_OnnxEmbeddingBackend(root, intra_op_threads),
+        )
+
     try:
-        ocr = _OnnxOcrBackend(root, intra_op_threads)
-        embedding = _OnnxEmbeddingBackend(root, intra_op_threads)
+        # Loaded eagerly rather than on first use. A broken manifest still
+        # fails readiness at deploy time instead of on somebody's first
+        # photograph, and a service woken from sleep is woken by exactly the
+        # request that needs the models anyway.
+        loaded = load()
     except Exception as error:  # noqa: BLE001
         # Startup remains useful in Path A/manual mode when model files are not
         # present; readiness stays 503 and each stage reports Unavailable.
@@ -381,9 +514,11 @@ def load_backends(model_directory: str, intra_op_threads: int = 4) -> Backends:
             category=_UnavailableCategoryBackend(),
             all_loaded=False,
         )
+    models = OnDemandModels(load, idle_unload_seconds=idle_unload_seconds, loaded=loaded)
     return Backends(
-        ocr=ocr,
-        embedding=embedding,
+        ocr=models.ocr,
+        embedding=models.embedding,
         category=_UnavailableCategoryBackend(),
         all_loaded=True,
+        models=models,
     )
