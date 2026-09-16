@@ -228,10 +228,54 @@ Not measured. Section 20's cost and latency gates require a running Railway
 deployment to measure against, which is exactly what this runbook produces
 for the first time — there is no prior number to cite. Start every new
 service at Railway's smallest plan tier, watch actual CPU/RAM/latency after
-Path A (and again after Path B, which is materially heavier — `llama-server`
-holds a loaded vision-language model in memory for the lifetime of the
-service), and size up from what you observe rather than a guess recorded
-here going stale.
+Path A (and again after Path B, which is materially heavier), and size up from
+what you observe rather than a guess recorded here going stale.
+
+### Idle memory
+
+Railway bills memory by the minute for as long as a container runs, whether
+or not anybody is photographing stock. Both model services therefore drop
+their models from memory after a quiet period and reload them on the next
+request:
+
+```text
+RECOGNITION_CORE_IDLE_UNLOAD_SECONDS=120     # on recognition-core
+RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS=120   # on recognition-fusion
+```
+
+Both default to `120`, so neither needs setting. `0` keeps the models loaded
+permanently, which removes the reload delay at the cost of paying for the
+memory around the clock. The first photograph after a quiet period waits for
+the reload; if it starts reaching `RECOGNITION_FUSION_TIMEOUT_MS` on the
+worker, raise that timeout rather than turning unloading off.
+
+Measured locally in the production images (x86-64 Docker, one photograph per
+request), not on Railway, so treat these as proportions rather than a bill:
+
+| Service              | Loaded, after a request | After the idle unload | Added to the next request |
+| -------------------- | ----------------------- | --------------------- | ------------------------- |
+| `recognition-core`   | 517 MiB                 | 77 MiB                | about 0.3 s               |
+| `recognition-fusion` | 839 MiB                 | 261 MiB               | under 1 s                 |
+
+Unloading on its own cuts the idle bill to the process with nothing loaded.
+To stop billing altogether, also turn on **Serverless** in each model
+service's settings. Railway only sleeps a service that has sent no outbound
+traffic for several minutes, which is why the unload period sits well below
+that: memory is already released by the time Railway checks, and it is
+released even if something keeps the service from sleeping. A slept service
+wakes on its next private-network request, which starts the container again
+and loads the models for that request.
+
+Serverless has a cost unloading does not. Railway warns that the first request
+to a slept service may be answered with a `502`, and the worker reports every
+stage that service provides, barcode included, as `Unavailable` rather than
+waiting. The person can still identify the item by hand, but the first capture
+after a long quiet spell may arrive with less evidence than the rest. If that matters more than the
+remaining idle cost, leave Serverless off and rely on unloading alone.
+
+Do not turn on Serverless for `worker`. It polls PostgreSQL continuously, so
+it never goes quiet enough to sleep, and it is the service that wakes the
+other two.
 
 ## Turning it off
 

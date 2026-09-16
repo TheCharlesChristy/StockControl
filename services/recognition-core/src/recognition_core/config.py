@@ -29,6 +29,19 @@ def _read_positive_int(environment: dict[str, str], name: str, default: int) -> 
     return parsed
 
 
+def _read_non_negative_int(environment: dict[str, str], name: str, default: int) -> int:
+    value = environment.get(name, "").strip()
+    if value == "":
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise ConfigurationError(f"{name} must be zero or a positive integer.") from error
+    if parsed < 0:
+        raise ConfigurationError(f"{name} must be zero or a positive integer.")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -41,6 +54,11 @@ class Settings:
     max_images_per_request: int
     max_source_bytes: int
     max_source_pixels: int
+    # Seconds without a request before the models are dropped from memory;
+    # zero keeps them loaded for the life of the process. Well under Railway's
+    # five-minute sleep threshold, so memory is already released by the time
+    # the platform decides whether the service is idle.
+    idle_unload_seconds: int
 
 
 DEFAULT_PORT = 8000
@@ -49,6 +67,7 @@ DEFAULT_INTRA_OP_THREADS = 4
 DEFAULT_MAX_IMAGES_PER_REQUEST = 5
 DEFAULT_MAX_SOURCE_BYTES = 12 * 1024 * 1024
 DEFAULT_MAX_SOURCE_PIXELS = 40_000_000
+DEFAULT_IDLE_UNLOAD_SECONDS = 120
 
 
 def load_settings(environment: dict[str, str] | None = None) -> Settings:
@@ -72,5 +91,8 @@ def load_settings(environment: dict[str, str] | None = None) -> Settings:
         ),
         max_source_pixels=_read_positive_int(
             env, "RECOGNITION_CORE_MAX_SOURCE_PIXELS", DEFAULT_MAX_SOURCE_PIXELS
+        ),
+        idle_unload_seconds=_read_non_negative_int(
+            env, "RECOGNITION_CORE_IDLE_UNLOAD_SECONDS", DEFAULT_IDLE_UNLOAD_SECONDS
         ),
     )

@@ -44,6 +44,25 @@ if [ -n "${RECOGNITION_FUSION_IMAGE_MAX_TOKENS:-}" ]; then
   set -- --image-max-tokens "${RECOGNITION_FUSION_IMAGE_MAX_TOKENS}"
 fi
 
+# The loaded model and its KV cache are nearly all of this service's memory,
+# and Railway bills that memory for as long as the container runs, whether or
+# not anybody is capturing stock. llama-server's sleep mode drops both after
+# this many quiet seconds and reloads them on the next completion, costing
+# that one photograph the reload. It has to be well under Railway's
+# five-minute sleep threshold so memory is released before the platform
+# decides the service is idle. /health does not wake the model or reset the
+# timer. 0 keeps the model loaded permanently.
+: "${RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS:=120}"
+case "${RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS}" in
+  '' | *[!0-9]*)
+    echo "recognition-fusion: RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS must be zero or a positive integer." >&2
+    exit 1
+    ;;
+esac
+if [ "${RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS}" -gt 0 ]; then
+  set -- "$@" --sleep-idle-seconds "${RECOGNITION_FUSION_IDLE_UNLOAD_SECONDS}"
+fi
+
 # exec keeps llama-server as PID 1 so it still receives SIGTERM directly for
 # a clean shutdown, matching the api/worker/recognition-core images.
 #

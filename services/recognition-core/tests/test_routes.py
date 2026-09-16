@@ -25,6 +25,7 @@ def _settings(**overrides: object) -> Settings:
         "max_images_per_request": 5,
         "max_source_bytes": 12 * 1024 * 1024,
         "max_source_pixels": 40_000_000,
+        "idle_unload_seconds": 120,
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]

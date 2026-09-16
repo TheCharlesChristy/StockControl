@@ -60,3 +60,20 @@ def test_zero_is_rejected() -> None:
 def test_negative_is_rejected() -> None:
     with pytest.raises(ConfigurationError):
         load_settings({"RECOGNITION_CORE_MAX_IMAGES": "-1"})
+
+
+def test_models_unload_after_two_idle_minutes_by_default() -> None:
+    settings = load_settings({})
+
+    assert settings.idle_unload_seconds == 120
+
+
+def test_zero_keeps_the_models_loaded_permanently() -> None:
+    settings = load_settings({"RECOGNITION_CORE_IDLE_UNLOAD_SECONDS": "0"})
+
+    assert settings.idle_unload_seconds == 0
+
+
+def test_a_negative_idle_unload_is_rejected() -> None:
+    with pytest.raises(ConfigurationError):
+        load_settings({"RECOGNITION_CORE_IDLE_UNLOAD_SECONDS": "-5"})
