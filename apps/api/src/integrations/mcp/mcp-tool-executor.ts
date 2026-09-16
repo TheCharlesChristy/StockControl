@@ -670,19 +670,27 @@ export class McpToolExecutor {
       case "archive_map":
         return locations.archiveMapInTransaction(tx, asString(input["mapId"]), principal.user.id);
       case "update_user": {
-        const user = await users.updateInTransaction(tx, asString(input["userId"]), {
-          ...optionalField<string>(input, "username"),
-          ...optionalField<string | null>(input, "email"),
-          ...optionalField<string>(input, "displayName"),
-          ...optionalField<"Engineer" | "Office" | "Admin">(input, "role"),
-          ...optionalField<boolean>(input, "isActive"),
-        });
+        const user = await users.updateInTransaction(
+          tx,
+          principal.user.id,
+          asString(input["userId"]),
+          {
+            ...optionalField<string>(input, "username"),
+            ...optionalField<string | null>(input, "email"),
+            ...optionalField<string>(input, "displayName"),
+            ...optionalField<"Engineer" | "Office" | "Admin">(input, "role"),
+            ...optionalField<boolean>(input, "isActive"),
+          },
+        );
         return { userId: user.id };
       }
       case "deactivate_user": {
-        const user = await users.updateInTransaction(tx, asString(input["userId"]), {
-          isActive: false,
-        });
+        const user = await users.updateInTransaction(
+          tx,
+          principal.user.id,
+          asString(input["userId"]),
+          { isActive: false },
+        );
         return { userId: user.id };
       }
       default:

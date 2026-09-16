@@ -147,13 +147,6 @@ export class UsersController {
       );
     }
 
-    /* Nobody may disable or demote themselves and lock the demo. */
-    if (actor.id === id && (isActive === false || (role !== undefined && role !== "Admin"))) {
-      throw new ApplicationFailureException(
-        validationFailed({ role: ["You cannot change your own role or disable yourself."] }),
-      );
-    }
-
     const displayName = readText(body, "displayName");
     /*
      * `readText` collapses "omitted" and "present but blank" to the same "",
@@ -169,7 +162,7 @@ export class UsersController {
     const email = readClearableText(body, "email");
 
     return {
-      user: await this.users.update(id, {
+      user: await this.users.update(actor.id, id, {
         ...(username === undefined ? {} : { username }),
         ...(email === undefined ? {} : { email }),
         ...(displayName.length === 0 ? {} : { displayName }),

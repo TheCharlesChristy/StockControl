@@ -185,8 +185,8 @@ export class UsersService {
     return this.require(userId);
   }
 
-  public async update(userId: string, input: UserChanges): Promise<UserView> {
-    return this.updateOn(this.database, userId, input);
+  public async update(actorId: string, userId: string, input: UserChanges): Promise<UserView> {
+    return this.updateOn(this.database, actorId, userId, input);
   }
 
   /**
@@ -197,14 +197,16 @@ export class UsersService {
    */
   public updateInTransaction(
     tx: Transaction<StockControlDatabase>,
+    actorId: string,
     userId: string,
     input: UserChanges,
   ): Promise<UserView> {
-    return this.updateOn(tx, userId, input);
+    return this.updateOn(tx, actorId, userId, input);
   }
 
   private async updateOn(
     database: DatabaseExecutor,
+    actorId: string,
     userId: string,
     input: UserChanges,
   ): Promise<UserView> {
@@ -218,6 +220,18 @@ export class UsersService {
     if (role !== undefined && !userRoles.includes(role)) {
       throw new ApplicationFailureException(
         validationFailed({ role: ["Choose Engineer, Office or Admin."] }),
+      );
+    }
+
+    /*
+     * Enforced here, not in the controller alone, so every caller gets it —
+     * the MCP write tools reach this same method with nothing upstream of it
+     * to stop an Admin routing a self-demotion or self-deactivation through
+     * the assistant instead of their own account page.
+     */
+    if (actorId === userId && (isActive === false || (role !== undefined && role !== "Admin"))) {
+      throw new ApplicationFailureException(
+        validationFailed({ role: ["You cannot change your own role or disable yourself."] }),
       );
     }
 
