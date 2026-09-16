@@ -42,22 +42,24 @@ const expiredParentIds = (
 
   if (parent === "captureBatches") {
     /*
-     * Open is deliberately excluded: it is still in flight from the app's own
-     * point of view, and taking its rows out from under whoever has not
-     * finished with it yet is worse than keeping them a little longer — the
-     * same reasoning `captureSessions` below applies to a session.
+     * A batch still holding any session is excluded outright, whatever its
+     * own status: that session's `batch_id` is a restrict FK, and deleting
+     * the batch out from under it would throw and roll back the whole run —
+     * the same reasoning `captureSessions` below applies to a session held
+     * up by one of its own images.
      *
-     * A session still standing under the batch — because it is not old
-     * enough yet, or because `captureSessions` below is holding it for an
-     * image the worker has not confirmed deleted — also holds the batch: its
-     * `batch_id` is a restrict FK, and deleting the batch out from under it
-     * would throw and roll back the whole run.
+     * Beyond that, Open is not a reason to keep a batch forever. `startBatch`
+     * can create a row before any session exists, and one that stays Open
+     * with nothing ever created under it is not the app still working on
+     * it — it is the app never having been told the batch was abandoned. A
+     * batch genuinely in flight always has a session under it by the time it
+     * is stale enough to reach this cutoff, so the "no session" check above
+     * is what actually protects it, not its status.
      */
     return database
       .selectFrom("stock_capture_batches")
       .select("id")
       .where("updated_at", "<", cutoff)
-      .where("status", "in", ["Completed", "Cancelled"])
       .where((eb) =>
         eb.not(
           eb.exists(
@@ -100,9 +102,40 @@ const expiredParentIds = (
 
 /**
  * The column a rule filters on, as an identifier rather than a value. A
- * dynamic column name is precisely the case `sql.ref` exists for.
+ * dynamic column name is precisely the case `sql.ref` exists for. A rule
+ * scoped to two columns ages on whichever is populated — the row's explicit
+ * end if there is one, otherwise its natural one.
  */
-const scopeColumn = (rule: RetentionRule): RawBuilder<unknown> => sql.ref(rule.scope.column);
+const scopeColumn = (rule: RetentionRule): RawBuilder<unknown> => {
+  const { column } = rule.scope;
+
+  if (typeof column === "string") {
+    return sql.ref(column);
+  }
+
+  const [primary, fallback] = column;
+  return sql`coalesce(${sql.ref(primary)}, ${sql.ref(fallback)})`;
+};
+
+/**
+ * True once no row in `dependent.table` still points at `table`'s id through
+ * `dependent.column`. The one check `blockedByDependents` needs: a rule aged
+ * on its own clock cannot otherwise prove every restrict-FK child is already
+ * gone the way a `parent`-scoped rule's ordering does.
+ */
+const notReferencedBy = (
+  database: Kysely<StockControlDatabase>,
+  table: keyof StockControlDatabase,
+  dependent: { readonly table: keyof StockControlDatabase; readonly column: string },
+): SelectQueryBuilder<StockControlDatabase, keyof StockControlDatabase, { present: number }> => {
+  const outerId = sql.ref(`${table}.id`);
+  const innerColumn = sql.ref(`${dependent.table}.${dependent.column}`);
+
+  return withSchema(database)
+    .selectFrom(dependent.table)
+    .select(sql.lit(1).as("present"))
+    .where(sql<boolean>`${innerColumn} = ${outerId}`);
+};
 
 export interface RetentionTableResult {
   readonly table: keyof StockControlDatabase;
@@ -139,6 +172,7 @@ type AnyTable = keyof StockControlDatabase;
 
 interface FilterableQuery<Result> {
   where(left: unknown, operator: string, right: unknown): FilterableQuery<Result>;
+  where(notExists: unknown): FilterableQuery<Result>;
   executeTakeFirst(): Promise<Result | undefined>;
   executeTakeFirstOrThrow(): Promise<Result>;
 }
@@ -160,9 +194,15 @@ const scoped = <Result>(
           expiredParentIds(database, rule.scope.parent, cutoff),
         );
 
+  const unblocked = (rule.blockedByDependents ?? []).reduce(
+    (current, dependent) =>
+      current.where(sql`not exists ${notReferencedBy(database, rule.table, dependent)}`),
+    inScope,
+  );
+
   return rule.requireColumnNotNull === undefined
-    ? inScope
-    : inScope.where(sql.ref(rule.requireColumnNotNull), "is not", null);
+    ? unblocked
+    : unblocked.where(sql.ref(rule.requireColumnNotNull), "is not", null);
 };
 
 const countExpired = async (

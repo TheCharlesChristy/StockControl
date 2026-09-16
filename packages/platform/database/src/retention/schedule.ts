@@ -47,11 +47,14 @@ export const DEFAULT_RETENTION_WINDOWS: RetentionWindows = Object.freeze({
 type RetentionParent = "captureSessions" | "captureBatches" | "toolCalls";
 
 /**
- * Which rows a rule claims. `own` ages a table on its own timestamp; `parent`
- * ages it on the parent named, through the foreign key given.
+ * Which rows a rule claims. `own` ages a table on its own timestamp — or, for
+ * a row whose life can end one of two ways (explicit revocation, or simply
+ * running out), the earlier-populated of two columns, so an owner who never
+ * bothered to revoke does not get a credential kept forever on a technicality.
+ * `parent` ages a row on the parent named, through the foreign key given.
  */
 type RetentionScope =
-  | { readonly kind: "own"; readonly column: string }
+  | { readonly kind: "own"; readonly column: string | readonly [primary: string, fallback: string] }
   | { readonly kind: "parent"; readonly column: string; readonly parent: RetentionParent };
 
 export interface RetentionRule {
@@ -68,6 +71,20 @@ export interface RetentionRule {
    * rather than leaving an object in the bucket nothing can find again.
    */
   readonly requireColumnNotNull?: string;
+  /**
+   * Other tables that still restrict-reference this row, for a rule aged on
+   * its own clock rather than a parent's. Ordering children before their
+   * parent in the list below is not enough on its own here: a dependent can
+   * be inserted long after this row's own clock already reads "expired" — a
+   * replay attempt against a refresh token nobody has used in years still
+   * writes an event today — so the row is kept a little longer whenever one
+   * of these still points at it, rather than trip the restrict constraint
+   * and roll back every table's retention work for the night.
+   */
+  readonly blockedByDependents?: readonly {
+    readonly table: keyof StockControlDatabase;
+    readonly column: string;
+  }[];
 }
 
 /*
@@ -108,22 +125,35 @@ export const RETENTION_RULES: readonly RetentionRule[] = Object.freeze([
   {
     table: "oauth_refresh_tokens",
     window: "auditDays",
-    scope: { kind: "own", column: "revoked_at" },
     /*
-     * `revoked_at` is null for a token that is still live, and SQL's `< cutoff`
-     * never matches null — so a token nobody has revoked is never touched here,
-     * whatever its age. A token left to expire on its own without ever being
-     * revoked is a known gap: closing it needs comparing two nullable expiry
-     * columns' worth of "is this actually dead", which this simple scope does
-     * not attempt.
+     * `revoked_at` is null for a token nobody has explicitly killed, and a
+     * token abandoned rather than revoked — the owner just stopped using the
+     * assistant — is exactly as dead once `expires_at` passes; it just has
+     * no one moment marking it. Ageing on whichever happened falls back to
+     * the token's own hard expiry when there was no explicit revocation.
      */
-    reason: "The credential for a connection that was explicitly revoked.",
+    scope: { kind: "own", column: ["revoked_at", "expires_at"] },
+    reason: "The credential for a connection that was explicitly revoked, or that expired unused.",
   },
   {
     table: "oauth_grants",
     window: "auditDays",
-    scope: { kind: "own", column: "revoked_at" },
-    reason: "A revoked assistant connection should not outlive its own revocation forever.",
+    /* Same reasoning as the refresh token above, on the grant's own token. */
+    scope: { kind: "own", column: ["revoked_at", "refresh_token_expires_at"] },
+    /*
+     * A dependent can still be inserted long after this clock reads
+     * "expired" — a replay attempt against a refresh token nobody has used
+     * in years writes an `oauth_grant_events` row today — so the grant waits
+     * for those to clear too, rather than trip the restrict FK and roll
+     * back every table's retention work for the night.
+     */
+    blockedByDependents: [
+      { table: "oauth_grant_events", column: "grant_id" },
+      { table: "oauth_refresh_tokens", column: "grant_id" },
+      { table: "mcp_tool_calls", column: "oauth_grant_id" },
+    ],
+    reason:
+      "A revoked, or naturally expired, assistant connection should not outlive its own end forever.",
   },
   {
     table: "map_edit_events",
@@ -174,15 +204,15 @@ export const RETENTION_RULES: readonly RetentionRule[] = Object.freeze([
     window: "captureDays",
     scope: { kind: "parent", column: "id", parent: "captureBatches" },
     /*
-     * Only a batch the app itself marked Completed or Cancelled — never one
-     * still Open. An Open batch is, by definition, still in flight from the
-     * app's point of view; ageing it out on a stale `updated_at` risks taking
-     * rows out from under someone who simply has not finished yet, the same
-     * reason a non-terminal capture session is left alone. A batch abandoned
-     * mid-flow and never explicitly closed is a known gap this rule does not
-     * close — see `expiredParentIds` in `purge.ts`.
+     * An Open batch is not exempt on status alone any more: one still
+     * genuinely in flight has a session under it, and `expiredParentIds` in
+     * `purge.ts` excludes anything that does. What is left eligible under
+     * "Open" is a batch `startBatch` created that nothing was ever done
+     * with — closing it is not something the app was ever told to do,
+     * because nobody told the app anything after opening it.
      */
-    reason: "The batch itself, once every session under it has finished and it was closed.",
+    reason:
+      "The batch itself, once everything under it has finished and closed, or nothing was ever created under it at all.",
   },
 ]);
 

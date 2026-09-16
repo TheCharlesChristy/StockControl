@@ -287,6 +287,7 @@ describe.sequential("the conditional retention rules", () => {
   const openBatchId = randomUUID();
   const closedBatchId = randomUUID();
   const imageGateBatchId = randomUUID();
+  const abandonedBatchId = randomUUID();
   const openSessionId = randomUUID();
   const closedSessionId = randomUUID();
   const imageGateSessionId = randomUUID();
@@ -297,6 +298,25 @@ describe.sequential("the conditional retention rules", () => {
   const liveGrantId = randomUUID();
   const revokedGrantTokenId = randomUUID();
   const liveGrantTokenId = randomUUID();
+
+  /*
+   * Nobody clicked revoke; the refresh token just ran out. Distinct fixtures
+   * from `revokedGrantId` above because that one is aged on `revoked_at` —
+   * this pair is aged on the fallback column instead.
+   */
+  const expiredGrantId = randomUUID();
+  const expiredGrantTokenId = randomUUID();
+
+  /*
+   * Expired on its own clock like the pair above, but with a dependent event
+   * newer than the grant's own cutoff — a replay attempt against a token
+   * nobody has used in over a year, logged today. This is the case
+   * `blockedByDependents` exists for: without it, this grant's delete would
+   * hit the restrict FK from `oauth_grant_events` and roll back every
+   * table's retention work for the run, not just this row.
+   */
+  const blockedGrantId = randomUUID();
+  const blockedGrantEventId = randomUUID();
 
   beforeAll(async () => {
     migrator = createMigratorDatabase(loadMigratorDatabaseConfiguration());
@@ -320,11 +340,14 @@ describe.sequential("the conditional retention rules", () => {
       .execute();
 
     /*
-     * Three batches: one the app closed long ago with nothing left under it
-     * (should go); one it never closed — still "Open", however stale,
-     * because the app itself never said it was done with it (should stay);
-     * and one it closed whose session is still held up by an undeleted image
-     * (should also stay, for the batch's own sake, not the session's).
+     * Four batches: one the app closed long ago with nothing left under it
+     * (should go); one still "Open" with a session actually under it, stale
+     * as it is (should stay — a session in flight, not the "Open" status
+     * itself, is what protects it); one it closed whose session is still
+     * held up by an undeleted image (should also stay, for the batch's own
+     * sake, not the session's); and one `startBatch` created that nothing
+     * was ever done with — stale and "Open" with no session at all (should
+     * now go too).
      */
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -353,6 +376,13 @@ describe.sequential("the conditional retention rules", () => {
           closed_at: daysAgo(400),
           updated_at: daysAgo(400),
         },
+        {
+          id: abandonedBatchId,
+          actor_user_id: userId,
+          request_hash: "3".repeat(64),
+          status: "Open",
+          updated_at: daysAgo(400),
+        },
       ])
       .execute();
 
@@ -371,11 +401,18 @@ describe.sequential("the conditional retention rules", () => {
           expires_at: daysAgo(399),
         },
         {
+          /*
+           * Non-terminal on purpose: this is the fixture for a session
+           * genuinely still in flight, however old — the same reasoning
+           * that leaves a stale-but-open batch alone applies here first, one
+           * layer down. A terminal, stale, image-free session is eligible
+           * for its own rule regardless of what batch it sits under.
+           */
           id: openSessionId,
           batch_id: openBatchId,
           actor_user_id: userId,
           request_hash: "d".repeat(64),
-          status: "Committed",
+          status: "AwaitingUpload",
           photo_count: 0,
           updated_at: daysAgo(400),
           expires_at: daysAgo(399),
@@ -433,7 +470,12 @@ describe.sequential("the conditional retention rules", () => {
       })
       .execute();
 
-    /* A grant revoked well outside the audit window, and one still live. */
+    /*
+     * A grant revoked well outside the audit window; one still live; one
+     * nobody revoked whose refresh token simply ran out; and one in the same
+     * state as that last one, but with a dependent event newer than its own
+     * cutoff.
+     */
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
       .insertInto("oauth_grants")
@@ -452,6 +494,24 @@ describe.sequential("the conditional retention rules", () => {
           client_id: "retention-fixture",
           redirect_uri: "https://example.invalid/callback",
           revoked_at: null,
+          updated_at: daysAgo(400),
+        },
+        {
+          id: expiredGrantId,
+          user_id: userId,
+          client_id: "retention-fixture",
+          redirect_uri: "https://example.invalid/callback",
+          revoked_at: null,
+          refresh_token_expires_at: daysAgo(400),
+          updated_at: daysAgo(400),
+        },
+        {
+          id: blockedGrantId,
+          user_id: userId,
+          client_id: "retention-fixture",
+          redirect_uri: "https://example.invalid/callback",
+          revoked_at: null,
+          refresh_token_expires_at: daysAgo(400),
           updated_at: daysAgo(400),
         },
       ])
@@ -479,20 +539,47 @@ describe.sequential("the conditional retention rules", () => {
           expires_at: daysAgo(-30),
           revoked_at: null,
         },
+        {
+          id: expiredGrantTokenId,
+          grant_id: expiredGrantId,
+          client_id: "retention-fixture",
+          resource_uri: "https://example.invalid/mcp",
+          token_hash: "3".repeat(64),
+          expires_at: daysAgo(400),
+          revoked_at: null,
+        },
       ])
+      .execute();
+
+    await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .insertInto("oauth_grant_events")
+      .values({
+        id: blockedGrantEventId,
+        grant_id: blockedGrantId,
+        user_id: userId,
+        event_type: "RefreshReplayDetected",
+        scopes: JSON.stringify([]),
+        occurred_at: daysAgo(1),
+      })
       .execute();
   });
 
   afterAll(async () => {
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
+      .deleteFrom("oauth_grant_events")
+      .where("id", "=", blockedGrantEventId)
+      .execute();
+    await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
       .deleteFrom("oauth_refresh_tokens")
-      .where("id", "in", [revokedGrantTokenId, liveGrantTokenId])
+      .where("id", "in", [revokedGrantTokenId, liveGrantTokenId, expiredGrantTokenId])
       .execute();
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
       .deleteFrom("oauth_grants")
-      .where("id", "in", [revokedGrantId, liveGrantId])
+      .where("id", "in", [revokedGrantId, liveGrantId, expiredGrantId, blockedGrantId])
       .execute();
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -507,7 +594,7 @@ describe.sequential("the conditional retention rules", () => {
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
       .deleteFrom("stock_capture_batches")
-      .where("id", "in", [closedBatchId, openBatchId, imageGateBatchId])
+      .where("id", "in", [closedBatchId, openBatchId, imageGateBatchId, abandonedBatchId])
       .execute();
     await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -524,13 +611,16 @@ describe.sequential("the conditional retention rules", () => {
       .withSchema(STOCKCONTROL_SCHEMA)
       .selectFrom("stock_capture_batches")
       .select("id")
-      .where("id", "in", [closedBatchId, openBatchId, imageGateBatchId])
+      .where("id", "in", [closedBatchId, openBatchId, imageGateBatchId, abandonedBatchId])
       .execute();
 
     /*
-     * openBatchId survives because it is still Open; imageGateBatchId
-     * survives because its session — and that session's restrict FK — is
-     * still there, held up by the image below.
+     * openBatchId survives because a session is still under it, stale as it
+     * is; imageGateBatchId survives because its session — and that
+     * session's restrict FK — is still there, held up by the image below.
+     * abandonedBatchId does not survive: it is also "Open", but nothing was
+     * ever created under it, which is what actually distinguishes it from
+     * openBatchId.
      */
     expect(new Set(remainingBatches.map((row) => row.id))).toEqual(
       new Set([openBatchId, imageGateBatchId]),
@@ -543,7 +633,10 @@ describe.sequential("the conditional retention rules", () => {
       .where("id", "in", [closedSessionId, openSessionId, imageGateSessionId])
       .execute();
 
-    expect(remainingSessions.map((row) => row.id)).toEqual([imageGateSessionId]);
+    /* openSessionId survives because it is not terminal, however stale. */
+    expect(new Set(remainingSessions.map((row) => row.id))).toEqual(
+      new Set([openSessionId, imageGateSessionId]),
+    );
 
     const remainingImages = await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
@@ -558,18 +651,64 @@ describe.sequential("the conditional retention rules", () => {
       .withSchema(STOCKCONTROL_SCHEMA)
       .selectFrom("oauth_grants")
       .select("id")
-      .where("id", "in", [revokedGrantId, liveGrantId])
+      .where("id", "in", [revokedGrantId, liveGrantId, expiredGrantId, blockedGrantId])
       .execute();
 
-    expect(remainingGrants.map((row) => row.id)).toEqual([liveGrantId]);
+    /*
+     * liveGrantId survives because it is still valid; blockedGrantId
+     * survives despite being expired on its own clock, because the replay
+     * event under it is not old enough yet — the case blockedByDependents
+     * exists for.
+     */
+    expect(new Set(remainingGrants.map((row) => row.id))).toEqual(
+      new Set([liveGrantId, blockedGrantId]),
+    );
 
     const remainingTokens = await migrator
       .withSchema(STOCKCONTROL_SCHEMA)
       .selectFrom("oauth_refresh_tokens")
       .select("id")
-      .where("id", "in", [revokedGrantTokenId, liveGrantTokenId])
+      .where("id", "in", [revokedGrantTokenId, liveGrantTokenId, expiredGrantTokenId])
       .execute();
 
     expect(remainingTokens.map((row) => row.id)).toEqual([liveGrantTokenId]);
+
+    /*
+     * The replay event itself is untouched: its own clock is nowhere near
+     * a year old, so it was never in scope to begin with.
+     */
+    const remainingEvents = await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("oauth_grant_events")
+      .select("id")
+      .where("id", "=", blockedGrantEventId)
+      .execute();
+
+    expect(remainingEvents.map((row) => row.id)).toEqual([blockedGrantEventId]);
+  });
+
+  it("purges the grant once its blocking event is gone", async () => {
+    /*
+     * `occurred_at` is immutable, so a real 365-day wait cannot be faked by
+     * updating the row in place — this stands in for the day that event
+     * itself finally ages out under its own rule, to prove the guard is a
+     * temporary hold rather than a permanent one.
+     */
+    await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .deleteFrom("oauth_grant_events")
+      .where("id", "=", blockedGrantEventId)
+      .execute();
+
+    await runRetention(migrator);
+
+    const remainingGrants = await migrator
+      .withSchema(STOCKCONTROL_SCHEMA)
+      .selectFrom("oauth_grants")
+      .select("id")
+      .where("id", "=", blockedGrantId)
+      .execute();
+
+    expect(remainingGrants).toEqual([]);
   });
 });
