@@ -80,6 +80,7 @@ const connections: McpConnectionListResponse = {
     {
       id: "grant-1",
       clientId: "chatgpt",
+      redirectUri: "https://chatgpt.com/connector/oauth/abc123",
       scopes: ["stock:read"],
       createdAt: "2026-08-20T09:00:00.000Z",
       revokedAt: null,
@@ -87,6 +88,7 @@ const connections: McpConnectionListResponse = {
     {
       id: "grant-2",
       clientId: "chatgpt",
+      redirectUri: "https://chatgpt.com/connector/oauth/abc123",
       scopes: ["stock:read"],
       createdAt: "2026-08-19T09:00:00.000Z",
       revokedAt: "2026-08-20T09:00:00.000Z",
@@ -133,8 +135,8 @@ describe("McpActivityPage", () => {
     expect(within(row as HTMLElement).getByText("Succeeded")).toBeInTheDocument();
     expect(within(row as HTMLElement).getByText(/Search catalogue/u)).toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("item: item-1")).toBeInTheDocument();
-    expect(screen.getByText("chatgpt · stock:read")).toBeInTheDocument();
-    expect(screen.getByText("chatgpt · stock:read · revoked")).toBeInTheDocument();
+    expect(screen.getByText("chatgpt · chatgpt.com · stock:read")).toBeInTheDocument();
+    expect(screen.getByText("chatgpt · chatgpt.com · stock:read · revoked")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Tool" }), "search_items");

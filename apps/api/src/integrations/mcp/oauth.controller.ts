@@ -23,9 +23,12 @@ import {
  */
 export const oauthConsentContentSecurityPolicy = (
   publicBaseUrl: string,
-  redirectUri: string,
+  redirectUris: readonly string[],
 ): string => {
-  const allowedFormOrigins = [new URL(publicBaseUrl).origin, new URL(redirectUri).origin];
+  const allowedFormOrigins = [
+    new URL(publicBaseUrl).origin,
+    ...redirectUris.map((redirectUri) => new URL(redirectUri).origin),
+  ];
   return `default-src 'none'; base-uri 'none'; form-action ${[...new Set(allowedFormOrigins)].join(" ")}; style-src 'unsafe-inline'; frame-ancestors https://chatgpt.com`;
 };
 
@@ -211,7 +214,7 @@ const registeredOAuthClient = (
   redirectUri: string,
   responseType: string,
 ): RegisteredOAuthClient => {
-  if (clientId !== configuration.clientId || redirectUri !== configuration.redirectUri) {
+  if (clientId !== configuration.clientId || !configuration.redirectUris.includes(redirectUri)) {
     throw new OAuthTokenError("invalid_request", "The OAuth request is not registered.");
   }
   if (responseType !== "code") {
@@ -219,7 +222,7 @@ const registeredOAuthClient = (
   }
   return {
     clientId: configuration.clientId,
-    redirectUri: configuration.redirectUri,
+    redirectUri,
   };
 };
 
@@ -309,7 +312,7 @@ export class OAuthController {
       "content-security-policy",
       oauthConsentContentSecurityPolicy(
         this.configuration.publicBaseUrl,
-        this.configuration.redirectUri,
+        this.configuration.redirectUris,
       ),
     );
 
@@ -382,7 +385,7 @@ export class OAuthController {
       "content-security-policy",
       oauthConsentContentSecurityPolicy(
         this.configuration.publicBaseUrl,
-        this.configuration.redirectUri,
+        this.configuration.redirectUris,
       ),
     );
 

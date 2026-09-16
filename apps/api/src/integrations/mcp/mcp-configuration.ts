@@ -5,7 +5,7 @@ export interface McpConfiguration {
   readonly publicBaseUrl: string;
   readonly resourceUri: string;
   readonly clientId: string;
-  readonly redirectUri: string;
+  readonly redirectUris: readonly string[];
   readonly tokenHashKey: string;
   readonly accessTokenMinutes: number;
   readonly refreshTokenDays: number;
@@ -102,11 +102,24 @@ export const loadMcpConfiguration = (
   ) {
     throw new Error("MCP_REDIRECT_URI must be set when MCP is enabled.");
   }
-  const redirectUri = absoluteUrl(
-    redirectUriValue || `${publicBaseUrl}/oauth/callback`,
-    "MCP_REDIRECT_URI",
-    production,
-  );
+  /*
+   * Several AI clients can share one client_id (it carries no authentication
+   * weight for a public PKCE client) as long as each one's callback is
+   * explicitly registered here. MCP_REDIRECT_URI therefore accepts a
+   * comma-separated list; a single value with no comma behaves exactly as
+   * before.
+   */
+  const redirectUris = [
+    ...new Set(
+      (redirectUriValue || `${publicBaseUrl}/oauth/callback`)
+        .split(",")
+        .map((candidate) => candidate.trim())
+        .filter((candidate) => candidate.length > 0),
+    ),
+  ].map((candidate) => absoluteUrl(candidate, "MCP_REDIRECT_URI", production));
+  if (enabled(environment.MCP_ENABLED) && redirectUris.length === 0) {
+    throw new Error("MCP_REDIRECT_URI must be set when MCP is enabled.");
+  }
 
   const tokenHashKey = environment.MCP_TOKEN_HASH_KEY?.trim() || undefined;
   if (
@@ -140,7 +153,7 @@ export const loadMcpConfiguration = (
     publicBaseUrl,
     resourceUri: `${publicBaseUrl}/mcp`,
     clientId,
-    redirectUri,
+    redirectUris,
     tokenHashKey: tokenHashKey ?? "",
     accessTokenMinutes: boundedInteger(environment, "MCP_ACCESS_TOKEN_MINUTES", 15, 5, 60),
     refreshTokenDays: boundedInteger(environment, "MCP_REFRESH_TOKEN_DAYS", 30, 1, 90),

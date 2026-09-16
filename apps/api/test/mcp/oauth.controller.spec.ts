@@ -13,9 +13,9 @@ import {
 const configuration = {
   publicBaseUrl: "https://stockcontrol.example",
   clientId: "stockcontrol-chatgpt",
-  redirectUri: "https://chatgpt.example/callback",
+  redirectUris: ["https://chatgpt.example/callback", "https://claude.example/callback"],
   resourceUri: "https://stockcontrol.example/mcp",
-} as McpConfiguration;
+} as unknown as McpConfiguration;
 
 const user = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -60,7 +60,7 @@ const requestFor = (query: Record<string, unknown>): FastifyRequest => {
 
 const validQuery = {
   client_id: configuration.clientId,
-  redirect_uri: configuration.redirectUri,
+  redirect_uri: configuration.redirectUris[0],
   response_type: "code",
   scope: "stock:read activity:read",
   state: 'state-"<script>alert(1)</script>',
@@ -93,7 +93,7 @@ describe("OAuth controller input handling", () => {
     expect(send).toHaveBeenCalledWith(expect.not.stringContaining('state-"'));
     const policy = oauthConsentContentSecurityPolicy(
       configuration.publicBaseUrl,
-      configuration.redirectUri,
+      configuration.redirectUris,
     );
     expect(policy).not.toContain("sandbox");
     expect(policy).toContain("form-action https://stockcontrol.example");
@@ -178,7 +178,7 @@ describe("OAuth controller input handling", () => {
   it("redirects an approved request to the registered callback with OAuth parameters", async () => {
     const oauth = {
       approveAuthorizationRequest: vi.fn().mockResolvedValue({
-        redirectUri: configuration.redirectUri,
+        redirectUri: configuration.redirectUris[0],
         state: "oauth-state",
         code: "authorization-code",
       }),
@@ -195,7 +195,7 @@ describe("OAuth controller input handling", () => {
     expect(oauth.approveAuthorizationRequest).toHaveBeenCalledWith("request-id", user.id);
     expect(code).toHaveBeenCalledWith(302);
     expect(redirect).toHaveBeenCalledWith(
-      `${configuration.redirectUri}?code=authorization-code&state=oauth-state`,
+      `${configuration.redirectUris[0]}?code=authorization-code&state=oauth-state`,
     );
   });
 
@@ -277,7 +277,7 @@ describe("OAuth controller input handling", () => {
         grant_type: "authorization_code",
         client_id: configuration.clientId,
         code: "authorization-code",
-        redirect_uri: configuration.redirectUri,
+        redirect_uri: configuration.redirectUris[0],
         code_verifier: "a".repeat(43),
         resource: configuration.resourceUri,
       },
@@ -287,7 +287,7 @@ describe("OAuth controller input handling", () => {
     expect(oauth.exchangeAuthorizationCode).toHaveBeenCalledWith(
       "authorization-code",
       configuration.clientId,
-      configuration.redirectUri,
+      configuration.redirectUris[0],
       "a".repeat(43),
       configuration.resourceUri,
     );
@@ -350,5 +350,44 @@ describe("OAuth controller input handling", () => {
       error: "invalid_request",
       error_description: "The OAuth response type is not supported.",
     });
+  });
+
+  /*
+   * client_id is shared across every connected AI client (it carries no
+   * authentication weight for a public PKCE client), so the real allowlist
+   * is the redirect URI. A second registered client has to be accepted on
+   * that same client_id, and a third, unregistered redirect URI still has to
+   * be refused.
+   */
+  it("accepts any registered redirect URI under the shared client_id, and rejects an unregistered one", async () => {
+    const oauth = { createAuthorizationRequest: vi.fn().mockResolvedValue("request-handle") };
+    const controller = new OAuthController(oauth as never, configuration);
+    const { reply, send } = replyFor();
+
+    await controller.authorizeScreen(
+      requestFor({ ...validQuery, redirect_uri: configuration.redirectUris[1] }),
+      reply,
+    );
+
+    expect(oauth.createAuthorizationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ redirectUri: configuration.redirectUris[1] }),
+    );
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('name="request_id"'));
+
+    const otherOauth = { createAuthorizationRequest: vi.fn() };
+    const otherController = new OAuthController(otherOauth as never, configuration);
+    const { reply: otherReply, code: otherCode, send: otherSend } = replyFor();
+
+    await otherController.authorizeScreen(
+      requestFor({ ...validQuery, redirect_uri: "https://unregistered.example/callback" }),
+      otherReply,
+    );
+
+    expect(otherCode).toHaveBeenCalledWith(400);
+    expect(otherSend).toHaveBeenCalledWith({
+      error: "invalid_request",
+      error_description: "The OAuth request is not registered.",
+    });
+    expect(otherOauth.createAuthorizationRequest).not.toHaveBeenCalled();
   });
 });

@@ -114,7 +114,7 @@ MCP_READ_TOOLS_ENABLED=true
 MCP_WRITE_TOOLS_ENABLED=false
 MCP_PUBLIC_BASE_URL=https://<the exact web domain>
 MCP_CLIENT_ID=stockcontrol-chatgpt
-MCP_REDIRECT_URI=https://chatgpt.com/connector/oauth/<connector-id>
+MCP_REDIRECT_URI=https://chatgpt.com/connector/oauth/<connector-id>,https://claude.ai/api/mcp/auth_callback
 MCP_TOKEN_HASH_KEY=<random secret of at least 32 characters when MCP_ENABLED=true>
 MCP_ACCESS_TOKEN_MINUTES=15
 MCP_REFRESH_TOKEN_DAYS=30
@@ -131,6 +131,13 @@ FLOOR_PLAN_S3_ACCESS_KEY=${{media.ACCESS_KEY_ID}}
 FLOOR_PLAN_S3_SECRET_KEY=${{media.SECRET_ACCESS_KEY}}
 FLOOR_PLAN_S3_URL_STYLE=virtual
 ```
+
+`MCP_REDIRECT_URI` accepts a comma-separated list, one entry per connected AI
+client's own OAuth callback. `MCP_CLIENT_ID` stays a single shared value — it
+carries no authentication weight for a public PKCE client — so adding a new
+client (Claude, or anything else) that reuses it only means appending its
+callback URL to this list; nothing else about `MCP_CLIENT_ID` changes. Every
+entry still has to match exactly: nothing here becomes a prefix or wildcard.
 
 `TRUSTED_PROXY_HOPS` is how many reverse proxies stand between the browser and
 the API — one, the `web` Nginx service, in the shape above. It decides which

@@ -37,6 +37,19 @@ const outcomes: readonly (McpToolCallOutcome | "Incomplete")[] = [
   "Incomplete",
 ];
 
+/**
+ * Every connection under a shared client_id still has its own registered
+ * redirect URI, so its host is what actually distinguishes, say, ChatGPT
+ * from Claude in this list.
+ */
+const connectionHost = (redirectUri: string): string => {
+  try {
+    return new URL(redirectUri).host;
+  } catch {
+    return redirectUri;
+  }
+};
+
 export function McpActivityPage(): ReactElement {
   const api = useApi();
   const [params, setParams] = useSearchParams();
@@ -243,7 +256,7 @@ export function McpActivityPage(): ReactElement {
       )}
       <Paper variant="outlined" sx={{ mt: 2.5, p: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 800 }}>
-          ChatGPT connections
+          Connected AI assistants
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Revoking a connection takes effect immediately.
@@ -258,8 +271,8 @@ export function McpActivityPage(): ReactElement {
               justifyContent="space-between"
             >
               <Typography variant="body2">
-                {connection.clientId} · {connection.scopes.join(", ")}{" "}
-                {connection.revokedAt === null ? "" : "· revoked"}
+                {connection.clientId} · {connectionHost(connection.redirectUri)} ·{" "}
+                {connection.scopes.join(", ")} {connection.revokedAt === null ? "" : "· revoked"}
               </Typography>
               {connection.revokedAt === null && (
                 <Button

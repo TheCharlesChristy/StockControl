@@ -24,7 +24,7 @@ const configuration = {
   accessTokenMinutes: 15,
   refreshTokenDays: 30,
   clientId,
-  redirectUri,
+  redirectUris: [redirectUri],
   tokenHashKey: "test-only-mcp-token-hash-key-that-is-long-enough",
   resourceUri,
 } as never;

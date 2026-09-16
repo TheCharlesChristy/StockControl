@@ -681,7 +681,7 @@ export class OAuthService {
     const rows = await this.database
       .withSchema(SCHEMA)
       .selectFrom("oauth_grants")
-      .select(["id", "client_id", "granted_scopes", "created_at", "revoked_at"])
+      .select(["id", "client_id", "redirect_uri", "granted_scopes", "created_at", "revoked_at"])
       .where("user_id", "=", userId)
       .where("resource_uri", "=", this.configuration.resourceUri)
       .where("access_token_hash", "is not", null)
@@ -691,6 +691,7 @@ export class OAuthService {
     return rows.map((row) => ({
       id: row.id,
       clientId: row.client_id,
+      redirectUri: row.redirect_uri,
       scopes: readScopes(row.granted_scopes),
       createdAt: row.created_at.toISOString(),
       revokedAt: row.revoked_at?.toISOString() ?? null,
@@ -701,7 +702,7 @@ export class OAuthService {
     const rows = await this.database
       .withSchema(SCHEMA)
       .selectFrom("oauth_grants")
-      .select(["id", "client_id", "granted_scopes", "created_at", "revoked_at"])
+      .select(["id", "client_id", "redirect_uri", "granted_scopes", "created_at", "revoked_at"])
       .where("resource_uri", "=", this.configuration.resourceUri)
       .where("access_token_hash", "is not", null)
       .orderBy("created_at", "desc")
@@ -710,6 +711,7 @@ export class OAuthService {
     return rows.map((row) => ({
       id: row.id,
       clientId: row.client_id,
+      redirectUri: row.redirect_uri,
       scopes: readScopes(row.granted_scopes),
       createdAt: row.created_at.toISOString(),
       revokedAt: row.revoked_at?.toISOString() ?? null,
@@ -756,7 +758,7 @@ export class OAuthService {
     if (
       (input.userId !== null && !UUID_PATTERN.test(input.userId)) ||
       input.clientId !== this.configuration.clientId ||
-      input.redirectUri !== this.configuration.redirectUri ||
+      !this.configuration.redirectUris.includes(input.redirectUri) ||
       input.resourceUri !== this.configuration.resourceUri ||
       input.codeChallengeMethod !== "S256" ||
       !PKCE_CHALLENGE_PATTERN.test(input.codeChallenge)

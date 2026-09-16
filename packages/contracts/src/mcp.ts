@@ -46,6 +46,7 @@ export type McpActivityQuery = Readonly<{
 export interface McpConnectionView {
   readonly id: string;
   readonly clientId: string;
+  readonly redirectUri: string;
   readonly scopes: readonly string[];
   readonly createdAt: string;
   readonly revokedAt: string | null;

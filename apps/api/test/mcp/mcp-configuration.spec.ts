@@ -42,6 +42,34 @@ describe("MCP feature configuration", () => {
     ).toThrow(/MCP_TOKEN_HASH_KEY/u);
   });
 
+  it("accepts a comma-separated list of redirect URIs, one per connected client", () => {
+    const configuration = loadMcpConfiguration({
+      NODE_ENV: "test",
+      MCP_ENABLED: "true",
+      MCP_PUBLIC_BASE_URL: "https://stockcontrol.example",
+      MCP_REDIRECT_URI:
+        " https://chatgpt.com/connector/oauth/abc123 , https://claude.ai/api/mcp/auth_callback ",
+      MCP_TOKEN_HASH_KEY: "a".repeat(32),
+    });
+
+    expect(configuration.redirectUris).toEqual([
+      "https://chatgpt.com/connector/oauth/abc123",
+      "https://claude.ai/api/mcp/auth_callback",
+    ]);
+  });
+
+  it("rejects an invalid entry within the redirect URI list", () => {
+    expect(() =>
+      loadMcpConfiguration({
+        NODE_ENV: "test",
+        MCP_ENABLED: "true",
+        MCP_PUBLIC_BASE_URL: "https://stockcontrol.example",
+        MCP_REDIRECT_URI: "https://chatgpt.com/connector/oauth/abc123,not-a-url",
+        MCP_TOKEN_HASH_KEY: "a".repeat(32),
+      }),
+    ).toThrow(/MCP_REDIRECT_URI/u);
+  });
+
   it("uses the explicit abandoned-call grace over the legacy timeout", () => {
     const configuration = loadMcpConfiguration({
       NODE_ENV: "test",
