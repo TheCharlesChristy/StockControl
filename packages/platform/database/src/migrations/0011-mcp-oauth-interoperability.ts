@@ -36,6 +36,17 @@ export const mcpOAuthInteroperabilityMigrationDefinition = Object.freeze({
   downStatements: Object.freeze([
     "drop table if exists stockcontrol.oauth_refresh_tokens",
     "drop index if exists stockcontrol.oauth_grants_active_connection_idx",
+    /*
+     * The older constraint this reinstates has no slot for
+     * 'RefreshReplayDetected' — this migration is what added it — so any row
+     * of that type has to go before the `add constraint` below, or that
+     * statement fails against the data it is trying to reinstate over. A
+     * rollback after a real replay attempt was recorded therefore loses the
+     * record of it; that is the trade this schedule accepts for rolling back
+     * at all; a live installation with 0011 already applied should weigh
+     * that against fixing forward instead.
+     */
+    "delete from stockcontrol.oauth_grant_events where event_type = 'RefreshReplayDetected'",
     "alter table stockcontrol.oauth_grant_events drop constraint if exists oauth_grant_events_event_type_check",
     "alter table stockcontrol.oauth_grant_events add constraint oauth_grant_events_event_type_check check (event_type in ('Connected', 'Reauthorised', 'ScopeChanged', 'Revoked', 'Refreshed'))",
     "alter table stockcontrol.oauth_grants drop column if exists resource_uri",
