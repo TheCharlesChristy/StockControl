@@ -211,4 +211,39 @@ describe.sequential("OAuth grant lifecycle against PostgreSQL", () => {
     });
     expect(await oauth.deleteExpiredAuthorizationRequests()).toBeGreaterThan(0);
   });
+
+  /*
+   * `/oauth/authorize` POST is @OriginExempt, so the opaque handle is the
+   * only thing tying this call to anything — it must not be enough on its
+   * own once the GET step has already bound the request to a signed-in
+   * user. A session that expired between viewing and submitting consent (or
+   * the handle simply reaching someone else) used to still approve the
+   * connection for whoever was bound, with no current session proving the
+   * approver still is that person.
+   */
+  it("refuses to approve an already-bound request without a matching current session", async () => {
+    const requestId = await oauth.createAuthorizationRequest({
+      userId,
+      clientId,
+      redirectUri,
+      state: null,
+      scopes: [MCP_SCOPES[0]],
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      resourceUri,
+    });
+
+    await expect(oauth.approveAuthorizationRequest(requestId, undefined)).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+
+    const otherUserId = randomUUID();
+    await expect(oauth.approveAuthorizationRequest(requestId, otherUserId)).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+
+    /* Still approvable by the actual bound user — the guard isn't a lockout. */
+    const approval = await oauth.approveAuthorizationRequest(requestId, userId);
+    expect(approval.state).toBeNull();
+  });
 });

@@ -306,12 +306,30 @@ export class OAuthService {
         );
       }
 
-      if (row.user_id !== null && userId !== undefined && row.user_id !== userId) {
-        throw new OAuthTokenError("invalid_request", "The authorization request is invalid.");
-      }
-      const boundUserId = row.user_id ?? userId;
-      if (boundUserId === undefined) {
-        throw new OAuthTokenError("invalid_request", "Sign in before approving the connection.");
+      /*
+       * `/oauth/authorize` POST is @OriginExempt, so the opaque handle alone
+       * is not proof of anything: once the GET step has bound this request
+       * to a signed-in user, approving it must be done by a *current* session
+       * as that same user, not just a request carrying the handle. Without
+       * this, a session that expired between viewing and submitting consent
+       * — or the handle simply reaching someone else — would still grant the
+       * connection to whoever was bound, without the approver ever proving
+       * they still are that person.
+       */
+      let boundUserId: string;
+      if (row.user_id === null) {
+        if (userId === undefined) {
+          throw new OAuthTokenError("invalid_request", "Sign in before approving the connection.");
+        }
+        boundUserId = userId;
+      } else {
+        if (userId === undefined || userId !== row.user_id) {
+          throw new OAuthTokenError(
+            "invalid_request",
+            "Sign in as the account that started this request before approving.",
+          );
+        }
+        boundUserId = row.user_id;
       }
 
       await tx
