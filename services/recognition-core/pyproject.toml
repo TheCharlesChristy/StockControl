@@ -17,13 +17,13 @@ requires-python = ">=3.12,<3.13"
 # development and CI run the portable CPU provider this dependency already
 # provides.
 dependencies = [
-    "fastapi==0.141.1",
-    "onnxruntime==1.28.0",
+    "fastapi==0.142.2",
+    "onnxruntime==1.30.0",
     "pillow==12.3.0",
-    "pydantic==2.13.4",
+    "pydantic==2.13.5",
     "python-multipart==0.0.32",
-    "pyvips==3.1.1",
-    "uvicorn==0.52.3",
+    "pyvips==3.2.0",
+    "uvicorn==0.54.0",
     "zxing-cpp==3.1.1",
 ]
 
